@@ -1,2 +1,4 @@
-# tscc-fmi-opentes
-Repositório de código para armazenar as soluções desenvolvidas de integração de simuladores em co-simulação.
+# A simple mosaik descentralized co-simulation with Docker containers
+
+In this example we will show how to execute a simple co-simulation distributed
+in different Docker containers.
