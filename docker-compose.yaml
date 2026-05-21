@@ -1,28 +1,163 @@
+name: opentes-integration
+
+x-tsre-simulator: &tsre-simulator
+  build:
+    context: ./simulators_teams/tsre-der-opentes
+    dockerfile: Dockerfile
+  image: opentes/tsre-simulator:local
+  networks:
+    - opentes-net
+  environment:
+    - PYTHONUNBUFFERED=1
+  volumes:
+    - ./simulators_teams/tsre-der-opentes/src:/app/src
+
 services:
-  mosaik-sim:
-    build: ./simulators
-    container_name: mosaik-sim
+  pade-runtime:
+    build:
+      context: ./simulators_teams/tteso-tes-opentes
+      dockerfile: Dockerfile
+    container_name: opentes-pade-runtime
+    command: sleep infinity
+    stdin_open: true
+    tty: true
+    ports:
+      - "3000:3000"
+      - "8000:8000"
+      - "8001:8001"
+    volumes:
+      - ./simulators_teams/tteso-tes-opentes:/app
+      - pade-venv:/app/.venv
+    networks:
+      - opentes-net
+
+  omnet_sim:
+    build:
+      context: ./simulators_teams
+      dockerfile: tscc-com-opentes/Dockerfile
+      target: tscc-omnet
+    container_name: opentes-tscc-omnet
+    expose:
+      - "5555"
     ports:
       - "5555:5555"
-    dns:
-      - 127.0.0.11  # DNS interno do Docker
-      - 8.8.8.8     # DNS de fallback
-    networks:
-      - mosaik-net
-
-  mosaik-master:
-    build: ./master
-    container_name: mosaik-master
-    depends_on:
-      - mosaik-sim
     volumes:
-      - ./output:/app/output
-    dns:
-      - 127.0.0.11
-      - 8.8.8.8
+      - ./simulators_teams/tscc-com-opentes/omnet-dir:/root/models
+    command: bash -lc "source /root/omnetpp/setenv && opp_makemake -f --deep -O out -o sim_exec -lzmq && make && ./sim_exec -u Cmdenv -c General"
     networks:
-      - mosaik-net
+      - opentes-net
+
+  pade:
+    build:
+      context: ./simulators_teams
+      dockerfile: tscc-com-opentes/Dockerfile
+      target: tscc-pade
+    container_name: opentes-tscc-pade
+    environment:
+      - NUM_PERIFERICOS=50
+    expose:
+      - "5678"
+    ports:
+      - "15678:5678"
+    volumes:
+      - ./simulators_teams/tscc-com-opentes/pade-dir/pade_agents:/app
+    command: python3 pade_star.py
+    networks:
+      - opentes-net
+
+  mosaik_master:
+    build:
+      context: ./simulators_teams
+      dockerfile: tscc-com-opentes/Dockerfile
+      target: tscc-mosaik
+    container_name: opentes-tscc-mosaik
+    depends_on:
+      - omnet_sim
+      - pade
+    environment:
+      - NUM_PERIFERICOS=50
+    volumes:
+      - ./simulators_teams/tscc-com-opentes/mosaik-dir:/app
+    command: sh -c "python star.py && python plot_results_star.py"
+    networks:
+      - opentes-net
+
+  opendss:
+    <<: *tsre-simulator
+    container_name: opentes-tsre-opendss
+    command: python -u -m simulators.opendss_simulator --remote 0.0.0.0:5671
+    ports:
+      - "5671:5671"
+
+  battery:
+    <<: *tsre-simulator
+    container_name: opentes-tsre-battery
+    command: python src/simulators/battery_sim.py --remote 0.0.0.0:5672
+    ports:
+      - "5672:5672"
+
+  collector:
+    <<: *tsre-simulator
+    container_name: opentes-tsre-collector
+    command: python src/simulators/collector.py --remote 0.0.0.0:5673
+    ports:
+      - "5673:5673"
+    volumes:
+      - ./simulators_teams/tsre-der-opentes/src:/app/src
+      - ./simulators_teams/tsre-der-opentes/output:/app/output
+
+  controller:
+    <<: *tsre-simulator
+    container_name: opentes-tsre-controller
+    command: python src/simulators/controller_sim.py --remote 0.0.0.0:5674
+    ports:
+      - "5674:5674"
+
+  csv-data-1:
+    <<: *tsre-simulator
+    container_name: opentes-tsre-csv-data-1
+    command: python src/simulators/csv_sim_pandas.py --remote 0.0.0.0:5675
+    ports:
+      - "5675:5675"
+
+  csv-data-2:
+    <<: *tsre-simulator
+    container_name: opentes-tsre-csv-data-2
+    command: python src/simulators/csv_sim_pandas.py --remote 0.0.0.0:5676
+    ports:
+      - "5676:5676"
+
+  inverter-std:
+    <<: *tsre-simulator
+    container_name: opentes-tsre-inverter-std
+    command: python src/simulators/inverter_simulator.py --remote 0.0.0.0:5677
+    ports:
+      - "5677:5677"
+
+  pv-panel:
+    <<: *tsre-simulator
+    container_name: opentes-tsre-pv-panel
+    command: python src/simulators/pv_panel_simulator.py --remote 0.0.0.0:5678
+    ports:
+      - "5678:5678"
+
+  regulator:
+    <<: *tsre-simulator
+    container_name: opentes-tsre-regulator
+    command: python src/simulators/regulator_control.py --remote 0.0.0.0:5679
+    ports:
+      - "5679:5679"
+
+  smart-inverter:
+    <<: *tsre-simulator
+    container_name: opentes-tsre-smart-inverter
+    command: python src/simulators/smart_inverter_simulator.py --remote 0.0.0.0:5680
+    ports:
+      - "5680:5680"
 
 networks:
-  mosaik-net:
+  opentes-net:
     driver: bridge
+
+volumes:
+  pade-venv:

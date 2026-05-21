@@ -1,0 +1,123 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) 2019-2026, GREI-UFC
+# This file is distributed under the same license as the Pade package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, 2026.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: Pade 2.2.6\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-03-12 18:00-0300\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Generated-By: Babel 2.6.0\n"
+
+#: ../../index.rst:7
+msgid "Python Agent DEvelopment framework"
+msgstr "Python Agent DEvelopment framework"
+
+#: ../../index.rst:10
+msgid "Sistemas Multiagentes em Python 3.12+"
+msgstr "Multi-agent Systems in Python 3.12+"
+
+#: ../../index.rst:12
+msgid ""
+"O PADE é um framework para desenvolvimento, execução e gerenciamento de "
+"sistemas multiagentes em ambientes de computação distribuída."
+msgstr "PADE is a framework for development, execution and management of multi-agent systems in distributed computing environments."
+
+#: ../../index.rst:14
+#, python-format
+msgid ""
+"Escrito 100% em Python, o PADE utiliza o motor de rede orientada a eventos "
+"`Twisted <http://twistedmatrix.com/>`_ para implementar a comunicação "
+"assíncrona entre os nós."
+msgstr "100% written in Python, PADE uses the event-driven network engine `Twisted <http://twistedmatrix.com/>`_ to implement asynchronous communication between network nodes."
+
+#: ../../index.rst:16
+msgid ""
+"O PADE é um software livre, licenciado sob os termos da licença MIT, "
+"originalmente desenvolvido pelo Grupo de Redes Elétricas Inteligentes (GREI) do "
+"Departamento de Engenharia Elétrica da Universidade Federal do Ceará."
+msgstr "PADE is open-source under MIT licence terms and was originally developed by the Smart Grids Group (GREI) in the Department of Electrical Engineering at the Federal University of Ceará, Brazil."
+
+#: ../../index.rst:18
+msgid ""
+"Qualquer um que queira contribuir com o projeto é convidado a baixar, "
+"executar, testar e enviar feedback."
+msgstr "Anyone who wants to contribute to the PADE project is welcome to download, execute, test, and send us feedback."
+
+#: ../../index.rst:21
+msgid "PADE é simples!"
+msgstr "PADE is simple!"
+
+#: ../../index.rst:52
+msgid ""
+"O desenvolvimento e a execução de agentes no PADE moderno (Python 3.12+) foram simplificados. Os agentes agora são instanciados diretamente via código Python, sem a necessidade de comandos CLI complexos."
+msgstr "The development and execution of agents in modern PADE (Python 3.12+) have been simplified. Agents are now instantiated directly via Python code, without the need for complex CLI commands."
+
+#: ../../index.rst:60
+msgid ""
+"Se você quiser saber o passo a passo de como rodar este exemplo (iniciando o AMS e o Sniffer em terminais separados), siga a documentação aqui: :ref:`hello-world-page`."
+msgstr "If you want a step-by-step guide on how to run this example (starting the AMS and Sniffer in separate terminals), follow the documentation here: :ref:`hello-world-page`."
+
+#: ../../index.rst:63
+msgid "É fácil de instalar!"
+msgstr "It's easy to install!"
+
+#: ../../index.rst:65
+msgid ""
+"Para instalar a versão estável do PADE via PyPI, execute:"
+msgstr "To install the stable version of PADE via PyPI, run:"
+
+#: ../../index.rst:70
+msgid ""
+"Para desenvolvedores e pesquisadores (recomendado), instale a versão mais recente clonando o repositório do GREI:"
+msgstr "For developers and researchers (recommended), install the latest version by cloning the GREI repository:"
+
+#: ../../index.rst:75
+msgid "Principais Funcionalidades"
+msgstr "Main Functionalities"
+
+#: ../../index.rst:77
+msgid ""
+"O PADE foi desenvolvido tendo em vista os rígidos requisitos de sistemas de automação e co-simulação de redes elétricas (ex: Mosaik). O framework oferece:"
+msgstr "The PADE framework was developed with the strict requirements of automation systems and electrical grid co-simulation (e.g., Mosaik) in mind. The framework offers:"
+
+#: ../../index.rst:81
+msgid "**Orientação a Objetos**"
+msgstr "**Object Orientation**"
+
+#: ../../index.rst:84
+msgid "**Mensagens FIPA-ACL**"
+msgstr "**FIPA-ACL Messages**"
+
+#: ../../index.rst:87
+msgid "**Protocolos FIPA Nativos**"
+msgstr "**Native FIPA Protocols**"
+
+#: ../../index.rst:90
+msgid "**Logging em CSV de Alta Performance**"
+msgstr "**High-Performance CSV Logging**"
+
+#: ../../index.rst:91
+msgid ""
+"Substituição completa de bancos de dados legados por um sistema de I/O otimizado. O PADE registra sessões, agentes, eventos e todas as mensagens trafegadas diretamente em arquivos `.csv` (prontos para leitura com Pandas);"
+msgstr "Complete replacement of legacy databases with an optimized I/O system. PADE registers sessions, agents, events, and all trafficked messages directly into `.csv` files (ready to be read with Pandas);"
+
+#: ../../index.rst:93
+msgid "**Envio de Objetos Binários (Pickle)**"
+msgstr "**Sending Binary Objects (Pickle)**"
+
+#: ../../index.rst:96
+msgid "**Co-Simulação Assíncrona**"
+msgstr "**Asynchronous Co-Simulation**"
+
+#: ../../index.rst:110
+msgid "Guia do Usuário"
+msgstr "User Guide"

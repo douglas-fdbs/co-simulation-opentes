@@ -1,0 +1,331 @@
+ALTERAÇÕES DA INTEGRACÃO OPENTES
+=================================
+
+Objetivo deste arquivo
+----------------------
+
+Registrar, de forma simples, o que foi modificado durante a organização inicial
+do repositório agregador co-simulation-opentes.
+
+A premissa adotada foi manter os simuladores o mais fiéis possível aos seus
+repositorios de origem. As mudanças feitas dentro dos componentes devem servir
+principalmente para:
+
+- permitir execução integrada;
+- padronizar Docker/Python;
+- evitar conflito de portas;
+- permitir validação local e em container;
+- remover referências locais que não servem para outros usuários.
+
+
+1. Organização geral do repositório
+-----------------------------------
+
+Foram agrupados no repositório principal os componentes usados nesta etapa:
+
+- simulators_teams/tteso-tes-opentes
+  Componente TTESO desta etapa, representado pelo PADE atualizado para Python
+  3.12.
+
+- simulators_teams/tscc-com-opentes
+  Componente TSCC com PADE + Mosaik + OMNeT++.
+
+- simulators_teams/tsre-der-opentes
+  Componente TSRE com rede eletrica, DERs, Mosaik e OpenDSS via
+  py-dss-interface.
+
+O exemplo original do co-simulation-opentes foi preservado em:
+
+- examples/mosaik-docker-example
+
+O script de teste de compatibilidade do time TSCC ao mosaik 3.5.0
+
+- examples/tscc-mosaik-compat/check_tscc_mosaik_compat.py
+
+A documentação foi consolidada em:
+
+- docs/INTEGRACAO.md
+
+Os arquivos Docker antigos do TSCC foram movidos para:
+
+- examples/legacy-tscc-docker
+
+Eles ficam apenas como memória histórica da migração.
+
+
+2. Arquivos principais adicionados ou ajustados
+-----------------------------------------------
+
+Na raiz:
+
+- README.md
+  Atualizado para apresentar a estrutura atual, os comandos Docker principais
+  e o probe de compatibilidade TSCC/Mosaik.
+
+- docker-compose.yaml
+  Passou a ser o compose principal da integração. Ele concentra os servicos
+  PADE, TSCC e TSRE.
+
+- pyproject.toml e uv.lock
+  Criados/atualizados para permitir uma venv unica de integração com as
+  dependências Python necessárias.
+
+- .gitignore
+  Criado/atualizado para ignorar venv, caches Python, logs, saidas de
+  simulacao, artefatos OMNeT++ e arquivos gerados por build.
+
+- docs/INTEGRACAO.md
+  Documento unico de orientaçãp técnica para quem abrir o repositorio pela
+  primeira vez.
+
+- ALTERACOES_INTEGRACAO.txt
+  Este arquivo.
+
+
+3. Alteracoes no TTESO / PADE
+-----------------------------
+
+Pasta:
+
+- simulators_teams/tteso-tes-opentes
+
+Alterações feitas para integração:
+
+- O componente foi colocado em simulators_teams com o nome tteso-tes-opentes.
+  Nesta etapa ele representa o PADE atualizado para Python 3.12.
+
+- Foi adicionado/ajustado um Dockerfile na raiz do componente:
+  simulators_teams/tteso-tes-opentes/Dockerfile
+
+  Esse Dockerfile:
+  - usa python:3.12.11-slim;
+  - instala uv;
+  - executa uv sync --frozen;
+  - expõe portas usadas pelo runtime PADE;
+  - inicia com sleep infinity para servir como ambiente de desenvolvimento e
+    validação.
+
+O que foi preservado:
+
+- Não houve mudança intencional na lógica interna do PADE nesta etapa.
+- Não houve mudança intencional nos agentes do exemplo power_systems, além da
+  limpeza de documentação citada acima.
+- Os arquivos herdados do PADE foram mantidos para preservar fidelidade ao
+  repositório de origem.
+
+Observação:
+
+- Existem arquivos Docker/Compose herdados dentro do PADE. Eles não são usados
+  pelo compose principal da raiz, a menos que alguém entre nessa subpasta e os
+  execute manualmente.
+
+
+4. Alterações no TSCC / Comunicação
+-----------------------------------
+
+Pasta:
+
+- simulators_teams/tscc-com-opentes
+
+Alterações feitas para integração:
+
+- Foi criado um Dockerfile multi-stage único:
+  simulators_teams/tscc-com-opentes/Dockerfile
+
+  Ele possui tres targets:
+  - tscc-mosaik
+  - tscc-pade
+  - tscc-omnet
+
+- O target tscc-mosaik instala:
+  - mosaik==3.5.0
+  - mosaik-api-v3==3.0.14
+  - mosaik-csv==2.0.1
+  - pandas
+  - matplotlib
+  - pyzmq==27.1.0
+
+- A versao Mosaik foi alinhada para 3.5.0, a mesma usada pelo TSRE. O TSCC foi
+  validado com essa versao, entao não houve evidência de necessidade imediata
+  de Mosaik 3.6.0.
+
+- O target tscc-pade instala o PADE a partir do componente local:
+  simulators_teams/tteso-tes-opentes
+
+  Isso evita depender de um clone externo do PADE durante o build.
+
+- O target tscc-omnet usa a imagem omnetpp/omnetpp:u22.04-6.0 e instala as
+  dependências ZMQ/C++ necessárias para compilar o modelo OMNeT++.
+
+- Os Dockerfiles antigos das subpastas do TSCC foram movidos para:
+  examples/legacy-tscc-docker/tscc-com-opentes
+
+- O README do TSCC recebeu uma nota informando que, dentro deste repositório
+  agregador, a execução recomendada é pelo docker-compose.yaml da raiz.
+
+O que foi preservado:
+
+- Nao houve mudanca intencional na lógica dos arquivos principais de simulação
+  do TSCC nesta etapa:
+  - mosaik-dir/star.py
+  - mosaik-dir/omnet_wrapper.py
+  - mosaik-dir/collector.py
+  - pade-dir/pade_agents/pade_star.py
+  - omnet-dir/MosaikBridge.cc
+  - omnet-dir/NetworkNode.cc
+  - omnet-dir/*.ned
+
+Validação criada fora do simulador:
+
+- O probe examples/tscc-mosaik-compat/check_tscc_mosaik_compat.py foi criado
+  para testar o adaptador TSCC/Mosaik sem alterar o simulador original.
+
+Observação:
+
+- O TSCC ainda possui logs muito verbosos durante a execução integrada. Isso
+  não quebra a simulacao, mas deve ser ajustado futuramente para facilitar uso
+  rotineiro.
+
+
+5. Alterações no TSRE / OpenDSS e DERs
+--------------------------------------
+
+Pasta:
+
+- simulators_teams/tsre-der-opentes
+
+Alterações feitas para integração:
+
+- Foi padronizado um Dockerfile na raiz do componente:
+  simulators_teams/tsre-der-opentes/Dockerfile
+
+  Esse Dockerfile:
+  - usa python:3.12.11-slim;
+  - instala requirements.txt;
+  - copia src/ para /app/src;
+  - define PYTHONPATH=/app/src;
+  - inicia por padrao o simulador OpenDSS remoto.
+
+- O requirements.txt está alinhado com:
+  - mosaik==3.5.0
+  - mosaik-pandapower==0.2.2
+  - opender==2.1.6
+  - pandas>=2.3.2
+  - py-dss-interface>=2.3.0
+  - setuptools==69.5.1
+  - simbench>=1.5.3
+
+- A dependência py-dss-interface>=2.3.0 foi adotada porque a versão atual
+  suporta Linux via wheels manylinux.
+
+O que foi preservado:
+
+- Não houve mudança intencional na lógica dos simuladores TSRE nesta etapa.
+- Não houve mudança intencional nos arquivos do IEEE 13 Bus.
+- Não houve mudança intencional no cenário opendss_scenario.py.
+
+Validações:
+
+- O IEEE 13 Bus compilou e convergiu com py-dss-interface no Linux.
+- O cenário opendss_scenario.py rodou localmente e dentro do contâiner.
+
+
+6. Dockerfiles ativos da integração
+-----------------------------------
+
+Para a integração principal, existem três Dockerfiles ativos:
+
+1. simulators_teams/tteso-tes-opentes/Dockerfile
+   Usado pelo serviço pade-runtime.
+
+2. simulators_teams/tscc-com-opentes/Dockerfile
+   Usado pelos serviços:
+   - omnet_sim, com target tscc-omnet;
+   - pade, com target tscc-pade;
+   - mosaik_master, com target tscc-mosaik.
+
+3. simulators_teams/tsre-der-opentes/Dockerfile
+   Usado pelos serviços TSRE:
+   - opendss;
+   - battery;
+   - collector;
+   - controller;
+   - csv-data-1;
+   - csv-data-2;
+   - inverter-std;
+   - pv-panel;
+   - regulator;
+   - smart-inverter.
+
+Ha outros Dockerfiles e docker-compose.yml herdados dos repositórios originais
+ou arquivados em examples. Eles não fazem parte do fluxo principal, a menos que
+sejam executados explícitamente.
+
+
+7. Como o docker-compose.yaml da raiz funciona
+----------------------------------------------
+
+O Docker Compose não procura docker-compose.yml recursivamente em subpastas.
+
+Quando alguém executa, a partir da raiz do repositorio:
+
+  docker compose up
+
+ou:
+
+  docker compose -f docker-compose.yaml up
+
+o Compose lê apenas o arquivo da raiz:
+
+  docker-compose.yaml
+
+Ele não puxa automaticamente:
+
+- simulators_teams/tteso-tes-opentes/docker-compose.yml
+- simulators_teams/tsre-der-opentes/docker-compose.yml
+- qualquer compose dentro de examples/
+
+Esses arquivos so interferem se alguém:
+
+1. entrar na subpasta e executar docker compose up la dentro; ou
+2. chamar explicitamente com -f, por exemplo:
+   docker compose -f docker-compose.yaml -f outro/docker-compose.yml up
+
+Portanto, os docker-compose.yml internos não interferem no compose principal da
+raiz.
+
+O compose da raiz referencia Dockerfiles especificos por build.context,
+dockerfile e, no caso do TSCC, target. Exemplos:
+
+- pade-runtime:
+  context: ./simulators_teams/tteso-tes-opentes
+  dockerfile: Dockerfile
+
+- omnet_sim / pade / mosaik_master:
+  context: ./simulators_teams
+  dockerfile: tscc-com-opentes/Dockerfile
+  target: tscc-omnet, tscc-pade ou tscc-mosaik
+
+- opendss e demais serviços TSRE:
+  context: ./simulators_teams/tsre-der-opentes
+  dockerfile: Dockerfile
+
+
+8. Possível limpeza futura
+--------------------------
+
+Se a equipe decidir que o repositório deve conter literalmente apenas três
+Dockerfiles e apenas um docker-compose.yaml, ainda sera possivel fazer uma
+segunda limpeza:
+
+- mover docker-compose.yml internos herdados para examples/legacy-*; ou
+- remover docker-compose.yml internos se eles nao forem mais necessários; ou
+- manter apenas o docker-compose.yaml da raiz como entrada oficial.
+
+No estado atual, a recomendação prática e:
+
+- considerar o docker-compose.yaml da raiz como oficial;
+- considerar os três Dockerfiles listados na seção 6 como ativos;
+- tratar os demais arquivos Docker/Compose como legado, exemplo ou material de
+  referência.
+
