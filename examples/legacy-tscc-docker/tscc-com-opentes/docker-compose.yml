@@ -1,0 +1,44 @@
+services:
+  pade:
+    build: ./pade-dir
+    container_name: pade
+    networks:
+      - sim_net
+    ports:
+      - "5678:5678"
+    volumes:
+      - ./pade-dir/pade_agents:/app
+    environment:
+      - NUM_PERIFERICOS=50     # <--- CONTROLE DE ESCALA
+    stdin_open: true
+    tty: true
+    command: python3 pade_star.py
+
+  omnet_sim:
+    build: ./omnet-dir
+    container_name: omnet_sim
+    networks:
+      - sim_net
+    expose:
+      - "5555"
+    volumes:
+      - ./omnet-dir:/root/models 
+    command: /bin/bash -c "source /root/omnetpp/setenv && opp_makemake -f --deep -O out -o sim_exec -lzmq && make && ./sim_exec -u Cmdenv -c General"
+
+  mosaik_master:
+    build: ./mosaik-dir
+    container_name: mosaik_master
+    networks:
+      - sim_net
+    depends_on:
+      - omnet_sim
+      - pade
+    volumes:
+      - ./mosaik-dir:/app
+    environment:
+      - NUM_PERIFERICOS=50     # <--- CONTROLE DE ESCALA AQUI
+    command: sh -c "pip install pandas matplotlib && echo 'Aguardando...' && sleep 3 && python star.py && python plot_results_star.py"
+
+networks:
+  sim_net:
+    driver: bridge

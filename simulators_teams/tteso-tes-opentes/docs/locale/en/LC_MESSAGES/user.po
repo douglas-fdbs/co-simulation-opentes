@@ -1,0 +1,124 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) 2019-2026, GREI-UFC
+# This file is distributed under the same license as the Pade package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, 2026.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: Pade 2.2.6\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-03-12 18:00-0300\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Generated-By: Babel 2.6.0\n"
+
+#: ../../user/agentes-temporais.rst:2
+msgid "Agentes Temporais"
+msgstr "Timed Agents"
+
+#: ../../user/agentes-temporais.rst:9
+msgid ""
+"Lembre-se que nas versões recentes do PADE (Python 3.12+), os agentes devem ser inicializados diretamente via Python, com os serviços AMS e Sniffer rodando em terminais separados."
+msgstr "Remember that in recent PADE versions (Python 3.12+), agents must be initialized directly via Python, with the AMS and Sniffer services running in separate terminals."
+
+#: ../../user/desenvolvedores.rst:2
+msgid "Estrutura construtiva do PADE"
+msgstr "PADE constructive structure"
+
+#: ../../user/desenvolvedores.rst:6
+msgid ""
+"O PADE passou por alterações profundas para remover dependências obsoletas (como bancos de dados SQLite e interfaces web legadas) e adotar uma abordagem de microsserviços com logging nativo em CSV de alta performance."
+msgstr "PADE underwent profound changes to remove obsolete dependencies (such as SQLite databases and legacy web interfaces) and adopt a microservices approach with high-performance native CSV logging."
+
+#: ../../user/desenvolvedores.rst:71
+msgid ""
+"Nas versões modernas do PADE (Python 3.12+), a dependência complexa do SQLite foi inteiramente removida para evitar gargalos de I/O em simulações massivas (ex: sistemas elétricos com milhares de nós). Todo o armazenamento de dados agora é gerido pelo módulo `data_logger.py` dentro do pacote `misc`."
+msgstr "In modern versions of PADE (Python 3.12+), the complex SQLite dependency has been entirely removed to avoid I/O bottlenecks in massive simulations (e.g., electrical systems with thousands of nodes). All data storage is now managed by the `data_logger.py` module inside the `misc` package."
+
+#: ../../user/enviando-mensagens.rst:2
+msgid "Enviando Mensagens"
+msgstr "Sending Messages"
+
+#: ../../user/enviando-mensagens.rst:46
+msgid "Mensagem no padrão FIPA-ACL (Logs)"
+msgstr "FIPA-ACL standard message (Logs)"
+
+#: ../../user/enviando-mensagens.rst:48
+msgid ""
+"Com o novo sistema de log em CSV do PADE, essas mensagens são formatadas automaticamente pelo `Sniffer` e salvas no arquivo `messages.csv`. Você poderá ver a mensagem decomposta em colunas, onde o `content` será \"Ola Agente\" e a ontologia será `saudacao`, facilitando muito as análises com Pandas ou Excel."
+msgstr "With the new PADE CSV logging system, these messages are automatically formatted by the `Sniffer` and saved in the `messages.csv` file. You will be able to see the message decomposed into columns, where the `content` will be \"Hello Agent\" and the ontology will be `greeting`, making analysis with Pandas or Excel much easier."
+
+#: ../../user/enviando-objetos.rst:2
+msgid "Enviando Objetos"
+msgstr "Sending Objects"
+
+#: ../../user/enviando-objetos.rst:6
+msgid ""
+"Para enviar objetos encapsulados no *content* de mensagens FIPA-ACL com o PADE, basta utilizar o módulo nativo do Python *pickle*. O PADE 3.12+ é totalmente compatível com a decodificação binária em seus logs CSV, protegendo o registro de corrupções."
+msgstr "To send objects encapsulated in the *content* of FIPA-ACL messages with PADE, simply use the native Python *pickle* module. PADE 3.12+ is fully compatible with binary decoding in its CSV logs, protecting the record from corruption."
+
+#: ../../user/hello-world.rst:5
+msgid "Alô Mundo"
+msgstr "Hello World"
+
+#: ../../user/hello-world.rst:11
+msgid ""
+"Depois de ter o PADE instalado em seu computador, é necessário entender a arquitetura de terminais. O PADE moderno (Python 3.12+) roda em instâncias independentes para garantir alta performance."
+msgstr "After you have installed PADE on your computer, it is necessary to understand the terminal architecture. Modern PADE (Python 3.12+) runs in independent instances to ensure high performance."
+
+#: ../../user/instalacao.rst:5
+msgid "Instalação"
+msgstr "Installation"
+
+#: ../../user/instalacao.rst:7
+msgid ""
+"Instalar o PADE em seu computador, ou dispositivo embarcado é bem simples, basta que ele esteja conectado à internet e rodando Python 3.12 ou superior."
+msgstr "Installing PADE on your computer or embedded device is very simple, it just needs to be connected to the internet and running Python 3.12 or higher."
+
+#: ../../user/interface-grafica.rst:2
+msgid "Interface Gráfica"
+msgstr "Graphic Interface"
+
+#: ../../user/interface-grafica.rst:4
+msgid ""
+"**Atenção:** A antiga interface gráfica baseada em Flask e SQLite foi **descontinuada** na versão mais recente do PADE (Python 3.12+)."
+msgstr "**Attention:** The old graphic interface based on Flask and SQLite has been **discontinued** in the latest version of PADE (Python 3.12+)."
+
+#: ../../user/interface-grafica.rst:7
+msgid "Como analisar seus dados agora?"
+msgstr "How to analyze your data now?"
+
+#: ../../user/interface-grafica.rst:9
+msgid ""
+"O monitoramento e o log do PADE evoluíram para fornecer melhor escalabilidade em pesquisas científicas de grande porte. Em vez de uma interface visual estática, o PADE agora conta com um **Sistema de Logging Nativo em CSV**."
+msgstr "PADE monitoring and logging have evolved to provide better scalability in large-scale scientific research. Instead of a static visual interface, PADE now has a **Native CSV Logging System**."
+
+#: ../../user/pade-cli.rst:5
+msgid "Linha de comando do Pade (CLI)"
+msgstr "PADE Command Line Interface (CLI)"
+
+#: ../../user/pade-cli.rst:7
+msgid ""
+"A nova versão do PADE simplificou sua arquitetura. Comandos antigos como `start-runtime`, `create-pade-db` e interfaces web foram removidos em prol da execução direta de arquivos Python e logs CSV leves."
+msgstr "The new version of PADE simplified its architecture. Old commands like `start-runtime`, `create-pade-db`, and web interfaces were removed in favor of direct execution of Python files and lightweight CSV logs."
+
+#: ../../user/protocolos.rst:2
+msgid "Protocolos"
+msgstr "Protocols"
+
+#: ../../user/recebendo-mensagens.rst:2
+msgid "Recebendo Mensagens"
+msgstr "Receiving Messages"
+
+#: ../../user/selecao-de-mensagens.rst:2
+msgid "Seleção de Mensagens"
+msgstr "Selecting Messages"
+
+#: ../../user/um-momento.rst:2
+msgid "Um momento Por Favor!"
+msgstr "One moment, please!"

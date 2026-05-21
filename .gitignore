@@ -1,0 +1,31 @@
+.venv/
+__pycache__/
+*.py[cod]
+
+# Python/build artifacts
+.pytest_cache/
+.ruff_cache/
+build/
+dist/
+*.egg-info/
+
+# Simulation artifacts
+output/
+results.csv
+grafico_trafego.png
+logs/
+
+# OMNeT++ generated artifacts
+out/
+sim_exec
+simulators_teams/tscc-com-opentes/omnet-dir/Makefile
+simulators_teams/tscc-com-opentes/omnet-dir/.cmdenv-log
+*.sca
+*.vec
+*.o
+*.o.d
+
+# Local editor/system files
+.idea/
+.vscode/
+.DS_Store

@@ -1,0 +1,17 @@
+Clear
+
+Compile (IEEE123Master.dss)
+
+Batchedit RegControl..* maxtapchange=0
+
+Redirect ieee123_shape_load_1h.dss
+
+Redirect edit_load.dss
+
+New EnergyMeter.Feeder Line.L115 1
+
+New Monitor.Feeder_output element=Line.L115 Terminal=1 mode=0
+
+Set mode=Daily
+Set stepsize=1h
+Set number=24
