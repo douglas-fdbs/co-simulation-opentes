@@ -18,8 +18,9 @@ logs/
 # OMNeT++ generated artifacts
 out/
 sim_exec
-simulators_teams/tscc-com-opentes/omnet-dir/Makefile
-simulators_teams/tscc-com-opentes/omnet-dir/.cmdenv-log
+.cmdenv-log
+simulators_teams/comm-opentes/Makefile
+simulators_teams/comm-opentes/.cmdenv-log
 *.sca
 *.vec
 *.o

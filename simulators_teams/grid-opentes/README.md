@@ -1,6 +1,13 @@
-# tsre-der-opentes
+# grid-opentes
 
-Repositório de código para armazenar as soluções desenvolvidas de simulação de recursos energéticos distribuídos.
+Simulação de rede elétrica + DERs (OpenDSS, PV, bateria, inversores, regulador).
+
+> Histórico: na etapa anterior esta pasta se chamava `tsre-der-opentes` (que era
+> o nome do repositório original do time TSRE). Foi renomeada para `tsre-opentes`
+> e depois para `grid-opentes` na refatoração de 4 containers, refletindo o
+> conteúdo (simulação de rede) em vez do nome do time. O collector elétrico,
+> antes em `src/simulators/collector.py`, foi movido para
+> `simulators_teams/mosaik-opentes/collectors/elec_collector.py`.
 
 ## Como executar o projeto?
 
@@ -117,7 +124,7 @@ Execute os passos abaixo (fora da pasta do projeto ou em um diretório temporár
 1. Clone o repositório da interface:
 
 ```bash
-# Na pasta tsre-der-opentes, acesse o diretório imediatamente acima
+# Na pasta grid-opentes, acesse o diretório imediatamente acima
 cd ..
 git clone https://github.com/PauloRadatz/py_dss_interface.git
 cd py_dss_interface
@@ -131,11 +138,11 @@ bash OpenDSSLinuxCPPForRepo.sh
 
 **Nota**: Isso criará os binários necessários dentro da pasta clonada.
 
-3. Instale o pacote compilado no ambiente do seu projeto: Volte para a raiz do projeto `tsre-der-opentes` e utilize o `uv` para instalar a partir da pasta compilada:
+3. Instale o pacote compilado no ambiente do seu projeto: Volte para a raiz do projeto `grid-opentes` e utilize o `uv` para instalar a partir da pasta compilada:
 
 ```bash
 # Volta para a pasta do seu projeto
-cd ../tsre-der-opentes
+cd ../grid-opentes
 # Exemplo (ajuste o caminho '../py_dss_interface' conforme onde você clonou no Passo 1):
 uv pip install ../py_dss_interface
 ```

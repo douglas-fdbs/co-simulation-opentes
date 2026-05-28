@@ -12,8 +12,12 @@ PROTOCOLO CÍCLICO:
 """
 
 import mosaik_api_v3 as mosaik_api
+import os
 import zmq
 import json
+
+DEFAULT_OMNET_HOST = os.environ.get('OMNET_HOST', 'comm')
+DEFAULT_OMNET_PORT = int(os.environ.get('OMNET_PORT', '5555'))
 
 META = {
     'type': 'time-based',
@@ -46,7 +50,7 @@ class OmnetAdapter(mosaik_api.Simulator):
         # time_resolution é definido pelo Mosaik no init()
         self.time_resolution = 1.0
 
-    def init(self, sid, time_resolution, host='omnet_sim', port=5555):
+    def init(self, sid, time_resolution, host=DEFAULT_OMNET_HOST, port=DEFAULT_OMNET_PORT):
         self.sid             = sid
         self.time_resolution = time_resolution
         self.socket.connect(f"tcp://{host}:{port}")

@@ -1,12 +1,19 @@
-import mosaik
 import os
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+import mosaik
 
 NUM_PERIFERICOS = int(os.environ.get('NUM_PERIFERICOS', 3))
+PADE_HOST = os.environ.get('PADE_HOST', 'pade')
+PADE_PORT = os.environ.get('PADE_PORT', '5678')
 
 sim_config = {
     'OmnetSim': {'python': 'omnet_wrapper:OmnetAdapter'},
-    'ColetorSim': {'python': 'collector:Coletor'},
-    'PadeSim': {'connect': 'pade:5678'} 
+    'ColetorSim': {'python': 'collectors.comm_collector:Coletor'},
+    'PadeSim': {'connect': f'{PADE_HOST}:{PADE_PORT}'},
 }
 
 def create_scenario(world):

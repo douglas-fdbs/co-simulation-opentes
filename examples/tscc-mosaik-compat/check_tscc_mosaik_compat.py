@@ -1,8 +1,8 @@
-"""Compatibility probe for the TSCC Mosaik adapters.
+"""Compatibility probe for the OpenTES Mosaik adapters.
 
-This script intentionally uses the real TSCC Mosaik-side adapter
-(`omnet_wrapper.OmnetAdapter`) and collector, but replaces OMNeT++ and PADE with
-small in-process fakes. It verifies that the adapter contract used by TSCC works
+This script intentionally uses the real Mosaik-side adapter
+(`omnet_wrapper.OmnetAdapter`) and the comm collector, but replaces OMNeT++ and
+PADE with small in-process fakes. It verifies that the adapter contract works
 with the Mosaik version installed in the integration venv.
 """
 
@@ -23,16 +23,16 @@ import zmq
 
 def _find_repo_root() -> Path:
     for parent in Path(__file__).resolve().parents:
-        if (parent / "simulators_teams" / "tscc-com-opentes").exists():
+        if (parent / "simulators_teams" / "mosaik-opentes").exists():
             return parent
     raise RuntimeError("Could not find the OpenTES integration repository root")
 
 
 REPO_ROOT = _find_repo_root()
-TSCC_MOSAIK_DIR = REPO_ROOT / "simulators_teams" / "tscc-com-opentes" / "mosaik-dir"
-sys.path.insert(0, str(TSCC_MOSAIK_DIR))
+MOSAIK_DIR = REPO_ROOT / "simulators_teams" / "mosaik-opentes"
+sys.path.insert(0, str(MOSAIK_DIR))
 
-from collector import Coletor  # noqa: E402
+from collectors.comm_collector import Coletor  # noqa: E402
 from omnet_wrapper import OmnetAdapter  # noqa: E402
 
 
@@ -154,7 +154,7 @@ def main() -> int:
 
     sim_config = {
         "OmnetSim": {"python": "omnet_wrapper:OmnetAdapter"},
-        "ColetorSim": {"python": "collector:Coletor"},
+        "ColetorSim": {"python": "collectors.comm_collector:Coletor"},
     }
     if args.pade_connect:
         sim_config["PadeSim"] = {"connect": args.pade_connect}
@@ -215,7 +215,7 @@ def main() -> int:
             thread.join(timeout=1)
 
     pade_mode = f"remote PADE at {args.pade_connect}" if args.pade_connect else "fake PADE"
-    print(f"TSCC Mosaik compatibility OK with mosaik {mosaik.__version__} ({pade_mode})")
+    print(f"Mosaik adapter compatibility OK with mosaik {mosaik.__version__} ({pade_mode})")
     return 0
 
 

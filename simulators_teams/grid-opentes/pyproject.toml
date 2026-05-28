@@ -1,7 +1,7 @@
 [project]
-name = "tsre-der-opentes"
+name = "grid-opentes"
 version = "0.1.0"
-description = "Add your description here"
+description = "Simulador de rede elétrica + DERs (OpenDSS, PV, bateria, inversores) da integração OpenTES."
 readme = "README.md"
 requires-python = ">=3.9"
 dependencies = [

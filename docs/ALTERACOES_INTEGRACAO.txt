@@ -329,3 +329,251 @@ No estado atual, a recomendação prática e:
 - tratar os demais arquivos Docker/Compose como legado, exemplo ou material de
   referência.
 
+
+9. Refatoração para 4 containers (branch four-dockers-split)
+------------------------------------------------------------
+
+Em 2026-05-27 a organização foi refatorada para uma topologia de 4 containers
+funcionais, baseada na proposta de Douglas para alinhar dockerização aos
+domínios de simulação (comunicação, agentes, cenário Mosaik, rede elétrica).
+
+Motivação:
+
+- O TSCC, na etapa anterior, juntava 3 subsistemas em um Dockerfile multi-stage
+  (mosaik-dir, omnet-dir, pade-dir). Essa estratégia funcionava mas misturava
+  responsabilidades.
+- O collector elétrico (originalmente em tsre-der-opentes/src/simulators) e o
+  collector de comunicação (originalmente em tscc-com-opentes/mosaik-dir) são,
+  na prática, parte do "ambiente Mosaik" — não do TSRE nem do TSCC.
+- O time TTESO, representado nesta etapa pela cópia do PADE, contém apenas a
+  biblioteca de agentes — os agentes específicos do cenário estavam no TSCC.
+  Faz mais sentido juntar a lib + os agentes em um único container PADE.
+
+Nova partição:
+
+- simulators_teams/comm-opentes
+  Antigo tscc-com-opentes/omnet-dir, com Dockerfile próprio derivado do target
+  tscc-omnet do Dockerfile multi-stage anterior.
+
+- simulators_teams/pade-opentes
+  Renomeação de tteso-tes-opentes, incorporando os agentes que estavam em
+  tscc-com-opentes/pade-dir/pade_agents, agora em pade-opentes/agents.
+  Dockerfile próprio que instala a lib pade e roda agents/pade_star.py.
+
+- simulators_teams/mosaik-opentes
+  Diretório novo, com scenarios/ (star.py, first.py), omnet_wrapper.py,
+  plot_results.py, plot_results_star.py e collectors/ (comm_collector.py
+  vindo do tscc-com-opentes/mosaik-dir/collector.py e elec_collector.py vindo
+  do tsre-der-opentes/src/simulators/collector.py).
+
+- simulators_teams/tsre-opentes
+  Renomeação de tsre-der-opentes, sem o collector.py (que migrou para
+  mosaik-opentes).
+
+O controller_sim.py (BatteryControllerSim) permanece em
+simulators_teams/tsre-opentes/src/simulators. Decisão tomada porque migrar para
+agente PADE é trabalho separado, demanda alinhamento com o time TSRE (Caio
+Lucas) e ainda não há cenário ativo usando esse controller — os scenarios
+existentes usam controller_des_* em simulators/old/.
+
+Dockerfiles ativos pos-refatoração:
+
+1. simulators_teams/comm-opentes/Dockerfile  (serviço comm)
+2. simulators_teams/pade-opentes/Dockerfile  (serviço pade)
+3. simulators_teams/mosaik-opentes/Dockerfile  (serviço mosaik)
+4. simulators_teams/tsre-opentes/Dockerfile  (imagem opentes/tsre, instanciada
+   por opendss, battery, controller, csv-data-1, csv-data-2, inverter-std,
+   pv-panel, regulator, smart-inverter)
+
+Arquivos arquivados em examples/legacy-tscc-docker/tscc-com-opentes/:
+
+- Dockerfile.multistage  (era o Dockerfile multi-stage do TSCC anterior)
+- README-TSCC.md  (era o README do TSCC, contém arquitetura do fluxo cíclico)
+
+Ajustes de código:
+
+- scenarios/star.py e scenarios/first.py:
+  * adicionado sys.path.insert para resolver imports relativos;
+  * 'ColetorSim' agora aponta para 'collectors.comm_collector:Coletor';
+  * host/port do PADE parametrizados via env vars PADE_HOST/PADE_PORT;
+- omnet_wrapper.py:
+  * defaults host/port lidos de OMNET_HOST/OMNET_PORT (com 'comm' default).
+- examples/tscc-mosaik-compat/check_tscc_mosaik_compat.py:
+  * paths atualizados para 'simulators_teams/mosaik-opentes';
+  * import 'collectors.comm_collector' no lugar de 'collector'.
+- pyproject.toml raiz:
+  * tool.uv.sources aponta para os novos paths (pade-opentes, tsre-opentes).
+
+Pendente apos esta refatoração:
+
+- Re-validar build dos 4 Dockerfiles. [feito]
+- Re-validar smoke integrado (PADE + Mosaik + OMNeT++) com a nova topologia. [feito,
+  smoke rodou com 50 perifericos e 20 passos, mosaik exit 0, 700 packets].
+- Atualizar uv.lock se necessário após o rename dos paths.
+- Avaliar com Caio Lucas a refatoração do controller para PADE (escopo separado).
+
+10. Migração do controller para o container PADE
+------------------------------------------------
+
+O simulador Mosaik BatteryControllerSim que vivia em
+grid-opentes/src/simulators/controller_sim.py foi migrado para um agente PADE.
+
+Motivação:
+
+- Os controles operacionais do OpenTES tendem a virar agentes (no projeto a
+  arquitetura aposta em decisão distribuída via FIPA/ACL).
+- O controller_sim era um simulador Mosaik puro, sem capacidade nativa de
+  trocar mensagens entre agentes. Como agente PADE com ponte MosaikCon,
+  preserva a interface Mosaik original e ganha um canal ACL para evolução
+  futura.
+- Os scenarios atuais do TSRE/grid não referenciavam controller_sim.py
+  diretamente; o impacto da migração e ́baixo.
+
+Mudanças:
+
+- Novo arquivo: simulators_teams/pade-opentes/agents/controller_agent.py
+  Contém duas classes principais:
+  * BatteryControllerMosaik(MosaikCon): expõe o modelo "BatteryController"
+    com os mesmos params/attrs do controller_sim antigo (SoC_in, curve_value
+    como inputs; P_ref, Q_ref como outputs).
+  * BatteryControllerAgent(Agent): agente PADE que envelopa o MosaikCon.
+    Entry-point standalone via __main__, aceita CONTROLLER_HOST,
+    CONTROLLER_PORT, AMS_PORT e CONTROLLER_STEP_SIZE via env vars (defaults
+    0.0.0.0:5681, AMS 8002, step 900s).
+
+- Arquivo arquivado: simulators_teams/grid-opentes/src/simulators/controller_sim.py
+  Foi movido para .../simulators/old/controller_sim.py junto com os outros
+  controllers Volt-Var/Watt antigos. Fica disponível como referência mas não
+  e ́mais o caminho oficial.
+
+- docker-compose.yaml:
+  * Service "controller" (que rodava controller_sim.py em 0.0.0.0:5674) foi
+    removido.
+  * Service novo "pade-controller" baseado na imagem opentes/pade:local,
+    com profile opt-in "controller". Para subir explicitamente:
+        docker compose --profile controller up pade-controller
+  * O container "pade-controller" expõe a porta 5681 (publica como 15681 no
+    host) que é onde cenários Mosaik devem conectar
+    ('BatteryController': {'connect': 'pade-controller:5681'}).
+
+Interface Mosaik para integração futura (esboço, para um cenário grid):
+
+    sim_config = {
+        ...
+        'BatteryController': {'connect': 'pade-controller:5681'},
+        ...
+    }
+
+    ctrl_sim = world.start('BatteryController', step_size=900)
+    ctrl = ctrl_sim.BatteryController.create(1, kw_rated=50.0,
+                                             charge_trigger=0.2,
+                                             discharge_trigger=0.6,
+                                             pct_charge=100.0,
+                                             pct_discharge=100.0,
+                                             time_charge_trigger=2.0)
+    world.connect(battery, ctrl[0], ('SoC', 'SoC_in'))
+    world.connect(csv_curve, ctrl[0], ('value', 'curve_value'))
+    world.connect(ctrl[0], battery, ('P_ref', 'P_ref'), ('Q_ref', 'Q_ref'))
+
+Pendente:
+
+- Validar via cenário Mosaik real (com Caio Lucas) que o pade-controller
+  funciona end-to-end com a bateria e a curva.
+- Expor comportamento FIPA-ACL (ex: ler comandos de um DSO agente via
+  mensagens INFORM, etc.).
+
+
+12. Absorção do upstream IEEE 13 Bus com Smart PV
+-------------------------------------------------
+
+O upstream grei-ufc/tsre-der-opentes recebeu, em 2026-05-23 e 2026-05-26
+(commits 7619e5b3 e 0e9f4fee, autor: Paulo Victor), suporte ao cenário
+IEEE 13 Bus com PVs (incluindo geração automática via pv_creator).
+
+Arquivos absorvidos (sem modificação além dos paths):
+
+- grid-opentes/src/data/13Bus/ieee13_pv.dss
+- grid-opentes/src/data/13Bus/ieee13_shape_pv_5min.csv
+- grid-opentes/src/data/13Bus/ieee13_temperature_5min.csv
+- grid-opentes/src/data/13Bus/run_ieee13_cosim_pv_5min.dss
+- grid-opentes/src/data/13Bus/run_ieee13_cosim_sem_pv_5min.dss
+- grid-opentes/src/simulators/pv_creator.py
+  (requer src/data/InfoPV/ para regerar; os artefatos já vieram pré-gerados)
+
+Arquivos absorvidos com adaptação:
+
+- mosaik-opentes/scenarios/ieee13_smart_pv.py
+  Adaptado do scenario_13bus_smart_pv_docker.py do upstream para rodar
+  dentro do container mosaik (em vez de no host). Mudanças:
+  * hostnames Docker DNS (opendss, pv-panel, smart-inverter, csv-data-1/2)
+    no lugar de localhost:PORT;
+  * Collector como python in-process (collectors.elec_collector:Collector)
+    em vez de container remoto, alinhado com a topologia de 4 containers;
+  * paths configuráveis via env vars MOSAIK_OUTPUT_DIR, GRID_DATA_DIR,
+    MOSAIK_START_DATE, MOSAIK_STEP_SIZE, MOSAIK_N_PASSOS;
+  * remoção do monitoramento de Bus e Line (ver issue conhecido abaixo).
+
+- mosaik-opentes/plot_ieee13.py
+  Adaptado de teste_plot.py do upstream. Salva o dashboard em
+  output/ieee13_dashboard.png usando backend Agg por default; passe --show
+  para abrir interativamente via WebAgg.
+
+Mudanças no Dockerfile e compose:
+
+- simulators_teams/mosaik-opentes/Dockerfile:
+  * adicionado ENV MOSAIK_SCENARIO=scenarios/star.py (default);
+  * CMD trocado para sh -c "python -u $MOSAIK_SCENARIO" para permitir
+    selecionar o cenário via env var;
+  * adicionada dependência setuptools==69.5.1 (necessária para
+    pkg_resources, exigido pelo mosaik-api legacy).
+
+- docker-compose.yaml:
+  * service mosaik ganha env MOSAIK_SCENARIO=scenarios/star.py, volumes
+    ./output:/app/output e ./simulators_teams/grid-opentes/src/data:/grid-data:ro
+    (para o plot_ieee13);
+  * service novo mosaik-ieee13 com profile "ieee13", depends_on dos 5
+    containers grid necessários, env MOSAIK_SCENARIO=scenarios/ieee13_smart_pv.py.
+
+Como rodar o cenário IEEE 13 com PV:
+
+    docker compose --profile ieee13 up --abort-on-container-exit \
+      --exit-code-from mosaik-ieee13 mosaik-ieee13
+
+Pós-simulação (gerar dashboard):
+
+    docker compose run --rm --no-deps mosaik python plot_ieee13.py
+
+Issues conhecidos descobertos durante a integração:
+
+(a) MOSAIK 3.5.0 lança AssertionError "cannot progress backwards" se o
+    cenário monitorar atributos de Bus ou Line do api_opendss simultaneamente
+    com o feedback time_shifted bus->inverter. Causa raiz suspeita:
+    api_opendss.get_data() para Bus/Line dispara cálculos do circuito que
+    interferem na ordenação do scheduler. Por enquanto removemos esse
+    monitoramento. O monitoramento de PVSystem (P_meas/Q_meas/P1..Q3) é
+    suficiente para validar o smoke.
+
+(b) O elec_collector original (mosaik-api legacy 3.0.6, type=event-based,
+    attrs=[]) NÃO recebe dados quando todos os simuladores que enviam pra
+    ele rodam como containers remotos via Mosaik connect. O cenário roda
+    até o fim mas o CSV de resultado fica vazio. Hipótese: limitação de
+    roteamento Mosaik 3 entre time-based REMOTO -> event-based IN-PROCESS.
+    Foi feita uma adaptação parcial migrando para mosaik_api_v3 e expondo
+    attrs explícitos, mas o issue persiste e precisa ser investigado.
+    Possíveis caminhos: rodar o collector também como container remoto
+    (revertendo essa parte para o design pré-refatoração) ou usar um
+    adapter time-based que reúna dados via mosaik async get_data.
+
+Ajustes feitos no elec_collector durante diagnóstico:
+
+- Migração de mosaik_api (3.0.6) para mosaik_api_v3 (3.0.14).
+- attrs vazios -> lista explícita com os atributos de PV/Inverter/DSS/Bus.
+- Tratamento defensivo: se inputs está vazio, retorna None imediatamente.
+- df_dict['date'] passa a ser lista [current_date] para evitar
+  ValueError do pandas quando há só o 'date' como coluna.
+
+Pendente:
+
+- Resolver (a) e (b) acima junto com Caio Lucas e Paulo Victor.
+- Smoke do IEEE 13 PV gerando CSV efetivo de resultados.
+
