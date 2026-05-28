@@ -8,6 +8,7 @@ from pade.acl.messages import ACLMessage
 from pade.drivers.mosaik_driver import MosaikCon
 
 NUM_PERIFERICOS = int(os.environ.get('NUM_PERIFERICOS', 3))
+PADE_STEP = int(os.environ.get('PADE_STEP', '1'))
 
 MOSAIK_MODELS = {
     'api_version': '3.0',
@@ -68,7 +69,7 @@ class MosaikSim(MosaikCon):
         if 'AgenteCentral' in ACTIVE_AGENTS:
             ACTIVE_AGENTS['AgenteCentral'].enviar_broadcast_continuo(time)
 
-        return time + 1
+        return time + PADE_STEP
         
     def get_data(self, outputs):
         data = {}

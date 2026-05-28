@@ -18,6 +18,7 @@ import json
 
 DEFAULT_OMNET_HOST = os.environ.get('OMNET_HOST', 'comm')
 DEFAULT_OMNET_PORT = int(os.environ.get('OMNET_PORT', '5555'))
+DEFAULT_OMNET_STEP = int(os.environ.get('OMNET_STEP', '1'))
 
 META = {
     'type': 'time-based',
@@ -50,9 +51,11 @@ class OmnetAdapter(mosaik_api.Simulator):
         # time_resolution é definido pelo Mosaik no init()
         self.time_resolution = 1.0
 
-    def init(self, sid, time_resolution, host=DEFAULT_OMNET_HOST, port=DEFAULT_OMNET_PORT):
+    def init(self, sid, time_resolution, host=DEFAULT_OMNET_HOST, port=DEFAULT_OMNET_PORT,
+             step_size=DEFAULT_OMNET_STEP):
         self.sid             = sid
         self.time_resolution = time_resolution
+        self.step_size       = step_size
         self.socket.connect(f"tcp://{host}:{port}")
         print(f"[MOSAIK] Conectado ao OMNeT++ em tcp://{host}:{port} "
               f"(time_resolution={time_resolution}s/passo)")
@@ -128,8 +131,8 @@ class OmnetAdapter(mosaik_api.Simulator):
         else:
             print(f"[MOSAIK] ERRO no STEP t={time}: {response.get('reason')}")
 
-        # Retorna o próximo passo — Mosaik avança 1 unidade por vez
-        return time + 1
+        # Retorna o próximo passo
+        return time + self.step_size
 
     def get_data(self, outputs):
         data = {}

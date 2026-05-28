@@ -171,6 +171,61 @@ services:
     networks:
       - opentes-net
 
+  pade-integrated:
+    image: opentes/pade:local
+    build:
+      context: ./simulators_teams/pade-opentes
+      dockerfile: Dockerfile
+    container_name: opentes-pade-integrated
+    profiles:
+      - integrated
+    environment:
+      - NUM_PERIFERICOS=5
+      - PADE_STEP=300
+    expose:
+      - "5678"
+    ports:
+      - "15679:5678"
+    volumes:
+      - ./simulators_teams/pade-opentes/agents:/app/agents
+    command: python3 agents/pade_star.py
+    networks:
+      - opentes-net
+
+  mosaik-integrated:
+    image: opentes/mosaik:local
+    build:
+      context: ./simulators_teams/mosaik-opentes
+      dockerfile: Dockerfile
+    container_name: opentes-mosaik-integrated
+    profiles:
+      - integrated
+    depends_on:
+      - comm
+      - pade-integrated
+      - opendss
+      - pv-panel
+      - smart-inverter
+      - csv-data-1
+      - csv-data-2
+      - elec-collector
+    environment:
+      - MOSAIK_SCENARIO=scenarios/ieee13_integrated.py
+      - MOSAIK_OUTPUT_DIR=/app/output
+      - NUM_PERIFERICOS=5
+      - OMNET_HOST=comm
+      - OMNET_PORT=5555
+      - OMNET_STEP=300
+      - PADE_HOST=pade-integrated
+      - PADE_PORT=5678
+      - ELEC_COLLECTOR_HOST=elec-collector
+    volumes:
+      - ./simulators_teams/mosaik-opentes:/app
+      - ./output:/app/output
+      - ./simulators_teams/grid-opentes/src/data:/grid-data:ro
+    networks:
+      - opentes-net
+
   opendss:
     <<: *tsre-simulator
     container_name: opentes-grid-opendss
