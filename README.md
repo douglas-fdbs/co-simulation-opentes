@@ -45,25 +45,47 @@ docker compose --profile controller up pade-controller
 O agente expõe a porta Mosaik `5681` (publicada como `15681` no host). Cenários
 Mosaik conectam via `'BatteryController': {'connect': 'pade-controller:5681'}`.
 
-### Cenário IEEE 13 Bus com Smart PV
+### Cenário IEEE 13 Bus com Smart PV (`ieee13`)
 
-Absorvido do upstream `grei-ufc/tsre-der-opentes` (Paulo Victor, 2026-05-26) e
-adaptado para a topologia de 4 containers. Roda via profile `ieee13`:
+Absorvido do upstream `grei-ufc/tsre-der-opentes` (branch `paulo-victor`) e
+adaptado para a topologia de 4 containers. Rede elétrica IEEE 13 + 5 PVs +
+inversores, com collector elétrico remoto. Roda via profile `ieee13`:
 
 ```bash
 docker compose --profile ieee13 up --abort-on-container-exit \
   --exit-code-from mosaik-ieee13 mosaik-ieee13
 ```
 
-Para gerar o dashboard pós-simulação:
+Resultado em `output/result_run_ieee13_cosim_pv_5min.csv` (288 passos, 66 colunas).
+Dashboard pós-simulação: `docker compose run --rm --no-deps mosaik python plot_ieee13.py`.
+
+> Nota: as loadshapes do IEEE 13 PV são geradas por
+> `simulators_teams/grid-opentes/src/simulators/gen_pv_loadshapes.py` a partir
+> dos CSVs (o upstream não as fornecia). Ver `docs/ALTERACOES_INTEGRACAO.txt` seção 13.
+
+### Demo do controlador PADE (`controller-demo`)
+
+Exercita o agente `BatteryControllerAgent` em loop fechado com uma bateria:
 
 ```bash
-docker compose run --rm --no-deps mosaik python plot_ieee13.py
+docker compose --profile controller-demo up --abort-on-container-exit \
+  --exit-code-from mosaik-controller-demo mosaik-controller-demo
 ```
 
-> **Issue conhecido**: o `elec_collector` está produzindo CSV vazio quando os
-> simuladores rodam como containers remotos. Detalhes em
-> `docs/ALTERACOES_INTEGRACAO.txt` seção 12.
+### Cenário integrado dos 4 containers (`integrated`)
+
+Roda comunicação (OMNeT++/PADE) **e** rede elétrica (IEEE 13 PV) no mesmo mundo
+Mosaik, usando os 4 simulators_teams:
+
+```bash
+docker compose --profile integrated up --abort-on-container-exit \
+  --exit-code-from mosaik-integrated mosaik-integrated
+```
+
+> **Atenção operacional**: os simuladores `--remote` do grid aceitam uma única
+> conexão Mosaik e encerram após. Cada execução precisa de containers de
+> simulador frescos. Não sondar as portas `--remote` com TCP de readiness (isso
+> consome a conexão e mata o simulador) — sondar apenas o `comm` (5555, ZMQ).
 
 Para o cenário Docker do TSRE, suba os simuladores TSRE e rode o cenário no host:
 

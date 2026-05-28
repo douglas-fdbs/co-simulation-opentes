@@ -577,3 +577,62 @@ Pendente:
 - Resolver (a) e (b) acima junto com Caio Lucas e Paulo Victor.
 - Smoke do IEEE 13 PV gerando CSV efetivo de resultados.
 
+
+13. Sessao 2026-05-28: causa raiz do CSV vazio, cenarios C/D e branches
+-----------------------------------------------------------------------
+
+Causa raiz REAL do "collector vazio" (item (b) acima): NAO era roteamento
+Mosaik. Os PVSystems do IEEE 13 nao eram criados pelo OpenDSS, entao nao havia
+nenhuma conexao para o monitor e o step do collector nunca rodava. Dois motivos:
+
+  1. O ieee13_pv.dss (gerado pelo pv_creator) referencia loadshapes
+     my_shapeN_irrad / my_shapeN_temperature via Daily/TDaily, mas nem o
+     pv_creator nem o ieee13_shape_pv_5min.dss do upstream geram essas
+     loadshapes (o shape.dss so define my_shape1_pv / my_shape2_pv, de uma
+     versao antiga). Solucao: novo script
+     grid-opentes/src/simulators/gen_pv_loadshapes.py le os CSVs e gera o
+     ieee13_shape_pv_5min.dss com 5 Loadshapes (irrad) + 5 Tshapes (temp).
+  2. run_ieee13_cosim_*.dss faziam "Redirect Loadshape.dss" mas o arquivo e
+     LoadShape.dss (case-sensitive no Linux; Paulo Victor desenvolveu no
+     Windows). O redirect falho ABORTAVA a sequencia, e o ieee13_pv.dss nunca
+     era redirecionado. Corrigido o case nos dois run files.
+
+Apos isso, get_detected_pvsystems() retorna 5 e o cenario IEEE 13 gera CSV com
+288 passos / 66 colunas. O elec_collector foi mantido no formato original do
+upstream (mosaik_api legacy, event-based) e roda como CONTAINER REMOTO
+(service elec-collector, porta 5673), nao mais in-process.
+
+Item (a) (Bus/Line monitoring causando "cannot progress backwards"): nao foi
+re-testado apos os PVs passarem a carregar; o cenario ieee13_smart_pv segue sem
+monitorar Bus/Line por seguranca. Re-avaliar com o time TSRE.
+
+Ponto C - cenario battery_controller_demo.py:
+  Valida o agente PADE BatteryController end-to-end via Mosaik (CSV -> ctrl ->
+  battery, com feedback de SoC time_shifted). Smoke: de madrugada o controller
+  comanda carga e o SoC sobe de 50% a 100%. Service mosaik-controller-demo
+  (profile controller-demo).
+
+Ponto D - cenario ieee13_integrated.py:
+  Junta os 4 simulators_teams num unico mundo Mosaik (comm + pade + grid +
+  mosaik) sobre o IEEE 13. Comunicacao (OMNeT++/PADE) e rede eletrica (PV)
+  coexistem na mesma escala de 5 min. Para alinhar escalas, omnet_wrapper e
+  pade_star aceitam OMNET_STEP / PADE_STEP (default 1). Services
+  pade-integrated e mosaik-integrated (profile integrated). Smoke: 288 passos,
+  CSV eletrico 289 linhas / 31 colunas. Acoplamento causal agente->rede fica
+  como proximo passo de modelagem (TTESO).
+
+Branches dos repos upstream (verificado em 2026-05-28):
+  - tsre-der-opentes: o cenario 13bus foi absorvido da branch paulo-victor
+    (0e9f4fee), a mais avancada (pv_creator dinamico, 5 PVs). A main (481b1975)
+    tem versao mais simples (2 PVs). Ambas tinham o shape.dss desatualizado.
+  - tscc-com-opentes: SEM commits novos desde o clone de 18/05 (ultimo e
+    7b96fba0, de 17/05). Conteudo local identico ao upstream (NetworkNode.cc
+    conferido). Nada a absorver.
+
+Limitacao operacional conhecida:
+  Os simuladores grid em modo --remote (opendss, pv-panel, etc) aceitam UMA
+  conexao Mosaik e encerram depois. Cada execucao de cenario precisa de
+  containers de simulador FRESCOS (subir com up/run de novo). Nao sondar as
+  portas --remote com TCP connect de readiness: isso consome a conexao unica e
+  mata o simulador. Sondar apenas o comm (5555, ZMQ, resiliente).
+
