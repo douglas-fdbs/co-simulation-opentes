@@ -143,12 +143,13 @@ def run_scenario():
             world.connect(pv_dss_obj, monitor, "P_meas", "Q_meas")
             world.connect(pv_dss_obj, monitor, "P1", "P2", "P3", "Q1", "Q2", "Q3")
 
-        # NOTA: monitoramento adicional de Bus/Line (V_pu, I, P_w, Q_var) causa
-        # AssertionError "cannot progress backwards" em mosaik 3.5.0 quando
-        # combinado com PV+Inverter+feedback time_shifted. Aparentemente o
-        # api_opendss recalcula estado do circuito durante get_data e isso
-        # interfere no scheduler. Investigação pendente com o time TSRE.
-        # O monitoramento de PVSystem (P_meas/Q_meas/P1..Q3) já cobre o essencial.
+        # Monitoramento de tensoes de barra (metrica-chave de coerencia do IEEE 13).
+        for target_name in ("650", "632", "671", "680", "611"):
+            target_eid = f"Bus-{target_name}"
+            bus_entities = [e for e in grid.children if e.eid == target_eid]
+            if bus_entities:
+                world.connect(bus_entities[0], monitor, "V1_pu", "V2_pu", "V3_pu")
+                print(f"[mosaik] monitorando barra {target_eid}")
 
         print(f"[mosaik] iniciando simulação ({N_PASSOS} passos, step={STEP_SIZE}s)")
         world.run(until=END_TIME, print_progress=False)

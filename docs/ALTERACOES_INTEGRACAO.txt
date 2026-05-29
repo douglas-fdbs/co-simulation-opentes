@@ -636,3 +636,40 @@ Limitacao operacional conhecida:
   portas --remote com TCP connect de readiness: isso consome a conexao unica e
   mata o simulador. Sondar apenas o comm (5555, ZMQ, resiliente).
 
+
+
+14. Sessao 2026-05-29: script run_opentes.sh, tensoes e validacao
+-----------------------------------------------------------------
+
+Erro de rede relatado pelo Douglas ("network ... not found" / "Resource is
+still in use"): causado por "docker compose down" SEM os profiles, que nao
+remove containers de profile (pade-controller, pade-integrated). Eles ficam
+vivos, seguram a rede e deixam um ID de rede stale, quebrando o proximo up.
+
+- Novo script run_opentes.sh na raiz: faz limpeza COMPLETA (down de todos os
+  profiles + rm de orfaos + rm da rede) antes e depois de cada execucao, e
+  roda o cenario escolhido (star | ieee13 | controller-demo | integrated).
+  Resolve o erro de rede e a fragilidade dos sims --remote (1 conexao por vida).
+
+- Tensoes de barra (Bus V_pu) REABILITADAS no ieee13_smart_pv.py. O erro
+  anterior "cannot progress backwards" NAO era do monitoramento de Bus em si:
+  era efeito do estado quebrado (PVSystems nao carregavam por falta das
+  loadshapes + case do Redirect). Com os PVs carregando, o monitoramento de
+  Bus (barras 650/632/671/680/611) roda sem erro. Item (a) da secao 12
+  resolvido.
+
+- plot_ieee13.py reescrito como dashboard de apresentacao: irradiancia,
+  geracao PV (P_dc + P_meas), tensoes por barra (com limites ANEEL) e
+  temperatura. Salva output/ieee13_dashboard.png.
+
+Validacao de coerencia (IEEE 13, 1 dia, 5 min):
+- P_dc dos paineis e P_meas no OpenDSS seguem a curva solar (zero a noite, pico
+  ~5 MW a tarde de 15 MW instalados). Coerente.
+- Tensoes: barra 650 (fonte) em 1.0 pu; barras trifasicas 0.91-1.05 pu; fases
+  de trechos monofasicos (ex: 611 fases A/B) em 0.0 (corretas, nao existem).
+  Coerente com o IEEE 13 desbalanceado.
+- INCOERENCIA a investigar com o time TSRE: P_ac do smart inverter (OpenDER)
+  fica 0 o tempo todo. O inversor co-simulado nao "entra em servico"
+  (enter-service do IEEE 1547 / realimentacao de tensao). A injecao que
+  aparece no OpenDSS (P_meas) vem da loadshape interna do PVSystem (Daily=),
+  nao do inversor co-simulado. O acoplamento inversor->rede ainda nao fecha.
