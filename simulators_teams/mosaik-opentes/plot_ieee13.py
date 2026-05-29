@@ -74,13 +74,18 @@ def plot_comprehensive_results(show: bool = False) -> int:
         fontsize=16, fontweight="bold",
     )
 
+    # eixo X em hora do dia (cada amostra de entrada = 5 min a partir da meia-noite)
+    h_irr = [i * 5.0 / 60.0 for i in range(len(df_irr))]
+    h_tmp = [i * 5.0 / 60.0 for i in range(len(df_tmp))]
+
     # 1. Irradiancia
     irr_cols = [c for c in df_irr.columns if c.lower() not in ("time", "timestamp", "date", "index")]
-    x_in = range(len(df_irr))
     for col in irr_cols:
-        axs[0].plot(x_in, df_irr[col], linewidth=1.6, label=col.replace("my_shape", "PV ").replace("_irrad", ""))
+        axs[0].plot(h_irr, df_irr[col], linewidth=1.6, label=col.replace("my_shape", "PV ").replace("_irrad", ""))
     axs[0].set_title("1) Irradiância solar (entrada climática)", fontsize=11, fontweight="bold")
     axs[0].set_ylabel("Irradiância [pu]")
+    axs[0].set_xlabel("Hora do dia")
+    axs[0].set_xlim(0, 24); axs[0].set_xticks(range(0, 25, 2))
     axs[0].grid(True, linestyle="--", alpha=0.5)
     axs[0].legend(loc="upper right", fontsize=8, ncol=5)
 
@@ -113,10 +118,11 @@ def plot_comprehensive_results(show: bool = False) -> int:
     # 4. Temperatura
     tmp_cols = [c for c in df_tmp.columns if c.lower() not in ("time", "timestamp", "date", "index")]
     for col in tmp_cols:
-        axs[3].plot(x_in, df_tmp[col], linewidth=1.6, label=col.replace("my_shape", "PV ").replace("_temperature", ""))
+        axs[3].plot(h_tmp, df_tmp[col], linewidth=1.6, label=col.replace("my_shape", "PV ").replace("_temperature", ""))
     axs[3].set_title("4) Temperatura dos módulos (entrada climática)", fontsize=11, fontweight="bold")
     axs[3].set_ylabel("Temperatura [pu]")
-    axs[3].set_xlabel("Passo de simulação (5 min)")
+    axs[3].set_xlabel("Hora do dia")
+    axs[3].set_xlim(0, 24); axs[3].set_xticks(range(0, 25, 2))
     axs[3].grid(True, linestyle="--", alpha=0.5)
     axs[3].legend(loc="upper right", fontsize=8, ncol=5)
 
