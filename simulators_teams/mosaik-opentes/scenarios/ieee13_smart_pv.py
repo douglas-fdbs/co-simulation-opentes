@@ -40,7 +40,7 @@ CONTAINER_DATA = "/app/src/data/13Bus"
 CIRCUITO_DSS = f"{CONTAINER_DATA}/run_ieee13_cosim_pv_5min.dss"
 IRRADIANCE = f"{CONTAINER_DATA}/ieee13_shape_pv_5min.csv"
 TEMPERATURE = f"{CONTAINER_DATA}/ieee13_temperature_5min.csv"
-OUTPUT_DIR = Path(os.environ.get("MOSAIK_OUTPUT_DIR", "/app/output"))
+OUTPUT_DIR = Path(os.environ.get("MOSAIK_OUTPUT_DIR", "/app/output/ieee13"))
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 RESULT_CSV = str(OUTPUT_DIR / "result_run_ieee13_cosim_pv_5min.csv")
 

@@ -37,27 +37,29 @@ cleanup() {
 
 echo ">> [OpenTES] limpando estado anterior do Docker..."
 cleanup
+# garante as subpastas de output por cenario
+mkdir -p output/star output/ieee13 output/controller_demo output/integrated
 
 echo ">> [OpenTES] executando cenario: ${SCENARIO}"
 case "${SCENARIO}" in
   star)
     docker compose up --abort-on-container-exit --exit-code-from mosaik comm pade mosaik
-    RESULT="simulators_teams/mosaik-opentes/results.csv (+ grafico_trafego.png)"
+    RESULT="output/star/  (results.csv + grafico_trafego.png)"
     ;;
   ieee13)
     docker compose --profile ieee13 up --abort-on-container-exit \
       --exit-code-from mosaik-ieee13 mosaik-ieee13
-    RESULT="output/result_run_ieee13_cosim_pv_5min.csv"
+    RESULT="output/ieee13/  (result_run_ieee13_cosim_pv_5min.csv)"
     ;;
   controller-demo)
     docker compose --profile controller-demo up --abort-on-container-exit \
       --exit-code-from mosaik-controller-demo mosaik-controller-demo
-    RESULT="output/result_battery_controller_demo.csv"
+    RESULT="output/controller_demo/  (result_battery_controller_demo.csv)"
     ;;
   integrated)
     docker compose --profile integrated up --abort-on-container-exit \
       --exit-code-from mosaik-integrated mosaik-integrated
-    RESULT="output/result_ieee13_integrated.csv"
+    RESULT="output/integrated/  (result_ieee13_integrated.csv + telemetria comm)"
     ;;
   *)
     echo "!! cenario desconhecido: '${SCENARIO}'"

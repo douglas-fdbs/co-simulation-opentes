@@ -1,7 +1,16 @@
+import os
+from pathlib import Path
+
 import pandas as pd
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 import json
+
+OUT_DIR = Path(os.environ.get('MOSAIK_OUTPUT_DIR', '/app/output/star'))
+INPUT_CSV = OUT_DIR / 'results.csv'
+OUTPUT_PNG = OUT_DIR / 'grafico_trafego.png'
 
 def extrair_remetente(msg_str):
     try:
@@ -15,8 +24,8 @@ def extrair_remetente(msg_str):
 
 def gerar_grafico():
     try:
-        print("📊 Desempacotando dados multiplexados e montando Dashboard Estrela...")
-        df = pd.read_csv('results.csv')
+        print(f"📊 Desempacotando dados multiplexados e montando Dashboard Estrela ({INPUT_CSV})...")
+        df = pd.read_csv(INPUT_CSV)
         
         node_data = df[df['Origem'] == 'OmnetSim-0.node_0'].copy()
         time_data = node_data.pivot_table(index='Tempo', columns='Atributo', values='Valor', aggfunc='first').reset_index()
@@ -123,8 +132,9 @@ def gerar_grafico():
         ax4.text(0.85, 0.5, kpi_text, ha='center', va='center', transform=ax4.transAxes, fontsize=11, fontweight='bold', bbox=dict(fc="#f9f9f9", ec="#b0b0b0", lw=2))
 
         plt.tight_layout(rect=[0, 0.03, 1, 0.95])
-        plt.savefig('grafico_trafego.png', dpi=300)
-        print("✅ Sucesso! Dashboard Alta Resolução salvo como 'grafico_trafego.png'.")
+        OUT_DIR.mkdir(parents=True, exist_ok=True)
+        plt.savefig(OUTPUT_PNG, dpi=300)
+        print(f"✅ Sucesso! Dashboard Alta Resolução salvo em {OUTPUT_PNG}.")
         
     except Exception as e: print(f"❌ Erro inesperado ao gerar o gráfico: {e}")
 

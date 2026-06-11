@@ -28,7 +28,7 @@ import mosaik
 
 CONTAINER_DATA = "/app/src/data/13Bus"
 CURVE_CSV = f"{CONTAINER_DATA}/ieee13_shape_pv_5min.csv"
-OUTPUT_DIR = Path(os.environ.get("MOSAIK_OUTPUT_DIR", "/app/output"))
+OUTPUT_DIR = Path(os.environ.get("MOSAIK_OUTPUT_DIR", "/app/output/controller_demo"))
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 RESULT_CSV = str(OUTPUT_DIR / "result_battery_controller_demo.csv")
 

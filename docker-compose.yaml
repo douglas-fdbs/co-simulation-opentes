@@ -83,6 +83,7 @@ services:
       - pade
     environment:
       - MOSAIK_SCENARIO=scenarios/star.py
+      - MOSAIK_OUTPUT_DIR=/app/output/star
       - NUM_PERIFERICOS=50
       - OMNET_HOST=comm
       - OMNET_PORT=5555
@@ -134,7 +135,7 @@ services:
       - elec-collector
     environment:
       - MOSAIK_SCENARIO=scenarios/ieee13_smart_pv.py
-      - MOSAIK_OUTPUT_DIR=/app/output
+      - MOSAIK_OUTPUT_DIR=/app/output/ieee13
       - GRID_DATA_DIR=/grid-data/13Bus
       - ELEC_COLLECTOR_HOST=elec-collector
     volumes:
@@ -159,7 +160,7 @@ services:
       - elec-collector
     environment:
       - MOSAIK_SCENARIO=scenarios/battery_controller_demo.py
-      - MOSAIK_OUTPUT_DIR=/app/output
+      - MOSAIK_OUTPUT_DIR=/app/output/controller_demo
       - BATTERY_HOST=battery
       - CSV_CURVE_HOST=csv-data-1
       - CONTROLLER_HOST_M=pade-controller
@@ -180,15 +181,19 @@ services:
     profiles:
       - integrated
     environment:
-      - NUM_PERIFERICOS=5
-      - PADE_STEP=300
+      - PADE_PORT=5678
+      - AMS_PORT=8000
+      - AGENT_STEP_SIZE=300
+      - V_HIGH=1.02
+      - V_LOW=0.98
+      - KW_RATED=50.0
     expose:
       - "5678"
     ports:
-      - "15679:5678"
+      - "15683:5678"
     volumes:
       - ./simulators_teams/pade-opentes/agents:/app/agents
-    command: python3 agents/pade_star.py
+    command: python3 agents/agent_example_1_mosaik_updated.py
     networks:
       - opentes-net
 
@@ -204,20 +209,18 @@ services:
       - comm
       - pade-integrated
       - opendss
-      - pv-panel
-      - smart-inverter
-      - csv-data-1
-      - csv-data-2
+      - battery
       - elec-collector
     environment:
-      - MOSAIK_SCENARIO=scenarios/ieee13_integrated.py
-      - MOSAIK_OUTPUT_DIR=/app/output
-      - NUM_PERIFERICOS=5
+      - MOSAIK_SCENARIO=scenarios/first.py
+      - MOSAIK_OUTPUT_DIR=/app/output/integrated
       - OMNET_HOST=comm
       - OMNET_PORT=5555
       - OMNET_STEP=300
       - PADE_HOST=pade-integrated
       - PADE_PORT=5678
+      - OPENDSS_HOST=opendss
+      - BATTERY_HOST=battery
       - ELEC_COLLECTOR_HOST=elec-collector
     volumes:
       - ./simulators_teams/mosaik-opentes:/app

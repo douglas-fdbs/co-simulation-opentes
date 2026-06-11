@@ -20,7 +20,8 @@ def create_scenario(world):
     print(f"🌍 Montando topologia ESTRELA: 1 Central <-> {NUM_PERIFERICOS} Periféricos...")
     
     omnet_sim = world.start('OmnetSim')
-    coletor_sim = world.start('ColetorSim')
+    output_file = os.environ.get('MOSAIK_OUTPUT_DIR', '/app/output/star') + '/results.csv'
+    coletor_sim = world.start('ColetorSim', output_file=output_file)
     pade_sim = world.start('PadeSim')
 
     rede_omnet = omnet_sim.NetworkNode(node_type='NetworkNode')

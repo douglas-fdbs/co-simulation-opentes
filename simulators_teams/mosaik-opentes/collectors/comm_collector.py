@@ -1,5 +1,7 @@
 import mosaik_api_v3 as mosaik_api
 import csv
+import os
+from pathlib import Path
 
 META = {
     'type': 'event-based',
@@ -22,9 +24,12 @@ class Coletor(mosaik_api.Simulator):
         self.csv_file = None
         self.csv_writer = None
 
-    def init(self, sid, time_resolution):
+    def init(self, sid, time_resolution, output_file='results.csv'):
         # Cria e prepara o ficheiro CSV com os cabeçalhos
-        self.csv_file = open('results.csv', mode='w', newline='')
+        out = Path(output_file)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        self.output_file = str(out)
+        self.csv_file = open(self.output_file, mode='w', newline='')
         self.csv_writer = csv.writer(self.csv_file)
         self.csv_writer.writerow(['Tempo', 'Origem', 'Atributo', 'Valor'])
         return self.meta

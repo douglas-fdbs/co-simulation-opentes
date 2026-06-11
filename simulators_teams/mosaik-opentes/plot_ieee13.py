@@ -33,7 +33,7 @@ import pandas as pd
 
 
 REPO_DATA_DIR = Path(os.environ.get("GRID_DATA_DIR", "/grid-data/13Bus"))
-OUTPUT_DIR = Path(os.environ.get("MOSAIK_OUTPUT_DIR", "/app/output"))
+OUTPUT_DIR = Path(os.environ.get("MOSAIK_OUTPUT_DIR", "/app/output/ieee13"))
 
 CSV_IRRAD_IN = REPO_DATA_DIR / "ieee13_shape_pv_5min.csv"
 CSV_TEMP_IN = REPO_DATA_DIR / "ieee13_temperature_5min.csv"
