@@ -9,7 +9,7 @@ times TTESO, TSCC e TSRE.
 O fluxo alvo desta etapa é:
 
 ```text
-PADE -> Mosaik -> OMNeT++ -> Mosaik -> PADE/DSO -> Mosaik -> OpenDSS
+PADE -> Mosaik -> OMNeT++ -> Mosaik -> PADE -> Mosaik -> OpenDSS
 ```
 
 O benchmark operacional inicial é o IEEE 13 Bus. A ideia é validar primeiro a
@@ -33,9 +33,6 @@ entre domínios de simulação:
   Equivalente ao antigo `tsre-der-opentes` do time TSRE, sem o collector (que
   migrou para `mosaik-opentes`). O nome do diretório passou a refletir o
   conteúdo (rede elétrica) em vez do nome do time.
-
-A pasta `examples/` (exemplos e legados de dockerização do TSCC) foi removida em
-2026-06-11 por não fazer parte do runtime. Ver `ALTERACOES_INTEGRACAO.txt`.
 
 ## Decisões Técnicas
 
@@ -126,3 +123,80 @@ re-validados nos novos serviços `comm`, `pade`, `mosaik` e `tsre`. Ver
 
 Artefatos como `results.csv`, `grafico_trafego.png`, `sim_exec`, `out/` e
 saídas do OpenDSS são produtos de simulação e estão no `.gitignore`.
+
+## Resultados
+
+### Co-simulação integrada (cenário `integrated`, IEEE 13 Barras)
+
+A co-simulação completa (`./run_opentes.sh integrated`) fecha o laço causal
+sobre o IEEE 13 Barras, sem bateria — o atuador é o **inversor do PVSystem PV2**
+(Barramento 632), com **controle Volt/Var** feito por um agente PADE:
+
+```
+OpenDSS Bus-632.V → AgenteA (mede) → OMNeT++ (atraso/jitter) → AgenteB (Volt/Var)
+                                                                      │ P=solar, Q=f(V)
+OpenDSS ← PVSystem PV2 (P_des, Q_des) ←───────────────────────────────┘
+```
+
+- **P (ativa)** = potência solar disponível (cadeia irradiância → PV panel).
+- **Q (reativa)** = função da tensão recebida **pela rede de comunicação**,
+  respeitando `S = √(P² + Q²) ≤ kVA` do inversor (PV2: 3000 kVA).
+- A tensão medida trafega pelo OMNeT++; latência/jitter/perda são contabilizados.
+
+O experimento roda **duas vezes** e compara — sem controle (baseline) e com
+controle (Volt/Var) — com **0% de perda de pacotes** (`drop_probability = 0.0`
+no `omnetpp.ini`, condição ideal para isolar o efeito do controle).
+
+**Telemetria da rede de comunicação (OMNeT++), por execução:**
+
+| Métrica | Valor |
+|---|---|
+| Pacotes enviados | 288 (1 por passo, 1 dia a 5 min) |
+| Pacotes recebidos | 288 |
+| Pacotes perdidos | 0 (0%) |
+
+**Efeito do controle Volt/Var na tensão do Barramento 632:**
+
+| Métrica (tensão pu) | Sem controle | Com Volt/Var |
+|---|---:|---:|
+| Tensão média | 1,0089 | **1,0011** (mais perto do nominal) |
+| Desvio-padrão | 0,0096 | **0,0088** (−8%) |
+| Reativo Q médio | 0 kvar | 399 kvar |
+| Reativo Q máximo | 0 kvar | 820 kvar |
+
+O controlador foi validado pelos próprios logs do agente (sinal correto):
+`V = 1,0184 → Q = −277 kvar` (tensão alta ⇒ absorve reativo) e
+`V = 0,9850 → Q = +reativo` (tensão baixa ⇒ injeta reativo). À noite, com a
+solar nula, o inversor atua como **STATCOM** (só reativo), trazendo a tensão
+levemente alta de volta ao nominal. A co-simulação captura o fato de o agente
+agir sobre a tensão **atrasada pela rede** — fenômeno central do benchmark.
+
+Saídas em `output/integrated/`: `result_baseline.csv`, `result_volt_var.csv`,
+`comm_trace_baseline.csv`, `comm_trace_volt_var.csv` e o gráfico comparativo
+`comparacao_volt_var.png`.
+
+### Validação do bloco elétrico (cenário `ieee13`, isolado)
+
+O cenário elétrico puro (`./run_opentes.sh ieee13`, IEEE 13 + 5 PVs) reproduz
+**exatamente** os valores do trabalho do TSRE (Paulo Victor, branch
+`paulo-victor`), confirmando que a integração não alterou a física:
+
+| Grandeza (máximo no dia) | Nosso | Referência TSRE |
+|---|---:|---:|
+| P_dc (painel) | 3024,6 kW | 3024,6 kW |
+| P_ac (inversor) | 2854,2 kW | 2854,2 kW |
+| P_meas (injeção OpenDSS) | 1902,7 kW | 1902,7 kW |
+
+Tensões do IEEE 13 coerentes: barra 650 (fonte) = 1,000 pu; barras trifásicas
+0,91–1,05 pu; fases de trechos monofásicos (ex.: 611 A/B) em 0,0 (corretas).
+
+### Como reproduzir
+
+```bash
+./run_opentes.sh integrated   # roda baseline + Volt/Var; saídas em output/integrated/
+./run_opentes.sh ieee13       # bloco elétrico isolado (validação vs Paulo Victor)
+```
+
+Para estudar o impacto da **perda de pacotes** no controle, aumente
+`**.node_0.drop_probability` no `simulators_teams/comm-opentes/omnetpp.ini`
+(ex.: `0.15` = 15%) e compare as tensões resultantes.

@@ -184,9 +184,6 @@ services:
       - PADE_PORT=5678
       - AMS_PORT=8000
       - AGENT_STEP_SIZE=300
-      - V_HIGH=1.02
-      - V_LOW=0.98
-      - KW_RATED=50.0
     expose:
       - "5678"
     ports:
@@ -209,18 +206,25 @@ services:
       - comm
       - pade-integrated
       - opendss
-      - battery
+      - pv-panel
+      - csv-data-1
+      - csv-data-2
       - elec-collector
     environment:
       - MOSAIK_SCENARIO=scenarios/first.py
       - MOSAIK_OUTPUT_DIR=/app/output/integrated
+      - MOSAIK_N_PASSOS=${MOSAIK_N_PASSOS:-288}
+      - CONTROL_ENABLED=${CONTROL_ENABLED:-1}
+      - RESULT_TAG=${RESULT_TAG:-volt_var}
       - OMNET_HOST=comm
       - OMNET_PORT=5555
       - OMNET_STEP=300
       - PADE_HOST=pade-integrated
       - PADE_PORT=5678
       - OPENDSS_HOST=opendss
-      - BATTERY_HOST=battery
+      - PV_HOST=pv-panel
+      - CSV_IRR_HOST=csv-data-1
+      - CSV_TEMP_HOST=csv-data-2
       - ELEC_COLLECTOR_HOST=elec-collector
     volumes:
       - ./simulators_teams/mosaik-opentes:/app
