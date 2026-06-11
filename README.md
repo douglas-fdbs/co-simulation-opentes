@@ -66,14 +66,18 @@ controle; ajuste `omnetpp.ini` para estudar a perda). Registros em
   632, P_ref e Q_ref do agente, injeção P_meas/Q_meas no PV2).
 - `comm_trace_baseline.csv` / `comm_trace_volt_var.csv` — rastro das mensagens
   pela rede OMNeT++ (FIPA com a tensão + telemetria: pacotes, latência, jitter).
-- `dashboard_integrated.png` — painel visual: tensão (baseline×Volt/Var), P/Q do
-  inversor e tráfego da rede de comunicação.
+- `dashboard_integrated.png` — painel de 8 quadros unindo os dois domínios:
+  irradiância (5 PVs), temperatura, geração FV agregada, tensões das 13 barras,
+  integridade de pacotes (entregues×dropados), latência exata, jitter distribuído
+  e o efeito do Volt/Var no Bus 632.
 
 A tabela completa do que cada arquivo apresenta está em
 [`docs/INTEGRACAO.md`](docs/INTEGRACAO.md#resultados).
 
-Resultado: o Volt/Var leva a tensão média do Bus 632 para mais perto do nominal
-(1,0089 → 1,0011 pu) injetando até 820 kvar.
+Resultado: o Volt/Var **reduz o espalhamento da tensão do Bus 632 em ~33%**
+(desvio 0,0096 → 0,0065 pu) e elimina a subtensão (mínima 0,989 → 1,002 pu),
+injetando até ~900 kvar — com **0% de perda de pacotes**. Comparativo e
+observações em [`docs/INTEGRACAO.md`](docs/INTEGRACAO.md#resultados).
 
 ## Como rodar
 

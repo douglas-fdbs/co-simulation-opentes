@@ -155,10 +155,19 @@ def create_scenario(world):
     world.connect(rede_omnet, comm_monitor,
                   'status', 'packets_sent', 'packets_received', 'packets_dropped',
                   'packet_sizes_out', 'latencies_out', 'jitters_out', 'val_out')
-    world.connect(bus, elec_monitor, 'V1_pu', 'V2_pu', 'V3_pu')
     world.connect(agente_b, elec_monitor, 'P_ref', 'Q_ref')
     world.connect(pv_panel, elec_monitor, 'P_dc')
-    world.connect(pv_dss, elec_monitor, 'P_meas', 'Q_meas')
+    # registro amplo da rede: tensão de TODAS as barras e potência de TODOS os PVs
+    # (permite o dashboard com as 13 barras e a geração FV agregada).
+    n_bus = n_pv = 0
+    for e in grid.children:
+        if e.type == 'Bus':
+            world.connect(e, elec_monitor, 'V1_pu', 'V2_pu', 'V3_pu')
+            n_bus += 1
+        elif e.type == 'PVSystem':
+            world.connect(e, elec_monitor, 'P_meas', 'Q_meas')
+            n_pv += 1
+    print(f"   monitorando {n_bus} barras e {n_pv} PVs")
 
 
 if __name__ == '__main__':

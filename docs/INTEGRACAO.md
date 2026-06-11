@@ -159,17 +159,37 @@ no `omnetpp.ini`, condição ideal para isolar o efeito do controle).
 
 | Métrica (tensão pu) | Sem controle | Com Volt/Var |
 |---|---:|---:|
-| Tensão média | 1,0089 | **1,0011** (mais perto do nominal) |
-| Desvio-padrão | 0,0096 | **0,0088** (−8%) |
-| Reativo Q médio | 0 kvar | 399 kvar |
-| Reativo Q máximo | 0 kvar | 820 kvar |
+| Tensão média | 1,0089 | 1,0144 |
+| **Desvio-padrão** | 0,0096 | **0,0065 (−33%)** |
+| **Tensão mínima** | 0,9893 | **1,0016** |
+| Tensão máxima | 1,0238 | 1,0300 |
+| Reativo Q médio | 0 kvar | +399 kvar |
+| Reativo Q máximo | 0 kvar | 906 kvar |
 
-O controlador foi validado pelos próprios logs do agente (sinal correto):
-`V = 1,0184 → Q = −277 kvar` (tensão alta ⇒ absorve reativo) e
-`V = 0,9850 → Q = +reativo` (tensão baixa ⇒ injeta reativo). À noite, com a
-solar nula, o inversor atua como **STATCOM** (só reativo), trazendo a tensão
-levemente alta de volta ao nominal. A co-simulação captura o fato de o agente
-agir sobre a tensão **atrasada pela rede** — fenômeno central do benchmark.
+### Observações — baseline × Volt/Var
+
+- **Regulação.** O controle **reduz o espalhamento da tensão em ~33%**
+  (desvio 0,0096 → 0,0065 pu) e **elimina a subtensão**: a tensão mínima sobe de
+  0,989 para 1,002 pu. O perfil fica mais plano ao longo do dia — é o ganho
+  central do Volt/Var.
+- **Sentido do reativo (validado nos logs do agente).** `V = 1,0184 → Q = −277 kvar`
+  (tensão alta ⇒ **absorve** reativo) e `V baixa ⇒ Q > 0` (**injeta**). Como o
+  Bus 632 fica, na maior parte do dia, no limiar inferior da faixa morta, o
+  agente **injeta** reativo com mais frequência (Q médio +399 kvar) e a tensão
+  média sobe levemente (1,009 → 1,014 pu) — aproximando do nominal sem violar o
+  limite superior.
+- **STATCOM à noite.** Com a solar nula (P = 0), toda a capacidade do inversor
+  vira reativa; o PV opera como compensador (STATCOM) e continua regulando a
+  tensão.
+- **Custo do controle.** O reativo chega a ~906 kvar; como `S = √(P²+Q²) ≤ kVA`,
+  isso consome margem de potência aparente do inversor (sem prejuízo da ativa
+  nesta condição, pois a solar de pico no PV2 fica abaixo do kVA).
+- **Efeito da comunicação.** O agente decide sobre a tensão **atrasada pela rede**
+  (latência 32–300 ms, jitter médio 51 ms). O jitter é **estocástico**, então os
+  valores numéricos exatos **variam levemente entre execuções**, mas o efeito
+  qualitativo (redução do espalhamento da tensão) se mantém. Esse é justamente o
+  fenômeno que a co-simulação existe para medir — e por que o ideal de **0% de
+  perda** importa: garante que a decisão use a informação mais íntegra possível.
 
 **O que cada arquivo de `output/integrated/` apresenta** (é o que se leva para
 analisar a simulação):
@@ -180,7 +200,7 @@ analisar a simulação):
 | `result_volt_var.csv` | As mesmas grandezas **com** controle Volt/Var (agora `Q_ref` ≠ 0). | Caso controlado. |
 | `comm_trace_baseline.csv` | Rastro da **rede de comunicação** na execução baseline: a mensagem FIPA com a tensão (`val_out`) e a telemetria do OMNeT++ (`packets_sent/received/dropped`, `latencies_out`, `jitters_out`, `packet_sizes_out`). | Comprova que a tensão trafegou pela rede e mede o atraso. |
 | `comm_trace_volt_var.csv` | Idem para a execução com Volt/Var. | Mesma telemetria, caso controlado. |
-| `dashboard_integrated.png` | Painel visual: (1) tensão baseline×Volt/Var, (2) P ativa e Q reativa do inversor PV2, (3) latência/jitter da comunicação. | Resumo da co-simulação para apresentação. |
+| `dashboard_integrated.png` | Painel visual de 8 quadros, unindo os dois domínios: (1) irradiância solar 5 PVs, (2) temperatura dos módulos, (3) geração FV agregada, (4) tensões p.u. nas 13 barras, (5) integridade de pacotes (entregues×dropados), (6) latência exata, (7) jitter distribuído, (8) efeito do Volt/Var no Bus 632 + reativo. | Resumo da co-simulação para apresentação. |
 
 Cada linha dos `result_*.csv` é um passo de 5 min (288 = 1 dia); cada linha dos
 `comm_trace_*.csv` é a telemetria daquele passo. As colunas com `Bus-632` são as
