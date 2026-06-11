@@ -171,9 +171,27 @@ solar nula, o inversor atua como **STATCOM** (só reativo), trazendo a tensão
 levemente alta de volta ao nominal. A co-simulação captura o fato de o agente
 agir sobre a tensão **atrasada pela rede** — fenômeno central do benchmark.
 
-Saídas em `output/integrated/`: `result_baseline.csv`, `result_volt_var.csv`,
-`comm_trace_baseline.csv`, `comm_trace_volt_var.csv` e o gráfico comparativo
-`comparacao_volt_var.png`.
+**O que cada arquivo de `output/integrated/` apresenta** (é o que se leva para
+analisar a simulação):
+
+| Arquivo | O que contém | Para quê |
+|---|---|---|
+| `result_baseline.csv` | Trajetórias elétricas **sem** controle: tensão das 3 fases do Bus 632, `P_ref` (=solar) e `Q_ref` (=0) do agente, `P_meas`/`Q_meas` injetados no PV2, `P_dc` do painel. | Linha de base (inversor só injeta a solar). |
+| `result_volt_var.csv` | As mesmas grandezas **com** controle Volt/Var (agora `Q_ref` ≠ 0). | Caso controlado. |
+| `comm_trace_baseline.csv` | Rastro da **rede de comunicação** na execução baseline: a mensagem FIPA com a tensão (`val_out`) e a telemetria do OMNeT++ (`packets_sent/received/dropped`, `latencies_out`, `jitters_out`, `packet_sizes_out`). | Comprova que a tensão trafegou pela rede e mede o atraso. |
+| `comm_trace_volt_var.csv` | Idem para a execução com Volt/Var. | Mesma telemetria, caso controlado. |
+| `dashboard_integrated.png` | Painel visual: (1) tensão baseline×Volt/Var, (2) P ativa e Q reativa do inversor PV2, (3) latência/jitter da comunicação. | Resumo da co-simulação para apresentação. |
+
+Cada linha dos `result_*.csv` é um passo de 5 min (288 = 1 dia); cada linha dos
+`comm_trace_*.csv` é a telemetria daquele passo. As colunas com `Bus-632` são as
+tensões por fase (as fases inexistentes do trecho ficam ~0 e são ignoradas).
+
+Gere o painel após rodar o cenário:
+
+```bash
+docker compose run --rm --no-deps -e MOSAIK_OUTPUT_DIR=/app/output/integrated \
+  mosaik python plot_integrated.py     # -> output/integrated/dashboard_integrated.png
+```
 
 ### Validação do bloco elétrico (cenário `ieee13`, isolado)
 

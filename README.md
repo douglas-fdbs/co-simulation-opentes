@@ -22,15 +22,17 @@ limpeza completa do Docker antes/depois (evita o erro `network ... not found`
 causado por containers de profile que o `down` simples não remove):
 
 ```bash
-./run_opentes.sh <cenario>     # star | ieee13 | controller-demo | integrated
+./run_opentes.sh <cenario>     # integrated | star | ieee13
 ```
 
 | Cenário | O que faz | Resultado em |
 |---------|-----------|--------------|
-| `star`            | Comunicação pura: PADE ↔ OMNeT++ (50 agentes em estrela) | `output/star/` |
-| `ieee13`          | Rede elétrica IEEE 13 + 5 PVs + inversores (só elétrico)  | `output/ieee13/` |
-| `controller-demo` | Agente PADE controlando uma bateria (sem comunicação)    | `output/controller_demo/` |
-| `integrated`      | **Acoplamento causal completo** dos 4 containers          | `output/integrated/` |
+| `integrated`      | **Co-simulação completa** dos 4 containers (Volt/Var causal) | `output/integrated/` |
+| `star`            | Comunicação pura: PADE ↔ OMNeT++ (50 agentes em estrela) — teste isolado | `output/star/` |
+| `ieee13`          | Rede elétrica IEEE 13 + 5 PVs + inversores (só elétrico) — teste isolado | `output/ieee13/` |
+
+O `integrated` é **a** simulação (a aplicação); `star` e `ieee13` são bancadas
+de teste isoladas de cada bloco.
 
 ### O cenário integrado (`integrated`) — acoplamento causal Volt/Var
 
@@ -64,19 +66,24 @@ controle; ajuste `omnetpp.ini` para estudar a perda). Registros em
   632, P_ref e Q_ref do agente, injeção P_meas/Q_meas no PV2).
 - `comm_trace_baseline.csv` / `comm_trace_volt_var.csv` — rastro das mensagens
   pela rede OMNeT++ (FIPA com a tensão + telemetria: pacotes, latência, jitter).
-- `comparacao_volt_var.png` — gráfico comparativo (tensão e reativo).
+- `dashboard_integrated.png` — painel visual: tensão (baseline×Volt/Var), P/Q do
+  inversor e tráfego da rede de comunicação.
+
+A tabela completa do que cada arquivo apresenta está em
+[`docs/INTEGRACAO.md`](docs/INTEGRACAO.md#resultados).
 
 Resultado: o Volt/Var leva a tensão média do Bus 632 para mais perto do nominal
-(1,0089 → 1,0011 pu) injetando até 820 kvar. Detalhes em
-[`docs/INTEGRACAO.md`](docs/INTEGRACAO.md#resultados).
+(1,0089 → 1,0011 pu) injetando até 820 kvar.
 
 ## Como rodar
 
 Pré-requisito (uma vez): `docker compose build`.
 
 ```bash
-# acoplamento causal completo (os 4 containers)
+# co-simulação completa (4 containers, Volt/Var): roda baseline + Volt/Var
 ./run_opentes.sh integrated
+docker compose run --rm --no-deps -e MOSAIK_OUTPUT_DIR=/app/output/integrated \
+  mosaik python plot_integrated.py     # output/integrated/dashboard_integrated.png
 
 # rede elétrica IEEE 13 isolada + dashboard
 ./run_opentes.sh ieee13
@@ -84,9 +91,6 @@ docker compose run --rm --no-deps mosaik python plot_ieee13.py   # output/ieee13
 
 # comunicação pura (gera output/star/grafico_trafego.png)
 ./run_opentes.sh star
-
-# controlador de bateria isolado
-./run_opentes.sh controller-demo
 ```
 
 > **Atenção operacional**: os simuladores `--remote` do grid aceitam uma única
@@ -102,10 +106,9 @@ Tudo é gravado em `output/`, separado por cenário:
 output/
 ├── star/             results.csv  +  grafico_trafego.png
 ├── ieee13/           result_run_ieee13_cosim_pv_5min.csv  +  ieee13_dashboard.png
-├── controller_demo/  result_battery_controller_demo.csv
 └── integrated/       result_baseline.csv | result_volt_var.csv
                       comm_trace_baseline.csv | comm_trace_volt_var.csv
-                      comparacao_volt_var.png
+                      dashboard_integrated.png
 ```
 
 ## Coerência dos resultados

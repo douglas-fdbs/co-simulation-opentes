@@ -15,7 +15,6 @@
 # Cenarios:
 #   star             Comunicacao pura: PADE + OMNeT++ (teste isolado)
 #   ieee13           Rede eletrica IEEE 13 Bus + Smart PV (teste isolado)
-#   controller-demo  Agente PADE + bateria (teste isolado, legado)
 #   integrated       CO-SIMULACAO COMPLETA (PADE+OMNeT+++OpenDSS) — Volt/Var.
 #                    Roda DUAS vezes: baseline (sem controle) e Volt/Var (com
 #                    controle), para comparar a eficiencia da co-simulacao.
@@ -27,7 +26,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 SCENARIO="${1:-star}"
-ALL_PROFILES=(--profile ieee13 --profile controller-demo --profile integrated)
+ALL_PROFILES=(--profile ieee13 --profile integrated)
 
 cleanup() {
     docker compose "${ALL_PROFILES[@]}" down --remove-orphans >/dev/null 2>&1 || true
@@ -35,7 +34,7 @@ cleanup() {
     docker network rm opentes-integration_opentes-net >/dev/null 2>&1 || true
 }
 
-mkdir -p output/star output/ieee13 output/controller_demo output/integrated
+mkdir -p output/star output/ieee13 output/integrated
 
 run_integrated_pass() {
     # $1 = tag (nome do arquivo)  |  $2 = CONTROL_ENABLED (0/1)
@@ -61,11 +60,6 @@ case "${SCENARIO}" in
       --exit-code-from mosaik-ieee13 mosaik-ieee13
     RESULT="output/ieee13/  (result_run_ieee13_cosim_pv_5min.csv)"
     ;;
-  controller-demo)
-    docker compose --profile controller-demo up --abort-on-container-exit \
-      --exit-code-from mosaik-controller-demo mosaik-controller-demo
-    RESULT="output/controller_demo/  (result_battery_controller_demo.csv)"
-    ;;
   integrated)
     # duas passadas: sem controle (baseline) e com controle (Volt/Var)
     run_integrated_pass baseline 0
@@ -74,7 +68,7 @@ case "${SCENARIO}" in
     ;;
   *)
     echo "!! cenario desconhecido: '${SCENARIO}'"
-    echo "   use: star | ieee13 | controller-demo | integrated"
+    echo "   use: star | ieee13 | integrated"
     exit 1
     ;;
 esac

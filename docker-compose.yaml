@@ -46,32 +46,6 @@ services:
     networks:
       - opentes-net
 
-  pade-controller:
-    image: opentes/pade:local
-    build:
-      context: ./simulators_teams/pade-opentes
-      dockerfile: Dockerfile
-    container_name: opentes-pade-controller
-    profiles:
-      - controller
-      - controller-demo
-      - integrated
-    environment:
-      - CONTROLLER_HOST=0.0.0.0
-      - CONTROLLER_PORT=5681
-      - AMS_HOST=0.0.0.0
-      - AMS_PORT=8002
-      - CONTROLLER_STEP_SIZE=900
-    expose:
-      - "5681"
-    ports:
-      - "15681:5681"
-    volumes:
-      - ./simulators_teams/pade-opentes/agents:/app/agents
-    command: python3 agents/controller_agent.py
-    networks:
-      - opentes-net
-
   mosaik:
     build:
       context: ./simulators_teams/mosaik-opentes
@@ -105,7 +79,6 @@ services:
     container_name: opentes-elec-collector
     profiles:
       - ieee13
-      - controller-demo
       - integrated
     expose:
       - "5673"
@@ -137,33 +110,6 @@ services:
       - MOSAIK_SCENARIO=scenarios/ieee13_smart_pv.py
       - MOSAIK_OUTPUT_DIR=/app/output/ieee13
       - GRID_DATA_DIR=/grid-data/13Bus
-      - ELEC_COLLECTOR_HOST=elec-collector
-    volumes:
-      - ./simulators_teams/mosaik-opentes:/app
-      - ./output:/app/output
-      - ./simulators_teams/grid-opentes/src/data:/grid-data:ro
-    networks:
-      - opentes-net
-
-  mosaik-controller-demo:
-    image: opentes/mosaik:local
-    build:
-      context: ./simulators_teams/mosaik-opentes
-      dockerfile: Dockerfile
-    container_name: opentes-mosaik-controller-demo
-    profiles:
-      - controller-demo
-    depends_on:
-      - battery
-      - csv-data-1
-      - pade-controller
-      - elec-collector
-    environment:
-      - MOSAIK_SCENARIO=scenarios/battery_controller_demo.py
-      - MOSAIK_OUTPUT_DIR=/app/output/controller_demo
-      - BATTERY_HOST=battery
-      - CSV_CURVE_HOST=csv-data-1
-      - CONTROLLER_HOST_M=pade-controller
       - ELEC_COLLECTOR_HOST=elec-collector
     volumes:
       - ./simulators_teams/mosaik-opentes:/app
@@ -240,13 +186,6 @@ services:
     ports:
       - "5671:5671"
 
-  battery:
-    <<: *tsre-simulator
-    container_name: opentes-grid-battery
-    command: python src/simulators/battery_sim.py --remote 0.0.0.0:5672
-    ports:
-      - "5672:5672"
-
   csv-data-1:
     <<: *tsre-simulator
     container_name: opentes-grid-csv-data-1
@@ -261,26 +200,12 @@ services:
     ports:
       - "5676:5676"
 
-  inverter-std:
-    <<: *tsre-simulator
-    container_name: opentes-grid-inverter-std
-    command: python src/simulators/inverter_simulator.py --remote 0.0.0.0:5677
-    ports:
-      - "5677:5677"
-
   pv-panel:
     <<: *tsre-simulator
     container_name: opentes-grid-pv-panel
     command: python src/simulators/pv_panel_simulator.py --remote 0.0.0.0:5678
     ports:
       - "5678:5678"
-
-  regulator:
-    <<: *tsre-simulator
-    container_name: opentes-grid-regulator
-    command: python src/simulators/regulator_control.py --remote 0.0.0.0:5679
-    ports:
-      - "5679:5679"
 
   smart-inverter:
     <<: *tsre-simulator
