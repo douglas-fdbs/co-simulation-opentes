@@ -673,3 +673,65 @@ Validacao de coerencia (IEEE 13, 1 dia, 5 min):
   (enter-service do IEEE 1547 / realimentacao de tensao). A injecao que
   aparece no OpenDSS (P_meas) vem da loadshape interna do PVSystem (Daily=),
   nao do inversor co-simulado. O acoplamento inversor->rede ainda nao fecha.
+
+
+15. Sessao 2026-06-11: acoplamento causal (OpenDSS <-> OMNeT++ <-> PADE)
+-----------------------------------------------------------------------
+
+Objetivo: sair da COEXISTENCIA (dois nucleos rodando no mesmo relogio, mas sem
+um influenciar o outro) para o ACOPLAMENTO CAUSAL, fechando o laco do benchmark:
+a tensao da rede trafega pela comunicacao simulada, o agente decide, e a decisao
+volta a alterar a rede.
+
+Premissa (pedido do Douglas): NAO criar componentes novos; apenas ADAPTAR o que
+ja existe e descobrir os pontos de ligacao. O first.py do TSCC ja unia
+PADE+OMNeT+++Mosaik+collector -> bastava aderir a rede eletrica a ele.
+
+Caminho adotado (evolucao do first.py, zero arquivo novo):
+- AgenteA (medidor): adaptacao do agente do first.py
+  (agent_example_1_mosaik_updated.py). Passou a ler a tensao do Bus-632 (V_in,
+  media das 3 fases) e publica-la como mensagem FIPA-ACL na rede OMNeT++.
+- AgenteB (controlador): mesmo agente, outro papel. Recebe a tensao JA ATRASADA
+  pela rede (val_in), aplica Volt/Watt (V>1.02 -> carrega/absorve;
+  V<0.98 -> descarrega/injeta) e devolve P_ref.
+- first.py: evoluido para o cenario causal. Mantida a rota de comunicacao do
+  original (AgenteA -> OMNeT++ -> AgenteB) e ligadas as duas pontas ao OpenDSS:
+    Ponte 1 (observacao): Bus-632 -> AgenteA   (time_shifted: o medidor reporta
+      o ultimo estado resolvido; tambem quebra o ciclo p/ o Mosaik)
+    Ponte 2 (atuacao):    AgenteB -> bateria -> PVSystem.PV2 -> OpenDSS
+  Feedback de SoC bateria -> AgenteB (time_shifted).
+
+Validacao (288 passos x 5 min):
+- Laco fechado e CAUSAL. Correlacao P_out(bateria) x P_meas(PV2 no OpenDSS) =
+  -1.0, provando que a decisao do agente altera o estado da rede (nao e so
+  registro). Logs dos agentes confirmam: V>1.02 -> CARGA; V<0.98 -> DESCARGA.
+- Registro da comunicacao (comm_trace.csv): 2304 registros / 288 passos, com as
+  mensagens FIPA carregando V_meas e a telemetria de rede. A rede OMNeT++ aplica
+  perda de pacotes (~17% no dia) -> a comunicacao real degrada o sinal de
+  controle, que e o ponto do benchmark.
+- IEEE 13 isolado reproduz EXATAMENTE o resultado de referencia do Paulo Victor
+  (P_dc=3024.6, P_ac=2854.2, P_meas=1902.7 kW de pico). Observacao: com as
+  loadshapes corrigidas (secao 13/14), o inversor agora injeta P_ac != 0 -- o
+  problema "P_ac=0" relatado antes era consequencia dos PVSystems nao carregarem,
+  nao do modelo OpenDER.
+
+Reorganizacao de resultados:
+- output/ passou a separar por cenario: output/{star,ieee13,controller_demo,
+  integrated}/. comm_collector aceita output_file; cada cenario aponta para sua
+  subpasta; run_opentes.sh cria as subpastas.
+
+Remocoes / limpeza:
+- examples/ (mosaik-docker-example, tscc-mosaik-compat, legacy-tscc-docker).
+- pade-opentes/docker/, docker-compose.yml, docker-compose-dev.yml (heranca do PADE).
+- dso_agent.py e ieee13_integrated.py: tentativas anteriores (com terminologia
+  "DSO" e cenario separado), substituidas pela evolucao do first.py. Sem DSO.
+- controller_agent.py mantido limpo (modo curva), usado pelo controller-demo.
+
+Compose:
+- service pade-integrated roda agent_example_1_mosaik_updated.py (AgenteA+AgenteB).
+- service mosaik-integrated roda scenarios/first.py.
+
+Limitacao conhecida (ajuste futuro, nao e falha de integracao):
+- A bateria de 50 kW fecha o laco corretamente, mas e pequena demais para mover
+  visivelmente a tensao do alimentador. O MECANISMO esta provado (correlacao
+  -1.0); a EFETIVIDADE do controle depende de dimensionamento/ganho.

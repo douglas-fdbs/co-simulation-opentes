@@ -1,111 +1,107 @@
-# OpenTES Co-simulation Integration
+# OpenTES — Co-simulação multidomínio (PADE + OMNeT++ + Mosaik + OpenDSS)
 
-Este repositório passa a ser o agregador dos componentes usados na etapa
-inicial de integração do OpenTES.
+Repositório agregador da integração dos times **TSCC** (comunicação/co-simulação),
+**TTESO** (agentes PADE) e **TSRE** (rede elétrica), tendo o **IEEE 13 Barras**
+como benchmark. O Mosaik é o orquestrador temporal ("maestro"); toda a informação
+elétrica trafega pela rede de comunicação simulada no OMNeT++, de modo que
+latência, jitter e perda de pacotes sejam contabilizados.
 
-## Estrutura
+## Estrutura — 4 containers funcionais
 
-A integração é organizada em **4 containers funcionais**:
+| Container | Pasta | Papel |
+|-----------|-------|-------|
+| `comm`   | `simulators_teams/comm-opentes`   | Rede de comunicação (OMNeT++ + bridge ZMQ) |
+| `pade`   | `simulators_teams/pade-opentes`   | Agentes PADE (Python 3.12) |
+| `mosaik` | `simulators_teams/mosaik-opentes` | Orquestrador Mosaik + cenários + collectors |
+| `grid`   | `simulators_teams/grid-opentes`   | Rede elétrica IEEE 13 (OpenDSS via `py-dss-interface`) |
 
-- `simulators_teams/comm-opentes`: simulador de comunicação OMNeT++ + bridge ZMQ.
-- `simulators_teams/pade-opentes`: runtime PADE (Python 3.12) + agentes.
-- `simulators_teams/mosaik-opentes`: engine Mosaik, cenários e collectors (telemetria de rede + dados elétricos).
-- `simulators_teams/grid-opentes`: rede elétrica + DERs (OpenDSS via `py-dss-interface`).
-- `examples/mosaik-docker-example`: conteúdo original do `co-simulation-opentes`, mantido como referência de dockerização simples.
-- `examples/tscc-mosaik-compat`: probe de compatibilidade do adaptador Mosaik (comm + collector).
-- `examples/legacy-tscc-docker`: arquivos Docker antigos do TSCC (histórico de migração).
-- `docs/`: documentação consolidada da integração.
+## Cenários disponíveis
 
-## Docker
-
-O `docker-compose.yaml` da raiz concentra os 4 serviços principais + os simuladores remotos do TSRE:
-
-- **Comunicação**: `comm` (OMNeT++)
-- **Agentes**: `pade`
-- **Cenário Mosaik**: `mosaik` (engine + collectors)
-- **Rede elétrica (TSRE)**: imagem única instanciada como `opendss`, `battery`, `controller`,
-  `csv-data-1`, `csv-data-2`, `inverter-std`, `pv-panel`, `regulator`, `smart-inverter`
-
-Comandos úteis:
+A forma recomendada de executar é pelo script `run_opentes.sh`, que faz a
+limpeza completa do Docker antes/depois (evita o erro `network ... not found`
+causado por containers de profile que o `down` simples não remove):
 
 ```bash
-docker compose build
-docker compose up comm pade mosaik
-docker compose up -d opendss battery csv-data-1 csv-data-2 inverter-std pv-panel regulator smart-inverter
+./run_opentes.sh <cenario>     # star | ieee13 | controller-demo | integrated
 ```
 
-O controle de bateria, antes em `grid-opentes/src/simulators/controller_sim.py`,
-migrou para um agente PADE em `pade-opentes/agents/controller_agent.py`. Ele
-sobe como serviço opcional `pade-controller` via profile:
+| Cenário | O que faz | Resultado em |
+|---------|-----------|--------------|
+| `star`            | Comunicação pura: PADE ↔ OMNeT++ (50 agentes em estrela) | `output/star/` |
+| `ieee13`          | Rede elétrica IEEE 13 + 5 PVs + inversores (só elétrico)  | `output/ieee13/` |
+| `controller-demo` | Agente PADE controlando uma bateria (sem comunicação)    | `output/controller_demo/` |
+| `integrated`      | **Acoplamento causal completo** dos 4 containers          | `output/integrated/` |
 
-```bash
-docker compose --profile controller up pade-controller
+### O cenário integrado (`integrated`) — acoplamento causal
+
+Evolução do `mosaik-opentes/scenarios/first.py` (que já unia PADE+OMNeT+++Mosaik),
+agora fechando o laço com o OpenDSS:
+
+```
+OpenDSS resolve V  ──►  AgenteA (medidor) lê a tensão do Bus-632
+                              │  publica mensagem FIPA-ACL
+                              ▼
+                        OMNeT++  (latência / jitter / perda de pacotes)
+                              │  tensão chega ATRASADA
+                              ▼
+                        AgenteB (controlador) aplica Volt/Watt → P_ref
+                              │
+                              ▼
+                        bateria ──► PVSystem.PV2 ──► OpenDSS muda a injeção
+                              │
+                              └────► (próximo passo: nova V) — laço fecha
 ```
 
-O agente expõe a porta Mosaik `5681` (publicada como `15681` no host). Cenários
-Mosaik conectam via `'BatteryController': {'connect': 'pade-controller:5681'}`.
+Dois registros são gerados em `output/integrated/`:
 
-### Cenário IEEE 13 Bus com Smart PV (`ieee13`)
+- `result_ieee13_integrated.csv` — trajetórias elétricas (V de 632, P_ref do
+  agente, SoC e P_out da bateria, injeção P_meas no PV2).
+- `comm_trace.csv` — rastro das mensagens pela rede OMNeT++ (mensagens FIPA com a
+  tensão + telemetria: pacotes enviados/recebidos/perdidos, latência, jitter).
 
-Absorvido do upstream `grei-ufc/tsre-der-opentes` (branch `paulo-victor`) e
-adaptado para a topologia de 4 containers. Rede elétrica IEEE 13 + 5 PVs +
-inversores, com collector elétrico remoto. Roda via profile `ieee13`:
+## Como rodar
 
-```bash
-docker compose --profile ieee13 up --abort-on-container-exit \
-  --exit-code-from mosaik-ieee13 mosaik-ieee13
-```
-
-Resultado em `output/result_run_ieee13_cosim_pv_5min.csv` (288 passos, 66 colunas).
-Dashboard pós-simulação: `docker compose run --rm --no-deps mosaik python plot_ieee13.py`.
-
-> Nota: as loadshapes do IEEE 13 PV são geradas por
-> `simulators_teams/grid-opentes/src/simulators/gen_pv_loadshapes.py` a partir
-> dos CSVs (o upstream não as fornecia). Ver `docs/ALTERACOES_INTEGRACAO.txt` seção 13.
-
-### Demo do controlador PADE (`controller-demo`)
-
-Exercita o agente `BatteryControllerAgent` em loop fechado com uma bateria:
+Pré-requisito (uma vez): `docker compose build`.
 
 ```bash
-docker compose --profile controller-demo up --abort-on-container-exit \
-  --exit-code-from mosaik-controller-demo mosaik-controller-demo
-```
+# acoplamento causal completo (os 4 containers)
+./run_opentes.sh integrated
 
-### Cenário integrado dos 4 containers (`integrated`)
+# rede elétrica IEEE 13 isolada + dashboard
+./run_opentes.sh ieee13
+docker compose run --rm --no-deps mosaik python plot_ieee13.py   # output/ieee13/ieee13_dashboard.png
 
-Roda comunicação (OMNeT++/PADE) **e** rede elétrica (IEEE 13 PV) no mesmo mundo
-Mosaik, usando os 4 simulators_teams:
+# comunicação pura (gera output/star/grafico_trafego.png)
+./run_opentes.sh star
 
-```bash
-docker compose --profile integrated up --abort-on-container-exit \
-  --exit-code-from mosaik-integrated mosaik-integrated
+# controlador de bateria isolado
+./run_opentes.sh controller-demo
 ```
 
 > **Atenção operacional**: os simuladores `--remote` do grid aceitam uma única
-> conexão Mosaik e encerram após. Cada execução precisa de containers de
-> simulador frescos. Não sondar as portas `--remote` com TCP de readiness (isso
+> conexão Mosaik e encerram após. Por isso o `run_opentes.sh` sempre sobe
+> containers frescos. Não sondar as portas `--remote` com TCP de readiness (isso
 > consome a conexão e mata o simulador) — sondar apenas o `comm` (5555, ZMQ).
 
-Para o cenário Docker do TSRE, suba os simuladores TSRE e rode o cenário no host:
+## Onde observar os resultados
 
-```bash
-cd simulators_teams/grid-opentes
-uv run --no-sync python src/scenarios/cenariodocker.py
+Tudo é gravado em `output/`, separado por cenário:
+
+```
+output/
+├── star/             results.csv  +  grafico_trafego.png
+├── ieee13/           result_run_ieee13_cosim_pv_5min.csv  +  ieee13_dashboard.png
+├── controller_demo/  result_battery_controller_demo.csv
+└── integrated/       result_ieee13_integrated.csv  +  comm_trace.csv
 ```
 
-Mais contexto está em `docs/INTEGRACAO.md`.
+## Coerência dos resultados
 
-## Ambiente local
+O IEEE 13 reproduz **exatamente** os valores do cenário de referência do TSRE
+(Paulo Victor, branch `paulo-victor`): geração `P_dc` ≈ 3024,6 kW, `P_ac` ≈
+2854,2 kW e `P_meas` ≈ 1902,7 kW de pico. As tensões ficam na faixa esperada do
+IEEE 13 desbalanceado (barra 650/fonte em 1,0 pu; barras trifásicas 0,91–1,05 pu;
+fases inexistentes de trechos monofásicos em 0,0).
 
-Para instalar os componentes Python em uma `.venv` única:
-
-```bash
-uv sync
-```
-
-Probe de compatibilidade TSCC/Mosaik:
-
-```bash
-uv run python examples/tscc-mosaik-compat/check_tscc_mosaik_compat.py
-```
+Mais contexto técnico em `docs/INTEGRACAO.md` e no histórico de
+`docs/ALTERACOES_INTEGRACAO.txt`.

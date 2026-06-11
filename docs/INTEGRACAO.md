@@ -33,13 +33,9 @@ entre domínios de simulação:
   Equivalente ao antigo `tsre-der-opentes` do time TSRE, sem o collector (que
   migrou para `mosaik-opentes`). O nome do diretório passou a refletir o
   conteúdo (rede elétrica) em vez do nome do time.
-- `examples/mosaik-docker-example`: exemplo original do repositório, preservado
-  como referência simples de dockerização.
-- `examples/tscc-mosaik-compat`: probe reutilizável para verificar a
-  compatibilidade do adaptador Mosaik (comm + collector) com a versão de
-  Mosaik instalada.
-- `examples/legacy-tscc-docker`: arquivos Docker antigos do TSCC, mantidos apenas
-  como memória de migração (inclui o `Dockerfile.multistage` da etapa anterior).
+
+A pasta `examples/` (exemplos e legados de dockerização do TSCC) foi removida em
+2026-06-11 por não fazer parte do runtime. Ver `ALTERACOES_INTEGRACAO.txt`.
 
 ## Decisões Técnicas
 
