@@ -6,7 +6,7 @@ readme = "README.md"
 requires-python = ">=3.12.11"
 dependencies = [
     "pade-agents",
-    "tsre-der-opentes",
+    "grid-opentes",
     "mosaik==3.5.0",
     "mosaik-api==3.0.6",
     "mosaik-api-v3>=3.0.13,<3.1",
@@ -26,5 +26,5 @@ dependencies = [
 package = false
 
 [tool.uv.sources]
-pade-agents = { path = "simulators_teams/tteso-tes-opentes", editable = true }
-tsre-der-opentes = { path = "simulators_teams/tsre-der-opentes", editable = true }
+pade-agents = { path = "simulators_teams/pade-opentes", editable = true }
+grid-opentes = { path = "simulators_teams/grid-opentes", editable = true }
