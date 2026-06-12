@@ -150,7 +150,10 @@ Script unico de execucao (./run_opentes.sh <cenario>: integrated | star | ieee13
 8. Saidas organizadas por cenario (output/)
 --------------------------------------------
   output/integrated/  -> result_{baseline,volt_var}.csv, comm_trace_{...}.csv,
-                         dashboard_integrated.png
+                         dashboard_integrated.png (8 quadros), e duas figuras
+                         dedicadas (plot_comparacao.py): comparacao_volt_var.png
+                         (controle atuando x nao) e analise_comunicacao.png
+                         (latencia/jitter/integridade/pacotes acumulados)
   output/ieee13/      -> result_run_ieee13_cosim_pv_5min.csv, ieee13_dashboard.png
   output/star/        -> results.csv, grafico_trafego.png
 

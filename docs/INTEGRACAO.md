@@ -192,6 +192,8 @@ violação de tensão?).
 | `comm_trace_baseline.csv` | Rastro da **rede de comunicação** na execução baseline: a mensagem FIPA com a tensão (`val_out`) e a telemetria do OMNeT++ (`packets_sent/received/dropped`, `latencies_out`, `jitters_out`, `packet_sizes_out`). | Comprova que a tensão trafegou pela rede e mede o atraso. |
 | `comm_trace_volt_var.csv` | Idem para a execução com Volt/Var. | Mesma telemetria, caso controlado. |
 | `dashboard_integrated.png` | Painel visual de 8 quadros, unindo os dois domínios: (1) irradiância solar 5 PVs, (2) temperatura dos módulos, (3) geração FV agregada, (4) tensões p.u. nas 13 barras, (5) integridade de pacotes (pizza entregues×dropados), (6) latência exata, (7) jitter distribuído, (8) efeito do Volt/Var nas 5 barras PV. | Resumo da co-simulação para apresentação. |
+| `comparacao_volt_var.png` | Figura dedicada do controle **atuando × não atuando**: tensão de cada barra PV (baseline vs Volt/Var), σ e mínima por barra, e o ganho resumido em p.u. | Mostrar com clareza o efeito do controle. |
+| `analise_comunicacao.png` | Caracterização da rede: histogramas de **latência** e **jitter**, **integridade** dos pacotes (pizza) e pacotes **acumulados** (enviados/entregues/dropados). | Descrever a qualidade do canal. |
 
 Cada linha dos `result_*.csv` é um passo de 5 min (288 = 1 dia); cada linha dos
 `comm_trace_*.csv` é a telemetria daquele passo. As colunas `Bus-<nó>-V*_pu` são
@@ -203,6 +205,8 @@ Gere o painel após rodar o cenário:
 ```bash
 docker compose run --rm --no-deps -e MOSAIK_OUTPUT_DIR=/app/output/integrated \
   mosaik python plot_integrated.py     # -> output/integrated/dashboard_integrated.png
+docker compose run --rm --no-deps -e MOSAIK_OUTPUT_DIR=/app/output/integrated \
+  mosaik python plot_comparacao.py     # -> comparacao_volt_var.png + analise_comunicacao.png
 ```
 
 ### Validação do bloco elétrico (cenário `ieee13`, isolado)

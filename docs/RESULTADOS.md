@@ -161,6 +161,56 @@ faixa cinza é a zona morta. Onde a sólida está **mais próxima de 1,0 / mais
 "puxada para dentro"** que a pontilhada, o controle **regulou** a tensão. O
 efeito é maior na barra mais crítica (652): a mínima sobe de **0,920 → 0,938 pu**.
 
+### 1.4. Figuras dedicadas de comparação e análise
+
+Além do dashboard de 8 quadros, há duas figuras **focadas** (mais legíveis para
+a apresentação), geradas por `plot_comparacao.py`:
+
+**`comparacao_volt_var.png` — o controle atuando × não atuando.** É a resposta
+direta a "qual a diferença, em p.u., do Volt/Var ligado vs desligado":
+
+- *Linha de cima* — um quadro por barra PV (646, 632, 634, 645, 652). Em cada um,
+  a curva **vermelha tracejada** é SEM controle e a **verde sólida** é COM
+  Volt/Var. A faixa cinza é a zona morta; a linha pontilhada inferior é o limite
+  ANEEL (0,95 pu). Onde a verde está **acima** da vermelha, o controle deu
+  **suporte de tensão** (injetou reativo e levantou a barra subtensão).
+- *Embaixo, à esquerda* — **desvio-padrão (σ) da tensão por barra**, vermelho
+  (sem) vs verde (com). Barra verde mais baixa = tensão **menos oscilante** =
+  controle regulando. **↓ é melhor.**
+- *Embaixo, ao centro* — **tensão mínima do dia por barra**. Barra verde mais
+  alta = o controle **tirou a barra do fundo do poço** (afastou da subtensão).
+  **↑ é melhor.**
+- *Embaixo, à direita* — resumo: **σ médio −10%** (0,0248 → 0,0224 pu) e a mínima
+  crítica do Bus 652 subindo **0,920 → 0,938 pu**, sem criar sobretensão.
+
+> Por que o efeito é "modesto"? O ganho é **propositalmente suave**
+> (`Q_MAX_PCT = 0,05`). Com 5 inversores agindo juntos sob atraso/perda de rede,
+> um ganho agressivo desestabiliza (chegou a ~1,12 pu nos testes). O valor da
+> figura é mostrar que, mesmo suave, o controle **mede melhora consistente** em
+> todas as barras — e que comunicação ruim limita o quão agressivo dá para ser.
+
+**`analise_comunicacao.png` — caracterização da rede de comunicação.** Quatro
+quadros que descrevem a **qualidade do canal** que o controle enfrenta (é a
+mesma rede no baseline e no Volt/Var — mesma semente —, então caracterizamos uma
+execução, não comparamos as duas):
+
+- *Histograma de latência* — distribuição do atraso de entrega. Concentrado nos
+  valores baixos com **cauda à direita** (média ~81 ms): a maioria chega rápido,
+  alguns poucos demoram muito (fila/congestionamento momentâneo).
+- *Histograma de jitter* — distribuição do atraso aleatório extra. Média ~53 ms,
+  **coerente com o parâmetro** `jitter_mean = 0,05 s` do modelo — ou seja, a
+  figura **valida** que o OMNeT++ está aplicando o atraso configurado.
+- *Pizza de integridade* — dos **730** pacotes enviados, **594 entregues
+  (81,4%)** e **136 dropados (18,6%)**. Reflete o `drop_probability = 0,15`
+  (a perda observada flutua em torno dos 15% por ser **estocástica**).
+- *Pacotes acumulados* — três linhas no tempo: **enviados** (azul, sobe até 730),
+  **entregues** (verde = enviados − dropados) e **dropados** (vermelho). O **vão
+  entre a azul e a verde é exatamente a perda** acumulada ao longo do dia.
+
+> Detalhe de leitura: no `comm_trace`, `packets_received` espelha `packets_sent`
+> (todo pacote "chega" ao nó e o descarte é marcado à parte). Por isso o
+> **entregue real** é sempre `enviados − dropados`, e é assim que a figura conta.
+
 ---
 
 ## 2. `output/ieee13/` — teste isolado da rede elétrica
@@ -198,6 +248,10 @@ Roda **só** a comunicação (50 agentes PADE conversando em estrela via OMNeT++
 # dashboard do cenário integrado (após ./run_opentes.sh integrated)
 docker compose run --rm --no-deps -e MOSAIK_OUTPUT_DIR=/app/output/integrated \
   mosaik python plot_integrated.py
+
+# figuras dedicadas: comparacao_volt_var.png + analise_comunicacao.png
+docker compose run --rm --no-deps -e MOSAIK_OUTPUT_DIR=/app/output/integrated \
+  mosaik python plot_comparacao.py
 
 # dashboard do ieee13 isolado (após ./run_opentes.sh ieee13)
 docker compose run --rm --no-deps mosaik python plot_ieee13.py

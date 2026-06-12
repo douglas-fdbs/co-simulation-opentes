@@ -72,9 +72,14 @@ Registros em `output/integrated/`:
   irradiância (5 PVs), temperatura, geração FV agregada, tensões das 13 barras,
   integridade de pacotes (pizza entregues×dropados), latência exata, jitter
   distribuído e o efeito do Volt/Var nas 5 barras PV.
+- `comparacao_volt_var.png` — figura dedicada do controle atuando × não atuando
+  (tensão por barra, σ e mínima por barra, resumo do ganho em p.u.).
+- `analise_comunicacao.png` — caracterização da rede: histogramas de latência e
+  jitter, integridade dos pacotes e pacotes acumulados.
 
 A tabela completa do que cada arquivo apresenta está em
-[`docs/INTEGRACAO.md`](docs/INTEGRACAO.md#resultados).
+[`docs/INTEGRACAO.md`](docs/INTEGRACAO.md#resultados); o guia didático de cada
+figura está em [`docs/RESULTADOS.md`](docs/RESULTADOS.md).
 
 Resultado: o Volt/Var dá **suporte de tensão** — eleva as barras subtensionadas
 (Bus 652: mínima 0,920 → 0,938 pu) e reduz o desvio em até 19% (média −10%), de
@@ -92,6 +97,8 @@ Pré-requisito (uma vez): `docker compose build`.
 ./run_opentes.sh integrated
 docker compose run --rm --no-deps -e MOSAIK_OUTPUT_DIR=/app/output/integrated \
   mosaik python plot_integrated.py     # output/integrated/dashboard_integrated.png
+docker compose run --rm --no-deps -e MOSAIK_OUTPUT_DIR=/app/output/integrated \
+  mosaik python plot_comparacao.py     # comparacao_volt_var.png + analise_comunicacao.png
 
 # rede elétrica IEEE 13 isolada + dashboard
 ./run_opentes.sh ieee13
@@ -117,6 +124,7 @@ output/
 └── integrated/       result_baseline.csv | result_volt_var.csv
                       comm_trace_baseline.csv | comm_trace_volt_var.csv
                       dashboard_integrated.png
+                      comparacao_volt_var.png | analise_comunicacao.png
 ```
 
 O **guia didático** de cada arquivo (coluna a coluna, linha a linha) e de cada
