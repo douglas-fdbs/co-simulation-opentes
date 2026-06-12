@@ -18,50 +18,43 @@ payloads com semântica elétrica e de controle.
 
 ## Estrutura
 
-A integração foi reorganizada em **4 containers funcionais**, refletindo a divisão
-entre domínios de simulação:
+A integração é organizada em **4 containers funcionais** (nomes refletem a
+função, não o time de origem):
 
-- `simulators_teams/comm-opentes`: simulação de comunicação (OMNeT++ + bridge ZMQ).
-  Conteúdo migrado de `tscc-com-opentes/omnet-dir`.
+- `simulators_teams/comm-opentes`: rede de comunicação (OMNeT++ + bridge ZMQ).
 - `simulators_teams/pade-opentes`: runtime PADE (Python 3.12) + agentes.
-  Resultado da fusão de `tteso-tes-opentes` (lib PADE) com
-  `tscc-com-opentes/pade-dir/pade_agents` (scripts dos agentes).
-- `simulators_teams/mosaik-opentes`: engine Mosaik, `scenarios/` e `collectors/`.
-  Concentra o cenário de comunicação (era `tscc-com-opentes/mosaik-dir`) e o
-  collector elétrico do TSRE (era `tsre-der-opentes/src/simulators/collector.py`).
-- `simulators_teams/grid-opentes`: rede elétrica + simuladores DER remotos.
-  Equivalente ao antigo `tsre-der-opentes` do time TSRE, sem o collector (que
-  migrou para `mosaik-opentes`). O nome do diretório passou a refletir o
-  conteúdo (rede elétrica) em vez do nome do time.
+- `simulators_teams/mosaik-opentes`: engine Mosaik + `scenarios/` + `collectors/`.
+- `simulators_teams/grid-opentes`: rede elétrica IEEE 13 (OpenDSS + DERs).
+
+Proveniência: o conteúdo vem dos repos dos times — TSCC (comunicação) foi
+fragmentado em `comm-opentes` (OMNeT++) + agentes em `pade-opentes` + cenário e
+collectors em `mosaik-opentes`; TTESO contribuiu com a lib PADE (`pade-opentes`);
+TSRE virou `grid-opentes`. Detalhes no changelog `docs/ALTERACOES_INTEGRACAO.txt`.
 
 ## Decisões Técnicas
 
-- O repositório raiz é o agregador dos componentes usados nesta etapa.
-- Os `.git` internos dos repositórios importados foram removidos para que o
-  agregador versione a base integrada.
-- A topologia passou de **3 Dockerfiles multi-uso** para **4 Dockerfiles
-  funcionais**, um por container principal (comm, pade, mosaik, tsre).
-- O cenário Mosaik (`scenarios/star.py`) e os collectors (`collectors/comm_collector.py`,
-  `collectors/elec_collector.py`) vivem em `mosaik-opentes`. O `comm_collector` salva
-  telemetria de rede (packets, latências, jitter via `mosaik_api_v3`); o
-  `elec_collector` salva dados elétricos com timestamp (`mosaik_api` legado).
-- O controle de bateria foi migrado para um **agente PADE**
-  (`pade-opentes/agents/controller_agent.py`, classe `BatteryControllerAgent`).
-  O simulador Mosaik original (`controller_sim.py`) foi arquivado em
-  `grid-opentes/src/simulators/old/`. O novo agente preserva a interface
-  Mosaik com o mesmo modelo `BatteryController` (params/attrs idênticos) e
-  abre caminho para coordenação distribuída via FIPA-ACL futuramente. Para
-  subir o serviço opt-in: `docker compose --profile controller up pade-controller`.
-- O `mosaik_driver.py` do PADE (classe `MosaikCon`) é a ponte oficial entre
-  agentes PADE e Mosaik. Foi atualizado para Mosaik 3 e usado pelo `pade_star.py`.
-- A versão comum de Mosaik é `3.5.0`, porque o TSRE já estava alinhado nela e o
-  cenário de comunicação foi validado nessa versão.
-- O `py-dss-interface>=2.3.0` é usado diretamente no Linux. A versão atual
-  fornece wheels Linux, dispensando a compilação manual da engine OpenDSS.
-- A porta interna `5678` do PADE é publicada como `15678` no host para evitar
-  conflito com o serviço `pv-panel` do TSRE.
-- Variáveis de ambiente `OMNET_HOST`, `OMNET_PORT`, `PADE_HOST`, `PADE_PORT`
-  permitem ajustar destinos sem editar código nos cenários.
+- O repositório raiz é o agregador; os `.git` internos dos repos importados
+  foram removidos para o agregador versionar a base integrada.
+- Topologia de **4 containers funcionais** (`comm`, `pade`, `mosaik`, `grid`),
+  um Dockerfile por container.
+- Os collectors vivem em `mosaik-opentes/collectors/`: `comm_collector.py`
+  (telemetria de rede via `mosaik_api_v3`) e `elec_collector.py` (dados elétricos
+  com timestamp, `mosaik_api` legado, roda como container remoto).
+- O controle do TSRE foi trazido para os **agentes PADE**. Na aplicação do
+  IEEE 13 **não há bateria**: o atuador é o **inversor fotovoltaico**, com
+  controle **Volt/Var** (o agente recebe a tensão e calcula P e Q). O ganho é
+  configurável (`Q_MAX_PCT`, `V_DEADBAND`) e o padrão é **suave**, porque ganho
+  alto + vários inversores + atraso/perda da rede desestabiliza (ver Resultados).
+- O `mosaik_driver.py` do PADE (classe `MosaikCon`) é a ponte oficial PADE↔Mosaik
+  (atualizada para Mosaik 3).
+- Mosaik padronizado em `3.5.0`; `py-dss-interface>=2.3.0` (wheels Linux,
+  dispensa compilar a engine OpenDSS).
+- Portas internas dos PADE publicadas deslocadas no host (ex.: `15678`) para
+  evitar conflito com os simuladores do `grid`.
+- Hosts/portas dos componentes são parametrizados por variáveis de ambiente
+  (ex.: `PADE_HOST`, `OMNET_HOST`), sem editar os cenários.
+
+O changelog técnico completo está em `docs/ALTERACOES_INTEGRACAO.txt`.
 
 ## Ambiente Python
 
@@ -82,44 +75,14 @@ container do TSCC.
 
 ## Docker
 
-Build geral:
+Build (uma vez): `docker compose build`. A execução recomendada é pelo
+`run_opentes.sh` (faz limpeza completa e espera o `comm` compilar):
 
 ```bash
-docker compose build
+./run_opentes.sh integrated   # co-simulação completa (baseline + Volt/Var)
+./run_opentes.sh ieee13       # rede elétrica isolada (validação)
+./run_opentes.sh star         # comunicação isolada
 ```
-
-Smoke integrado do fluxo PADE↔Mosaik↔OMNeT++:
-
-```bash
-docker compose up --abort-on-container-exit --exit-code-from mosaik mosaik
-docker compose down --remove-orphans
-```
-
-Validação do cenário IEEE 13 do TSRE em container:
-
-```bash
-docker compose run --rm --no-deps opendss python -u /app/src/scenarios/opendss_scenario.py
-docker compose down --remove-orphans
-```
-
-O `docker compose down` é importante porque os serviços auxiliares (`comm`,
-`pade`) podem continuar vivos após o encerramento do cenário `mosaik`.
-
-## Testes Executados (etapa anterior, em 3 Dockerfiles)
-
-- Imports gerais do ambiente Python integrado.
-- Imports dos módulos TSCC/Mosaik, TSCC/PADE e TSRE.
-- `pade version`, retornando PADE `3.0`.
-- OpenDSS IEEE 13 direto via `py-dss-interface`, convergindo no Linux.
-- Cenário TSRE `opendss_scenario.py`, local e em container, com 144 passos de
-  10 minutos.
-- Probe TSCC com PADE falso e com PADE real remoto.
-- Compile-test do modelo OMNeT++ com ZMQ.
-- Smoke integrado TSCC com PADE, Mosaik e OMNeT++ por 20 passos e 50 periféricos.
-
-Após a reorganização para **4 containers**, os mesmos testes precisam ser
-re-validados nos novos serviços `comm`, `pade`, `mosaik` e `tsre`. Ver
-`docs/ALTERACOES_INTEGRACAO.txt` seção 9 para o registro da mudança.
 
 Artefatos como `results.csv`, `grafico_trafego.png`, `sim_exec`, `out/` e
 saídas do OpenDSS são produtos de simulação e estão no `.gitignore`.
@@ -195,8 +158,32 @@ agregada (Σ P_meas): pico ≈ 4,5 MW.
 - **STATCOM à noite.** Com a solar nula (P = 0), toda a capacidade do inversor
   vira reativa; o PV opera como compensador e continua dando suporte de tensão.
 
-**O que cada arquivo de `output/integrated/` apresenta** (é o que se leva para
-analisar a simulação):
+### A perda de pacotes é parâmetro, não resultado
+
+O `drop_probability = 0,15` (modelo do TSCC) é **fenomenológico**: a cada pacote
+sorteia-se a perda com 15% de chance. Isso reproduz o *efeito estatístico* da
+perda, mas **não modela a causa** — na realidade um pacote se perde por
+congestionamento, colisão, ruído, timeout ou enlace saturado. Ou seja, a perda
+real **emerge** das condições da rede; ela é uma **saída**, não uma entrada.
+
+Nesta rede curta do IEEE 13, com pouquíssimas mensagens, a perda física real
+seria ~0%; os 15% aqui funcionam como **teste de estresse / análise de
+sensibilidade** (varrer 0%, 5%, 15%… e medir o impacto no controle).
+
+Quando o projeto for para ambientes pesados (**transações econômicas**, muitos
+agentes, mercados P2P), o caminho é migrar do modelo fenomenológico para o
+**mecanístico** — o OMNeT++ tem o framework **INET**, que modela TCP/IP,
+enlaces, filas e protocolos. Aí o **próprio tráfego** da co-simulação gera
+congestionamento e a **perda/latência emerge** dele: a pergunta deixa de ser
+"qual probabilidade eu ponho?" e passa a ser "esta rede aguenta o volume de
+mensagens do mercado sem degradar o controle?". A telemetria atual
+(`packets_*`, `latencies_out`, `jitters_out`) já registra essas grandezas; o
+passo seguinte é **correlacionar** o evento de rede com o efeito na aplicação
+(um lance perdido causou descasamento no mercado? um setpoint atrasado causou
+violação de tensão?).
+
+**O que cada arquivo de `output/integrated/` apresenta** (detalhado em
+[`RESULTADOS.md`](RESULTADOS.md)):
 
 | Arquivo | O que contém | Para quê |
 |---|---|---|

@@ -37,7 +37,7 @@ de teste isoladas de cada bloco.
 ### O cenário integrado (`integrated`) — acoplamento causal Volt/Var
 
 Evolução do `mosaik-opentes/scenarios/first.py` (que já unia PADE+OMNeT+++Mosaik),
-agora fechando o laço com o OpenDSS. **Sem bateria**: reproduz o estado do TSRE
+agora fechando o laço com o OpenDSS. **PV System**: reproduz o estado do TSRE
 (5 PVs injetando), mas **co-simulado e controlado** — cada um dos **5 inversores**
 tem um par de agentes (medidor + controlador Volt/Var) e a tensão da sua barra
 trafega pela rede OMNeT++:
@@ -119,6 +119,9 @@ output/
                       dashboard_integrated.png
 ```
 
+O **guia didático** de cada arquivo (coluna a coluna, linha a linha) e de cada
+gráfico está em [`docs/RESULTADOS.md`](docs/RESULTADOS.md).
+
 ## Coerência dos resultados
 
 O IEEE 13 reproduz **exatamente** os valores do cenário de referência do TSRE
@@ -127,5 +130,7 @@ O IEEE 13 reproduz **exatamente** os valores do cenário de referência do TSRE
 IEEE 13 desbalanceado (barra 650/fonte em 1,0 pu; barras trifásicas 0,91–1,05 pu;
 fases inexistentes de trechos monofásicos em 0,0).
 
-Mais contexto técnico em `docs/INTEGRACAO.md` e no histórico de
-`docs/ALTERACOES_INTEGRACAO.txt`.
+Documentação: [`docs/INTEGRACAO.md`](docs/INTEGRACAO.md) (visão geral, decisões e
+resultados), [`docs/RESULTADOS.md`](docs/RESULTADOS.md) (guia da pasta `output/`)
+e [`docs/ALTERACOES_INTEGRACAO.txt`](docs/ALTERACOES_INTEGRACAO.txt) (changelog
+técnico das alterações e seus motivos).
