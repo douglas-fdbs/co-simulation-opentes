@@ -129,82 +129,87 @@ saídas do OpenDSS são produtos de simulação e estão no `.gitignore`.
 ### Co-simulação integrada (cenário `integrated`, IEEE 13 Barras)
 
 A co-simulação completa (`./run_opentes.sh integrated`) fecha o laço causal
-sobre o IEEE 13 Barras, sem bateria — o atuador é o **inversor do PVSystem PV2**
-(Barramento 632), com **controle Volt/Var** feito por um agente PADE:
+sobre o IEEE 13 Barras, sem bateria. Reproduz o estado do trabalho do TSRE
+(Paulo Victor) — os **5 inversores fotovoltaicos injetando** — porém agora
+**co-simulados e controlados**: cada inversor tem seu par de agentes PADE
+(medidor + controlador) e a tensão da sua barra trafega pela rede OMNeT++:
 
 ```
-OpenDSS Bus-632.V → AgenteA (mede) → OMNeT++ (atraso/jitter) → AgenteB (Volt/Var)
-                                                                      │ P=solar, Q=f(V)
-OpenDSS ← PVSystem PV2 (P_des, Q_des) ←───────────────────────────────┘
+OpenDSS Bus_i.V → AgenteA_i (mede) → OMNeT++ (atraso/jitter/perda) → AgenteB_i (Volt/Var)
+                                                                          │ P=solar, Q=f(V)
+OpenDSS ← PVSystem PV_i (P_des, Q_des) ←──────────────────────────────────┘   (i = 1..5)
 ```
 
 - **P (ativa)** = potência solar disponível (cadeia irradiância → PV panel).
 - **Q (reativa)** = função da tensão recebida **pela rede de comunicação**,
-  respeitando `S = √(P² + Q²) ≤ kVA` do inversor (PV2: 3000 kVA).
-- A tensão medida trafega pelo OMNeT++; latência/jitter/perda são contabilizados.
+  respeitando `S = √(P² + Q²) ≤ kVA` do inversor.
+- Ganho do Volt/Var **suave** (`Q_MAX_PCT = 0,05`, faixa morta `±0,02`): com 5
+  inversores + atraso/perda da rede, ganho alto **desestabiliza** (ver observações).
 
 O experimento roda **duas vezes** e compara — sem controle (baseline) e com
-controle (Volt/Var) — com **0% de perda de pacotes** (`drop_probability = 0.0`
-no `omnetpp.ini`, condição ideal para isolar o efeito do controle).
+controle (Volt/Var). A perda de pacotes é **parâmetro de modelo da rede**
+(`drop_probability = 0,15` herdado do TSCC), com **semente fixa** para
+reprodutibilidade.
 
-**Telemetria da rede de comunicação (OMNeT++), por execução:**
+**Telemetria da rede de comunicação (OMNeT++):**
 
 | Métrica | Valor |
 |---|---|
-| Pacotes enviados | 288 (1 por passo, 1 dia a 5 min) |
-| Pacotes recebidos | 288 |
-| Pacotes perdidos | 0 (0%) |
+| Pacotes enviados | 730 (5 medidores × 1 dia) |
+| Pacotes perdidos | 136 (**18,6%**) |
+| Latência | 32–451 ms (média 81 ms) |
+| Jitter | média 53 ms |
 
-**Efeito do controle Volt/Var na tensão do Barramento 632:**
+**Efeito do controle Volt/Var nas 5 barras dos PVs (desvio-padrão e mínimo da tensão p.u.):**
 
-| Métrica (tensão pu) | Sem controle | Com Volt/Var |
+| Barra (PV) | Desvio base → Volt/Var | Mínima base → Volt/Var |
 |---|---:|---:|
-| Tensão média | 1,0089 | 1,0144 |
-| **Desvio-padrão** | 0,0096 | **0,0065 (−33%)** |
-| **Tensão mínima** | 0,9893 | **1,0016** |
-| Tensão máxima | 1,0238 | 1,0300 |
-| Reativo Q médio | 0 kvar | +399 kvar |
-| Reativo Q máximo | 0 kvar | 906 kvar |
+| 652 (PV5) | 0,0338 → **0,0273 (−19%)** | 0,9205 → **0,9382** |
+| 634 (PV3) | 0,0245 → **0,0210 (−14%)** | 0,9450 → **0,9557** |
+| 632 (PV2) | 0,0121 → **0,0107 (−12%)** | 0,9673 → 0,9714 |
+| 645 (PV4) | 0,0247 → 0,0242 (−2%) | 0,9665 → 0,9680 |
+| 646 (PV1) | 0,0290 → 0,0285 (−1%) | 0,9648 → 0,9662 |
+| **Média** | 0,0248 → **0,0224 (−10%)** | — |
+
+Reativo total dos 5 inversores: médio 84 kvar, máximo 320 kvar. Geração FV
+agregada (Σ P_meas): pico ≈ 4,5 MW.
 
 ### Observações — baseline × Volt/Var
 
-- **Regulação.** O controle **reduz o espalhamento da tensão em ~33%**
-  (desvio 0,0096 → 0,0065 pu) e **elimina a subtensão**: a tensão mínima sobe de
-  0,989 para 1,002 pu. O perfil fica mais plano ao longo do dia — é o ganho
-  central do Volt/Var.
-- **Sentido do reativo (validado nos logs do agente).** `V = 1,0184 → Q = −277 kvar`
-  (tensão alta ⇒ **absorve** reativo) e `V baixa ⇒ Q > 0` (**injeta**). Como o
-  Bus 632 fica, na maior parte do dia, no limiar inferior da faixa morta, o
-  agente **injeta** reativo com mais frequência (Q médio +399 kvar) e a tensão
-  média sobe levemente (1,009 → 1,014 pu) — aproximando do nominal sem violar o
-  limite superior.
+- **Suporte de tensão (o ganho principal).** A rede tende à **subtensão** (várias
+  barras abaixo de 0,95 pu no baseline). O Volt/Var **injeta reativo e eleva as
+  barras mais críticas**: a mínima do Bus 652 sobe de 0,920 → 0,938 pu e a do
+  Bus 634 de 0,945 → 0,956 pu. O desvio-padrão da tensão cai em média 10% (até
+  19% na barra mais afetada), **sem introduzir sobretensão** (máximos preservados).
+- **Estabilidade exige controle suave.** Com ganho agressivo (`Q_MAX_PCT = 0,44`,
+  padrão do IEEE 1547) os **5 inversores simultâneos + atraso/perda da rede**
+  sobre-injetam reativo e **desestabilizam** (tensão chegou a 1,12 pu, reativo a
+  ~5,7 Mvar). Reduzindo o ganho para 5% o sistema regula de forma estável. **Esse
+  é um achado central do benchmark:** a qualidade da comunicação limita a
+  agressividade segura do controle distribuído.
+- **A perda de pacotes é um parâmetro do modelo, não um resultado.** O
+  `drop_probability` representa a confiabilidade do canal real e deve ser
+  **calibrado com a aplicação**. Aqui usamos o valor do TSCC (15%, ~18,6% medido)
+  com semente fixa. Mesmo assim, a ordem assíncrona das mensagens faz os valores
+  exatos variarem um pouco entre execuções — o efeito qualitativo se mantém.
 - **STATCOM à noite.** Com a solar nula (P = 0), toda a capacidade do inversor
-  vira reativa; o PV opera como compensador (STATCOM) e continua regulando a
-  tensão.
-- **Custo do controle.** O reativo chega a ~906 kvar; como `S = √(P²+Q²) ≤ kVA`,
-  isso consome margem de potência aparente do inversor (sem prejuízo da ativa
-  nesta condição, pois a solar de pico no PV2 fica abaixo do kVA).
-- **Efeito da comunicação.** O agente decide sobre a tensão **atrasada pela rede**
-  (latência 32–300 ms, jitter médio 51 ms). O jitter é **estocástico**, então os
-  valores numéricos exatos **variam levemente entre execuções**, mas o efeito
-  qualitativo (redução do espalhamento da tensão) se mantém. Esse é justamente o
-  fenômeno que a co-simulação existe para medir — e por que o ideal de **0% de
-  perda** importa: garante que a decisão use a informação mais íntegra possível.
+  vira reativa; o PV opera como compensador e continua dando suporte de tensão.
 
 **O que cada arquivo de `output/integrated/` apresenta** (é o que se leva para
 analisar a simulação):
 
 | Arquivo | O que contém | Para quê |
 |---|---|---|
-| `result_baseline.csv` | Trajetórias elétricas **sem** controle: tensão das 3 fases do Bus 632, `P_ref` (=solar) e `Q_ref` (=0) do agente, `P_meas`/`Q_meas` injetados no PV2, `P_dc` do painel. | Linha de base (inversor só injeta a solar). |
+| `result_baseline.csv` | Trajetórias elétricas **sem** controle: tensão das fases de **todas as barras**, `P_ref` (=solar) e `Q_ref` (=0) dos 5 controladores, `P_meas`/`Q_meas` dos 5 PVs e `P_dc` dos 5 painéis. | Linha de base (5 inversores só injetam a solar). |
 | `result_volt_var.csv` | As mesmas grandezas **com** controle Volt/Var (agora `Q_ref` ≠ 0). | Caso controlado. |
 | `comm_trace_baseline.csv` | Rastro da **rede de comunicação** na execução baseline: a mensagem FIPA com a tensão (`val_out`) e a telemetria do OMNeT++ (`packets_sent/received/dropped`, `latencies_out`, `jitters_out`, `packet_sizes_out`). | Comprova que a tensão trafegou pela rede e mede o atraso. |
 | `comm_trace_volt_var.csv` | Idem para a execução com Volt/Var. | Mesma telemetria, caso controlado. |
-| `dashboard_integrated.png` | Painel visual de 8 quadros, unindo os dois domínios: (1) irradiância solar 5 PVs, (2) temperatura dos módulos, (3) geração FV agregada, (4) tensões p.u. nas 13 barras, (5) integridade de pacotes (entregues×dropados), (6) latência exata, (7) jitter distribuído, (8) efeito do Volt/Var no Bus 632 + reativo. | Resumo da co-simulação para apresentação. |
+| `dashboard_integrated.png` | Painel visual de 8 quadros, unindo os dois domínios: (1) irradiância solar 5 PVs, (2) temperatura dos módulos, (3) geração FV agregada, (4) tensões p.u. nas 13 barras, (5) integridade de pacotes (pizza entregues×dropados), (6) latência exata, (7) jitter distribuído, (8) efeito do Volt/Var nas 5 barras PV. | Resumo da co-simulação para apresentação. |
 
 Cada linha dos `result_*.csv` é um passo de 5 min (288 = 1 dia); cada linha dos
-`comm_trace_*.csv` é a telemetria daquele passo. As colunas com `Bus-632` são as
-tensões por fase (as fases inexistentes do trecho ficam ~0 e são ignoradas).
+`comm_trace_*.csv` é a telemetria daquele passo. As colunas `Bus-<nó>-V*_pu` são
+as tensões por fase (as fases inexistentes de trechos monofásicos ficam ~0 e são
+ignoradas no cálculo).
 
 Gere o painel após rodar o cenário:
 

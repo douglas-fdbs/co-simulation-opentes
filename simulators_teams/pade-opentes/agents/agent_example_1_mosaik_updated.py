@@ -1,27 +1,24 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Agentes do cenario causal Volt/Var (evolucao do first.py).
+"""Agentes do cenario causal Volt/Var (evolucao do first.py) — N inversores.
 
-Mesma estrutura de dois agentes do first.py original (AgenteA <-> AgenteB
-trocando mensagens via OMNeT++), mas agora o payload carrega a TENSAO da rede
-eletrica e o laco de controle fecha no inversor fotovoltaico (sem bateria):
+Mesma ideia do first.py original (agentes trocando mensagens via OMNeT++), agora
+com N PARES de agentes, um par por inversor fotovoltaico co-simulado:
 
-  AgenteA (medidor):     le a tensao do barramento (V_in) e a publica como
-                         mensagem FIPA-ACL na rede de comunicacao (OMNeT++).
-  AgenteB (controlador): recebe a tensao JA ATRASADA pela rede e aplica um
-                         controle Volt/Var no inversor do PV:
-                           - P (ativa)   = potencia solar disponivel (P_avail_in)
-                           - Q (reativa) = funcao da tensao (regula a tensao)
-                         respeitando a potencia aparente do inversor:
-                           S = sqrt(P^2 + Q^2) <= kVA
-                         e devolve (P_ref, Q_ref) para o PVSystem -> OpenDSS.
+  AgenteA_i (medidor):     le a tensao da barra do PV_i e a publica como mensagem
+                           FIPA-ACL na rede de comunicacao (OMNeT++), marcada com
+                           a barra de origem.
+  AgenteB_i (controlador): recebe a tensao da SUA barra JA ATRASADA pela rede e
+                           aplica Volt/Var no inversor do PV_i:
+                             P (ativa)  = solar disponivel (P_avail_in)
+                             Q (reativa)= f(tensao),  S = sqrt(P^2 + Q^2) <= kVA
+                           e devolve (P_ref, Q_ref) para o PVSystem_i -> OpenDSS.
 
-Assim, latencia/jitter/perda de pacotes do OMNeT++ afetam a tensao que o
-controlador efetivamente "ve", como exige o benchmark de co-simulacao.
+Latencia/jitter/perda de pacotes do OMNeT++ afetam a tensao que cada controlador
+efetivamente "ve". O controle liga/desliga por agente (param control_enabled),
+permitindo comparar a co-simulacao SEM controle (baseline) e COM controle.
 
-O controle pode ser ligado/desligado por agente (param control_enabled),
-permitindo comparar a co-simulacao SEM controle (Q=0, baseline) e COM controle
-(Volt/Var).
+NUM_PVS (env, default 5) define quantos pares medidor/controlador sobem.
 """
 
 import json
@@ -35,6 +32,7 @@ from pade.misc.utility import display_message, start_loop
 
 
 STEP_SIZE = int(os.environ.get('AGENT_STEP_SIZE', '300'))
+NUM_PVS = int(os.environ.get('NUM_PVS', '5'))
 
 MOSAIK_MODELS = {
     'api_version': '3.0',
@@ -43,14 +41,12 @@ MOSAIK_MODELS = {
         'PadeAgent': {
             'public': True,
             'params': [
-                'agent_id',
-                'control_enabled',   # 1 = Volt/Var ativo | 0 = baseline (Q=0)
-                'kva',               # potencia aparente nominal do inversor
+                'agent_id', 'bus', 'control_enabled', 'kva',
                 'v_ref', 'v_deadband', 'v_min', 'v_max', 'q_max_pct',
             ],
             'attrs': [
                 'val_in', 'val_out',   # comunicacao (mensagens via OMNeT++)
-                'V_in',                # entrada do medidor (tensao do barramento)
+                'V_in',                # entrada do medidor (tensao da barra)
                 'P_avail_in',          # entrada do controlador (solar disponivel)
                 'P_ref', 'Q_ref',      # saida do controlador (setpoint do inversor)
             ],
@@ -77,26 +73,19 @@ class MosaikSim(MosaikCon):
             ag = ACTIVE_AGENTS.get(eid)
             if ag is None:
                 continue
-
-            # --- Medidor: le a tensao do barramento (media das fases nao-nulas) ---
-            if 'V_in' in attrs:
-                valores = [v for v in attrs['V_in'].values()
-                           if isinstance(v, (int, float)) and v > 0.1]
-                if valores:
-                    ag.ao_medir_tensao(sum(valores) / len(valores), time)
-
-            # --- Controlador: solar disponivel (define a ativa P) ---
-            if 'P_avail_in' in attrs:
+            if 'V_in' in attrs:  # medidor
+                vals = [v for v in attrs['V_in'].values()
+                        if isinstance(v, (int, float)) and v > 0.1]
+                if vals:
+                    ag.ao_medir_tensao(sum(vals) / len(vals), time)
+            if 'P_avail_in' in attrs:  # controlador: solar disponivel define P
                 ag.p_ref = float(list(attrs['P_avail_in'].values())[0])
-
-            # --- Controlador: tensao vinda da rede (define a reativa Q via Volt/Var) ---
-            if 'val_in' in attrs:
+            if 'val_in' in attrs:  # controlador: tensao (atrasada) define Q
                 bruto = list(attrs['val_in'].values())[0]
                 if bruto:
                     for msg in str(bruto).split('|||'):
                         if msg:
                             ag.receber_mensagem_da_rede(msg)
-
         return time + self.step_size
 
     def get_data(self, outputs):
@@ -118,8 +107,7 @@ class MosaikSim(MosaikCon):
 
 
 class AgenteComunicador(Agent):
-    """Agente que pode atuar como medidor (AgenteA) ou controlador Volt/Var
-    (AgenteB), conforme seu nome local."""
+    """Medidor (nome 'AgenteA_*') ou controlador Volt/Var (nome 'AgenteB_*')."""
 
     def __init__(self, aid, is_sender=False):
         super().__init__(aid=aid, debug=False)
@@ -127,8 +115,8 @@ class AgenteComunicador(Agent):
         self.p_ref = 0.0
         self.q_ref = 0.0
         self.v_seen = 0.0
+        self.bus = '?'
         self.is_sender = is_sender
-        # parametros de controle (preenchidos por configurar() na criacao Mosaik)
         self.control_enabled = True
         self.kva = 3000.0
         self.v_ref = 1.0
@@ -139,8 +127,10 @@ class AgenteComunicador(Agent):
         if self.is_sender:
             self.mosaik_sim = MosaikSim(self)
 
-    def configurar(self, control_enabled=None, kva=None, v_ref=None,
+    def configurar(self, bus=None, control_enabled=None, kva=None, v_ref=None,
                    v_deadband=None, v_min=None, v_max=None, q_max_pct=None):
+        if bus is not None:
+            self.bus = str(bus)
         if control_enabled is not None:
             self.control_enabled = bool(int(control_enabled))
         if kva is not None:
@@ -156,42 +146,41 @@ class AgenteComunicador(Agent):
         if q_max_pct is not None:
             self.q_max_pct = float(q_max_pct)
 
+    @property
+    def _is_medidor(self):
+        return self.aid.localname.startswith('AgenteA')
+
     def on_start(self):
         super().on_start()
         ACTIVE_AGENTS[self.aid.localname] = self
-        papel = 'medidor' if self.aid.localname == 'AgenteA' else 'controlador Volt/Var'
-        display_message(self.aid.localname, f'Agente online ({papel}) ligado ao OMNeT++.')
+        papel = 'medidor' if self._is_medidor else 'controlador Volt/Var'
+        display_message(self.aid.localname, f'online ({papel}) ligado ao OMNeT++.')
 
-    # ---- Medidor (AgenteA): publica a tensao na rede de comunicacao ----
+    # ---- Medidor: publica a tensao da sua barra na rede ----
     def ao_medir_tensao(self, v_meas, time):
         self.v_seen = v_meas
         msg = {
             'sender': self.aid.localname,
-            'receiver': 'AgenteB',
+            'bus': self.bus,
             'ontology': 'medicao_tensao',
-            'conversation_id': f'meas-t{time}',
+            'conversation_id': f'meas-{self.bus}-t{time}',
             'V_meas': round(v_meas, 6),
             't': time,
         }
         self.val_out = json.dumps(msg)
-        display_message(self.aid.localname, f'medi V={v_meas:.4f} pu -> enviando pela rede')
 
-    # ---- Controlador (AgenteB): Volt/Var a partir da tensao atrasada ----
+    # ---- Controlador: Volt/Var a partir da tensao (atrasada) da SUA barra ----
     def _volt_var_q(self, v):
-        """Curva Volt/Var (droop): V alta -> absorve Q (-); V baixa -> injeta Q (+)."""
         if not self.control_enabled:
             return 0.0
-        # capacidade reativa: a ativa tem prioridade (limite de potencia aparente)
         q_cap = math.sqrt(max(0.0, self.kva ** 2 - self.p_ref ** 2))
         q_max = min(self.q_max_pct * self.kva, q_cap)
         hi = self.v_ref + self.v_deadband
         lo = self.v_ref - self.v_deadband
         if v > hi:
-            frac = min(1.0, (v - hi) / max(1e-6, self.v_max - hi))
-            return -q_max * frac        # absorve reativo (baixa a tensao)
+            return -q_max * min(1.0, (v - hi) / max(1e-6, self.v_max - hi))
         if v < lo:
-            frac = min(1.0, (lo - v) / max(1e-6, lo - self.v_min))
-            return +q_max * frac        # injeta reativo (sobe a tensao)
+            return +q_max * min(1.0, (lo - v) / max(1e-6, lo - self.v_min))
         return 0.0
 
     def receber_mensagem_da_rede(self, json_string):
@@ -199,28 +188,31 @@ class AgenteComunicador(Agent):
             msg = json.loads(json_string)
         except Exception:
             return
-        if 'V_meas' not in msg:
+        # processa apenas a medicao da SUA barra
+        if msg.get('bus') != self.bus or 'V_meas' not in msg:
             return
         v = float(msg['V_meas'])
         self.v_seen = v
-        # P ja foi definido por P_avail_in (solar disponivel); aqui calculamos Q.
         self.q_ref = self._volt_var_q(v)
-        modo = 'ON' if self.control_enabled else 'OFF(baseline)'
-        display_message(self.aid.localname,
-                        f'V={v:.4f} (rede) | controle {modo} -> P={self.p_ref:.0f} kW, Q={self.q_ref:.0f} kvar')
 
 
 if __name__ == '__main__':
     host = '0.0.0.0'
-    port = int(os.environ.get('PADE_PORT', '5678'))
+    base_port = int(os.environ.get('PADE_PORT', '5678'))
     ams_config = {'name': host, 'port': int(os.environ.get('AMS_PORT', '8000'))}
 
-    aid_a = AID(name=f'AgenteA@{host}:{port}')       # medidor
-    aid_b = AID(name=f'AgenteB@{host}:{port + 1}')   # controlador Volt/Var
+    agentes = []
+    port = base_port
+    primeiro = True
+    for i in range(1, NUM_PVS + 1):
+        a = AgenteComunicador(AID(name=f'AgenteA_{i}@{host}:{port}'), is_sender=primeiro)
+        primeiro = False
+        port += 1
+        b = AgenteComunicador(AID(name=f'AgenteB_{i}@{host}:{port}'), is_sender=False)
+        port += 1
+        agentes.extend([a, b])
 
-    agente_a = AgenteComunicador(aid=aid_a, is_sender=True)
-    agente_b = AgenteComunicador(aid=aid_b, is_sender=False)
-    agente_a.update_ams(ams_config)
-    agente_b.update_ams(ams_config)
+    for ag in agentes:
+        ag.update_ams(ams_config)
 
-    start_loop([agente_a, agente_b])
+    start_loop(agentes)

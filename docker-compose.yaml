@@ -162,6 +162,8 @@ services:
       - MOSAIK_N_PASSOS=${MOSAIK_N_PASSOS:-288}
       - CONTROL_ENABLED=${CONTROL_ENABLED:-1}
       - RESULT_TAG=${RESULT_TAG:-volt_var}
+      - Q_MAX_PCT=${Q_MAX_PCT:-0.05}
+      - V_DEADBAND=${V_DEADBAND:-0.02}
       - OMNET_HOST=comm
       - OMNET_PORT=5555
       - OMNET_STEP=300

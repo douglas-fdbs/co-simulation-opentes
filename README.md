@@ -37,46 +37,50 @@ de teste isoladas de cada bloco.
 ### O cenário integrado (`integrated`) — acoplamento causal Volt/Var
 
 Evolução do `mosaik-opentes/scenarios/first.py` (que já unia PADE+OMNeT+++Mosaik),
-agora fechando o laço com o OpenDSS. **Sem bateria**: o atuador é o **inversor
-do PVSystem PV2** (Bus 632), com controle **Volt/Var**:
+agora fechando o laço com o OpenDSS. **Sem bateria**: reproduz o estado do TSRE
+(5 PVs injetando), mas **co-simulado e controlado** — cada um dos **5 inversores**
+tem um par de agentes (medidor + controlador Volt/Var) e a tensão da sua barra
+trafega pela rede OMNeT++:
 
 ```
-OpenDSS resolve V  ──►  AgenteA (medidor) lê a tensão do Bus-632
-                              │  publica mensagem FIPA-ACL
+OpenDSS resolve V  ──►  AgenteA_i (medidor) lê a tensão da barra do PV_i
+                              │  publica mensagem FIPA-ACL (marcada com a barra)
                               ▼
                         OMNeT++  (latência / jitter / perda de pacotes)
                               │  tensão chega ATRASADA
                               ▼
-                        AgenteB (controlador Volt/Var):
+                        AgenteB_i (controlador Volt/Var):
                           P (ativa)   = solar disponível
                           Q (reativa) = f(tensão),  S = √(P²+Q²) ≤ kVA
                               │
                               ▼
-                        PVSystem.PV2 (P_des, Q_des) ──► OpenDSS muda a injeção
+                        PVSystem.PV_i (P_des, Q_des) ──► OpenDSS muda a injeção
                               │
-                              └────► (próximo passo: nova V) — laço fecha
+                              └────► (próximo passo: nova V) — laço fecha   (i = 1..5)
 ```
 
 O cenário roda **duas vezes** e compara — **sem** controle (baseline) e **com**
-controle (Volt/Var) — com **0% de perda** (ideal para isolar o efeito do
-controle; ajuste `omnetpp.ini` para estudar a perda). Registros em
-`output/integrated/`:
+controle (Volt/Var). A perda de pacotes é **parâmetro de modelo da rede**
+(`drop_probability` no `omnetpp.ini`, herdado do TSCC = 15%) com **semente fixa**.
+Registros em `output/integrated/`:
 
-- `result_baseline.csv` / `result_volt_var.csv` — trajetórias elétricas (V de
-  632, P_ref e Q_ref do agente, injeção P_meas/Q_meas no PV2).
+- `result_baseline.csv` / `result_volt_var.csv` — trajetórias elétricas (tensão
+  de todas as barras, P_ref/Q_ref dos 5 controladores, P_meas/Q_meas dos 5 PVs).
 - `comm_trace_baseline.csv` / `comm_trace_volt_var.csv` — rastro das mensagens
   pela rede OMNeT++ (FIPA com a tensão + telemetria: pacotes, latência, jitter).
 - `dashboard_integrated.png` — painel de 8 quadros unindo os dois domínios:
   irradiância (5 PVs), temperatura, geração FV agregada, tensões das 13 barras,
-  integridade de pacotes (entregues×dropados), latência exata, jitter distribuído
-  e o efeito do Volt/Var no Bus 632.
+  integridade de pacotes (pizza entregues×dropados), latência exata, jitter
+  distribuído e o efeito do Volt/Var nas 5 barras PV.
 
 A tabela completa do que cada arquivo apresenta está em
 [`docs/INTEGRACAO.md`](docs/INTEGRACAO.md#resultados).
 
-Resultado: o Volt/Var **reduz o espalhamento da tensão do Bus 632 em ~33%**
-(desvio 0,0096 → 0,0065 pu) e elimina a subtensão (mínima 0,989 → 1,002 pu),
-injetando até ~900 kvar — com **0% de perda de pacotes**. Comparativo e
+Resultado: o Volt/Var dá **suporte de tensão** — eleva as barras subtensionadas
+(Bus 652: mínima 0,920 → 0,938 pu) e reduz o desvio em até 19% (média −10%), de
+forma estável, com perda realista de **18,6%**. Achado importante: ganho
+agressivo + atraso/perda da rede **desestabiliza** o controle distribuído (motiva
+estudar o impacto da comunicação). Comparativo e
 observações em [`docs/INTEGRACAO.md`](docs/INTEGRACAO.md#resultados).
 
 ## Como rodar

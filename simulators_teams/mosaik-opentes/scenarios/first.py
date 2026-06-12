@@ -55,9 +55,10 @@ END_TIME = N_PASSOS * STEP_SIZE
 
 # 1 = Volt/Var ativo | 0 = baseline (inversor injeta so a solar, Q=0)
 CONTROL_ENABLED = os.environ.get("CONTROL_ENABLED", "1")
-# Barramento observado / inversor controlado (PV2 fica no Bus 632).
-BUS_ALVO = os.environ.get("BUS_ALVO", "632")
-PV_ALVO = os.environ.get("PV_ALVO", "pv2")
+# Ganho do Volt/Var: fracao do kVA disponivel como reativo maximo, e faixa morta.
+# Com varios inversores + atraso de rede, ganho alto desestabiliza; manter suave.
+Q_MAX_PCT = float(os.environ.get("Q_MAX_PCT", "0.05"))
+V_DEADBAND = float(os.environ.get("V_DEADBAND", "0.02"))
 
 
 sim_config = {
@@ -91,83 +92,76 @@ def create_scenario(world):
     grid = dss_sim.Grid()
     pv_info = dss_sim.get_detected_pvsystems()
     pvs_map = {e.eid: e for e in grid.children if e.type == 'PVSystem'}
+    buses_map = {e.eid.lower(): e for e in grid.children if e.type == 'Bus'}
 
-    # PV2 (no Bus 632): ponto de medicao e de atuacao
-    info = next((i for i in pv_info if PV_ALVO in i['name'].lower()), None)
-    if info is None:
-        raise RuntimeError(f"PV '{PV_ALVO}' nao detectado. PVs={[i['name'] for i in pv_info]}")
-    pv_dss = pvs_map.get(info['eid_dss'])
-    bus = next((e for e in grid.children
-                if e.type == 'Bus' and e.eid.lower() == f'bus-{BUS_ALVO}'), None)
-    if pv_dss is None or bus is None:
-        raise RuntimeError(f"Bus-{BUS_ALVO} ou {info['eid_dss']} nao encontrado.")
-    print(f"   observacao: {bus.eid}  |  atuacao: {pv_dss.eid}  (kVA={info['kva']})")
-
-    # entidades de comunicacao + agentes
+    # entidades de comunicacao e registro (compartilhadas pelos N PVs)
     rede_omnet = omnet_sim.NetworkNode(node_type='NetworkNode')
     comm_monitor = coletor_sim.Monitor()
     elec_monitor = elec_collector.Monitor()
-    agente_a = pade_sim.PadeAgent(agent_id='AgenteA')              # medidor
-    agente_b = pade_sim.PadeAgent(                                  # controlador Volt/Var
-        agent_id='AgenteB',
-        control_enabled=CONTROL_ENABLED, kva=info['kva'],
-        v_ref=1.0, v_deadband=0.01, v_min=0.95, v_max=1.05, q_max_pct=0.44,
-    )
-
-    # painel PV (irradiancia/temperatura -> P_dc disponivel) para o PV2
-    pv_number = ''.join(filter(str.isdigit, info['name']))
-    pv_panel = pv_sim.PVPanel.create(
-        1, P_mpp=info['pmpp'], irradiance_base=0.8,
-        pt_curve_x=info['pt_curve_x'], pt_curve_y=info['pt_curve_y'],
-    )[0]
     irr = csv_irr.Data.create(1)[0]
     tmp = csv_temp.Data.create(1)[0]
-    world.connect(irr, pv_panel, (f'my_shape{pv_number}_irrad', 'irradiance'))
-    world.connect(tmp, pv_panel, (f'my_shape{pv_number}_temperature', 'temperature'))
 
     # ==========================================================
-    # PONTE 1 (OBSERVACAO): OpenDSS Bus -> AgenteA (medidor)
-    # time_shifted: medidor reporta o ultimo estado resolvido; quebra o ciclo
-    # DSS->PADE->PVSystem->DSS para o Mosaik.
+    # Um par medidor/controlador por PV — TODOS co-simulados e (opcionalmente)
+    # sob Volt/Var. A tensao de cada barra trafega pelo OMNeT++ ate o seu agente.
     # ==========================================================
-    world.connect(bus, agente_a, ('V1_pu', 'V_in'), ('V2_pu', 'V_in'), ('V3_pu', 'V_in'),
-                  time_shifted=True,
-                  initial_data={'V1_pu': 1.0, 'V2_pu': 1.0, 'V3_pu': 1.0})
+    n_ctrl = 0
+    for info in pv_info:
+        n = ''.join(filter(str.isdigit, info['name']))      # '1'..'5'
+        pv_dss = pvs_map.get(info['eid_dss'])
+        bus_name = info.get('bus', '').split('.')[0]
+        bus = buses_map.get(f'bus-{bus_name}')
+        if pv_dss is None or bus is None:
+            print(f"   [aviso] PV {info['name']} / Bus {bus_name} nao encontrado — pulando")
+            continue
+
+        # painel PV (irradiancia/temperatura -> P_dc disponivel)
+        panel = pv_sim.PVPanel.create(
+            1, P_mpp=info['pmpp'], irradiance_base=0.8,
+            pt_curve_x=info['pt_curve_x'], pt_curve_y=info['pt_curve_y'])[0]
+        world.connect(irr, panel, (f'my_shape{n}_irrad', 'irradiance'))
+        world.connect(tmp, panel, (f'my_shape{n}_temperature', 'temperature'))
+
+        medidor = pade_sim.PadeAgent(agent_id=f'AgenteA_{n}', bus=bus_name)
+        ctrl = pade_sim.PadeAgent(
+            agent_id=f'AgenteB_{n}', bus=bus_name,
+            control_enabled=CONTROL_ENABLED, kva=info['kva'],
+            v_ref=1.0, v_deadband=V_DEADBAND, v_min=0.95, v_max=1.05,
+            q_max_pct=Q_MAX_PCT)
+
+        # PONTE 1 (observacao): Bus -> medidor (time_shifted; reporta o ultimo
+        # estado resolvido e quebra o ciclo DSS->PADE->PVSystem->DSS)
+        world.connect(bus, medidor, ('V1_pu', 'V_in'), ('V2_pu', 'V_in'), ('V3_pu', 'V_in'),
+                      time_shifted=True,
+                      initial_data={'V1_pu': 1.0, 'V2_pu': 1.0, 'V3_pu': 1.0})
+        # comunicacao: medidor -> OMNeT++ -> controlador (mensagem marcada com a barra)
+        world.connect(medidor, rede_omnet, ('val_out', 'val_in'))
+        world.connect(rede_omnet, ctrl, ('val_out', 'val_in'),
+                      time_shifted=True, initial_data={'val_out': ''})
+        # solar disponivel (P) chega localmente ao controlador
+        world.connect(panel, ctrl, ('P_dc', 'P_avail_in'))
+        # PONTE 2 (atuacao): controlador -> inversor PVSystem -> OpenDSS
+        world.connect(ctrl, pv_dss, ('P_ref', 'P_des'), ('Q_ref', 'Q_des'))
+
+        # registro do PV
+        world.connect(panel, elec_monitor, 'P_dc')
+        world.connect(ctrl, elec_monitor, 'P_ref', 'Q_ref')
+        n_ctrl += 1
+
+    print(f"   co-simulando {n_ctrl} PVs (controle Volt/Var por barra: "
+          f"{'ON' if CONTROL_ENABLED == '1' else 'OFF/baseline'})")
 
     # ==========================================================
-    # COMUNICACAO (do first.py): AgenteA -> OMNeT++ -> AgenteB
-    # ==========================================================
-    world.connect(agente_a, rede_omnet, ('val_out', 'val_in'))
-    world.connect(rede_omnet, agente_b, ('val_out', 'val_in'),
-                  time_shifted=True, initial_data={'val_out': ''})
-
-    # solar disponivel (P) chega localmente ao controlador (entrada DC do inversor)
-    world.connect(pv_panel, agente_b, ('P_dc', 'P_avail_in'))
-
-    # ==========================================================
-    # PONTE 2 (ATUACAO): AgenteB -> inversor PVSystem -> OpenDSS
-    # ==========================================================
-    world.connect(agente_b, pv_dss, ('P_ref', 'P_des'), ('Q_ref', 'Q_des'))
-
-    # ==========================================================
-    # REGISTRO: telemetria de rede + trajetorias eletricas
+    # REGISTRO: telemetria da rede + tensao de TODAS as barras + potencia dos PVs
     # ==========================================================
     world.connect(rede_omnet, comm_monitor,
                   'status', 'packets_sent', 'packets_received', 'packets_dropped',
                   'packet_sizes_out', 'latencies_out', 'jitters_out', 'val_out')
-    world.connect(agente_b, elec_monitor, 'P_ref', 'Q_ref')
-    world.connect(pv_panel, elec_monitor, 'P_dc')
-    # registro amplo da rede: tensão de TODAS as barras e potência de TODOS os PVs
-    # (permite o dashboard com as 13 barras e a geração FV agregada).
-    n_bus = n_pv = 0
     for e in grid.children:
         if e.type == 'Bus':
             world.connect(e, elec_monitor, 'V1_pu', 'V2_pu', 'V3_pu')
-            n_bus += 1
         elif e.type == 'PVSystem':
             world.connect(e, elec_monitor, 'P_meas', 'Q_meas')
-            n_pv += 1
-    print(f"   monitorando {n_bus} barras e {n_pv} PVs")
 
 
 if __name__ == '__main__':

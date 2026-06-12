@@ -41,6 +41,17 @@ run_integrated_pass() {
     local tag="$1" control="$2"
     echo ">> [OpenTES] integrated: modo '${tag}' (CONTROL_ENABLED=${control}) — deps frescos"
     cleanup
+    # sobe os deps; espera o comm (OMNeT++) compilar — probe ZMQ resiliente em
+    # 5555 (nesse tempo os simuladores --remote ligam e ficam prontos), evitando
+    # o race em que o mosaik conecta antes do elec-collector ligar.
+    CONTROL_ENABLED="${control}" RESULT_TAG="${tag}" \
+        docker compose --profile integrated up -d \
+            comm pade-integrated opendss pv-panel csv-data-1 csv-data-2 elec-collector
+    echo ">> [OpenTES] aguardando o comm (OMNeT++) compilar..."
+    until python3 -c "import socket; socket.create_connection(('localhost',5555),timeout=1).close()" 2>/dev/null; do
+        sleep 2
+    done
+    sleep 3
     CONTROL_ENABLED="${control}" RESULT_TAG="${tag}" \
         docker compose --profile integrated up --abort-on-container-exit \
             --exit-code-from mosaik-integrated mosaik-integrated
