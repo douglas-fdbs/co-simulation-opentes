@@ -15,10 +15,11 @@
 # antes de cada passada e RESTAURA o valor original ao final (trap EXIT). Mantem
 # o ganho do Volt/Var no padrao (Q_MAX_PCT=0.05) para isolar o efeito da PERDA.
 #
-# Uso:  ./run_loss_sweep.sh                  # roda todas as passadas
-#       ./run_loss_sweep.sh loss025 loss075  # roda so as passadas indicadas
-# Saidas: output/sensibilidade_perda/result_{baseline,loss000,loss025,loss050,
-#         loss075,loss100}.csv (+ comm_trace_*.csv). Figura: plot_loss_sweep.py.
+# Niveis: baseline (sem controle) + perda 0/25/30/35/40/45/50/75/100%.
+# Uso:  ./run_loss_sweep.sh                       # roda todas as passadas
+#       ./run_loss_sweep.sh loss030 loss035 ...   # roda so as passadas indicadas
+# Saidas: output/sensibilidade_perda/result_<tag>.csv (+ comm_trace_<tag>.csv).
+#         Figura: plot_loss_sweep.py.
 
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -75,6 +76,10 @@ cleanup
 should_run baseline && run_pass baseline 0 0.0     # referencia: SEM controle
 should_run loss000  && run_pass loss000  1 0.0     # Volt/Var, canal perfeito
 should_run loss025  && run_pass loss025  1 0.25    # Volt/Var, 25% de perda
+should_run loss030  && run_pass loss030  1 0.30    # Volt/Var, 30% de perda
+should_run loss035  && run_pass loss035  1 0.35    # Volt/Var, 35% de perda
+should_run loss040  && run_pass loss040  1 0.40    # Volt/Var, 40% de perda
+should_run loss045  && run_pass loss045  1 0.45    # Volt/Var, 45% de perda
 should_run loss050  && run_pass loss050  1 0.5     # Volt/Var, 50% de perda
 should_run loss075  && run_pass loss075  1 0.75    # Volt/Var, 75% de perda
 should_run loss100  && run_pass loss100  1 1.0     # Volt/Var, 100% de perda

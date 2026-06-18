@@ -265,8 +265,9 @@ parâmetro de perda) estão em [`INTEGRACAO.md`](INTEGRACAO.md#resultados).
 ## Experimento: sensibilidade à perda de pacotes
 
 O estudo do **impacto da qualidade da comunicação** sobre o controle distribuído
-(perda de 0%, 25%, 50%, 75% e 100%) tem doc própria:
+(perda de 0/25/30/35/40/45/50/75/100%) tem doc própria:
 [`EXPERIMENTO_PERDA.md`](EXPERIMENTO_PERDA.md). Roda com `./run_loss_sweep.sh` e
 gera `output/sensibilidade_perda/sensibilidade_perda.png`. Achado central: a
-degradação tem **limiar** — robusto até ~25% de perda (controle efetivo),
-contraproducente em 50–75% (age sobre dados velhos), e inerte em 100% (= baseline).
+degradação **não é suave** — há um **limiar abrupto entre 25% e 30% de perda**:
+robusto e efetivo até 25%, contraproducente acima de 30% (age sobre dados velhos),
+inerte em 100% (= baseline).

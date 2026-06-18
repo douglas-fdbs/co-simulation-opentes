@@ -1,13 +1,13 @@
 """Figura do experimento de SENSIBILIDADE do Volt/Var a perda de pacotes.
 
-Le output/sensibilidade_perda/result_{baseline,loss000,loss050,loss100}.csv
-(+ comm_trace_*.csv) e mostra como o controle distribuido degrada conforme a
-comunicacao piora:
+Le output/sensibilidade_perda/result_<tag>.csv (+ comm_trace_<tag>.csv) e mostra
+como o controle distribuido degrada conforme a comunicacao piora. Com a faixa
+densa (0/25/30/35/40/45/50/75/100%), os paineis quantitativos sao CURVAS vs % de
+perda — o ponto em que o "benefico" cruza zero e o LIMIAR onde o controle deixa
+de ajudar e passa a atrapalhar.
 
-  baseline      -> sem controle (referencia, piso de tensao)
-  loss000       -> Volt/Var com 0% de perda  (controle pleno)
-  loss050       -> Volt/Var com 50% de perda (controle parcial)
-  loss100       -> Volt/Var com 100% de perda (sem comunicacao ~ baseline)
+  baseline -> sem controle (referencia, piso de tensao)
+  lossNNN  -> Volt/Var com NNN% de perda de pacotes
 
 Salva sensibilidade_perda.png. Uso:
   docker compose run --rm --no-deps -e MOSAIK_OUTPUT_DIR=/app/output/sensibilidade_perda \
@@ -20,6 +20,8 @@ from pathlib import Path
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from matplotlib.cm import ScalarMappable
+from matplotlib.colors import Normalize
 import numpy as np
 import pandas as pd
 
@@ -27,15 +29,15 @@ import pandas as pd
 OUT = Path(os.environ.get("MOSAIK_OUTPUT_DIR", "/app/output/sensibilidade_perda"))
 CRIT = "652"  # barra PV mais critica (subtensao)
 PV_BUSES = ["646", "632", "634", "645", "652"]
-# (tag, rotulo, cor) — gradiente verde (sem perda) -> vermelho (perda total)
-RUNS = [
-    ("baseline", "sem controle",         "#7f7f7f"),
-    ("loss000",  "Volt/Var · 0% perda",  "#2ca02c"),
-    ("loss025",  "Volt/Var · 25% perda", "#9acd32"),
-    ("loss050",  "Volt/Var · 50% perda", "#ff7f0e"),
-    ("loss075",  "Volt/Var · 75% perda", "#e6550d"),
-    ("loss100",  "Volt/Var · 100% perda", "#d62728"),
-]
+# tags de Volt/Var por % de perda (alem do baseline, sem controle)
+LOSS_TAGS = [("loss000", 0), ("loss025", 25), ("loss030", 30), ("loss035", 35),
+             ("loss040", 40), ("loss045", 45), ("loss050", 50),
+             ("loss075", 75), ("loss100", 100)]
+CMAP = plt.get_cmap("RdYlGn_r")  # 0% -> verde, 100% -> vermelho
+
+
+def _color(p):
+    return CMAP(p / 100.0)
 
 
 def _load(tag):
@@ -53,14 +55,13 @@ def _vmean(df, bus):
 
 def _q_total(df):
     cs = [c for c in df.columns if "Q_meas" in c]
-    s = df[cs].apply(pd.to_numeric, errors="coerce").abs()
-    return s.sum(axis=1)
+    return df[cs].apply(pd.to_numeric, errors="coerce").abs().sum(axis=1)
 
 
 def _delivered_pct(tag):
-    """% entregue = entregues / tentativas. No trace, packets_sent espelha
-    packets_received e ambos contam os ENTREGUES (encaminhados); packets_dropped
-    e a parte. Logo tentativas = sent + dropped e entregue% = sent/(sent+drop)."""
+    """entregue% = entregues/tentativas. No trace, packets_sent espelha
+    packets_received e ambos contam os ENTREGUES; packets_dropped e a parte.
+    Logo tentativas = sent + dropped e entregue% = sent/(sent+drop)."""
     f = OUT / f"comm_trace_{tag}.csv"
     if not f.exists():
         return np.nan
@@ -74,88 +75,99 @@ def _delivered_pct(tag):
     return 100.0 * sent / tot if tot else np.nan
 
 
-def main() -> int:
-    runs = [r for r in RUNS if (OUT / f"result_{r[0]}.csv").exists()]
-    if not runs:
-        print(f"[plot] nenhum result_*.csv em {OUT} — rode ./run_loss_sweep.sh")
-        return 1
-    data = {tag: _load(tag) for tag, _, _ in runs}
+def _threshold(M, eps=0.2):
+    """faixa de perda onde o lift faz a PRIMEIRA virada de ajuda (>0) para
+    atrapalho (<0), varrendo por perda crescente. Ignora o lift~0 do 100%
+    (controle inerte = baseline), que nao e uma virada de sinal."""
+    Ms = M.sort_values("loss").reset_index(drop=True)
+    for i in range(1, len(Ms)):
+        if Ms.loc[i - 1, "lift_med"] >= eps and Ms.loc[i, "lift_med"] < -eps:
+            return Ms.loc[i - 1, "loss"], Ms.loc[i, "loss"]
+    return None
 
-    # metricas por cenario (lift = efeito vs baseline; med = robusto, min = pior instante)
-    rows = []
-    Vb = _vmean(data["baseline"], CRIT) if "baseline" in data else None
+
+def main() -> int:
+    runs = [(t, p) for t, p in LOSS_TAGS if (OUT / f"result_{t}.csv").exists()]
+    if not runs:
+        print(f"[plot] nenhum result_loss*.csv em {OUT} — rode ./run_loss_sweep.sh")
+        return 1
+    data = {t: _load(t) for t, _ in runs}
+    has_base = (OUT / "result_baseline.csv").exists()
+    Vb = None
+    if has_base:
+        data["baseline"] = _load("baseline")
+        Vb = _vmean(data["baseline"], CRIT)
     base_mean = Vb.mean() if Vb is not None else np.nan
     base_min = Vb.min() if Vb is not None else np.nan
-    for tag, rot, cor in runs:
-        df = data[tag]
-        V = _vmean(df, CRIT)
-        sig = float(np.mean([_vmean(df, b).std() for b in PV_BUSES]))
+
+    rows = []
+    for t, p in runs:
+        V = _vmean(data[t], CRIT)
         rows.append(dict(
-            tag=tag, rot=rot, cor=cor,
-            vmean=V.mean(), vmin=V.min(),
-            lift_med=1000 * (V.mean() - base_mean),   # beneficio MEDIO (robusto)
-            lift_min=1000 * (V.min() - base_min),      # beneficio no pior instante
-            tbelow=100 * (V < 0.95).mean(),            # % do dia em subtensao
-            sig=sig, q=_q_total(df).mean(), deliv=_delivered_pct(tag)))
-    M = pd.DataFrame(rows)
+            tag=t, loss=p, vmean=V.mean(), vmin=V.min(),
+            lift_med=1000 * (V.mean() - base_mean),
+            lift_min=1000 * (V.min() - base_min),
+            tbelow=100 * (V < 0.95).mean(),
+            q=_q_total(data[t]).mean(), deliv=_delivered_pct(t)))
+    M = pd.DataFrame(rows).sort_values("loss").reset_index(drop=True)
 
     print("\n=== Sensibilidade do Volt/Var a perda de pacotes (Bus 652) ===")
-    print(M[["rot", "deliv", "vmean", "lift_med", "vmin", "tbelow", "q"]].to_string(
+    print(M[["loss", "deliv", "vmean", "lift_med", "vmin", "tbelow", "q"]].to_string(
         index=False, float_format=lambda x: f"{x:8.3f}"))
-    print("  deliv=% entregue | lift_med=mV vs baseline (+ ajuda, - atrapalha) | "
-          "tbelow=% do dia <0,95 | q=Σ|Q| médio [kvar]")
+    th = _threshold(M)
+    if th:
+        print(f"  >> limiar (lift cruza 0) entre {th[0]:.0f}% e {th[1]:.0f}% de perda")
 
-    # ---- figura 2x2 ----
-    fig, axs = plt.subplots(2, 2, figsize=(15, 10))
+    fig, axs = plt.subplots(2, 2, figsize=(16, 10))
     fig.suptitle("OpenTES — Sensibilidade do controle Volt/Var à perda de pacotes (Bus 652)",
                  fontsize=15, fontweight="bold")
 
-    # 1) tensao da barra critica ao longo do dia
+    # 1) tensao da barra critica ao longo do dia (leque por % de perda)
     ax = axs[0, 0]
-    for tag, rot, cor in runs:
-        ls = ":" if tag == "baseline" else "-"
-        lw = 1.3 if tag == "baseline" else 1.8
-        ax.plot(data[tag]["h"], _vmean(data[tag], CRIT), color=cor, lw=lw, ls=ls, label=rot)
-    ax.axhline(0.95, color="#999", ls="--", lw=1, label="limite ANEEL (0,95)")
-    ax.set_title("Tensão da barra crítica (Bus 652) ao longo do dia", fontweight="bold", fontsize=11)
+    if has_base:
+        ax.plot(data["baseline"]["h"], Vb, color="black", ls=":", lw=1.8, label="sem controle", zorder=6)
+    for t, p in runs:
+        ax.plot(data[t]["h"], _vmean(data[t], CRIT), color=_color(p), lw=1.3)
+    ax.axhline(0.95, color="#999", ls="--", lw=1, label="ANEEL 0,95")
+    sm = ScalarMappable(norm=Normalize(0, 100), cmap=CMAP); sm.set_array([])
+    fig.colorbar(sm, ax=ax, label="perda de pacotes [%]")
+    ax.set_title("Tensão da barra 652 ao longo do dia", fontweight="bold", fontsize=11)
     ax.set_xlabel("Hora do dia"); ax.set_ylabel("Tensão [pu]")
     ax.set_xlim(0, 24); ax.set_xticks(range(0, 25, 4)); ax.grid(alpha=.3)
     ax.legend(fontsize=8, loc="lower center")
 
-    x = np.arange(len(M)); cores = M["cor"].tolist(); rots = [r.replace(" · ", "\n") for r in M["rot"]]
+    pts = dict(s=70, zorder=3, edgecolor="black", linewidths=0.6)
+    cols = [_color(p) for p in M["loss"]]
 
-    # 2) BENEFICIO do controle = lift medio de tensao vs baseline (+ ajuda / - atrapalha)
+    # 2) BENEFICIO (lift medio) vs perda — onde cruza 0 e o limiar
     ax = axs[0, 1]
-    bar_cols = ["#2ca02c" if l > 0.2 else ("#d62728" if l < -0.2 else "#7f7f7f") for l in M["lift_med"]]
-    ax.bar(x, M["lift_med"], color=bar_cols)
     ax.axhline(0, color="black", lw=1)
-    ax.set_title("Benefício do controle — lift MÉDIO de tensão vs baseline (Bus 652)",
-                 fontweight="bold", fontsize=11)
+    if th:
+        ax.axvspan(th[0], th[1], color="grey", alpha=0.15)
+        ax.text((th[0] + th[1]) / 2, ax.get_ylim()[1], "limiar", ha="center",
+                va="top", fontsize=9, style="italic")
+    ax.plot(M["loss"], M["lift_med"], "-", color="#555", lw=1.2, zorder=1)
+    ax.scatter(M["loss"], M["lift_med"], c=cols, **pts)
+    ax.set_title("Benefício do controle (lift médio vs baseline)", fontweight="bold", fontsize=11)
+    ax.set_xlabel("perda de pacotes [%]")
     ax.set_ylabel("Δ tensão média [mV]   (+ ajuda / − atrapalha)")
-    ax.set_xticks(x); ax.set_xticklabels(rots, fontsize=8); ax.grid(alpha=.3, axis="y")
-    for i, l in enumerate(M["lift_med"]):
-        ax.text(i, l + (0.3 if l >= 0 else -0.5), f"{l:+.1f}", ha="center",
-                va="bottom" if l >= 0 else "top", fontsize=9, fontweight="bold")
+    ax.grid(alpha=.3)
 
-    # 3) reativo total injetado (esforco de controle)
+    # 3) ESFORCO (Q injetado) vs perda
     ax = axs[1, 0]
-    ax.bar(x, M["q"], color=cores)
-    ax.set_title("Reativo injetado pelos 5 inversores (médio) — esforço de controle",
-                 fontweight="bold", fontsize=11)
-    ax.set_ylabel("Σ|Q| médio [kvar]")
-    ax.set_xticks(x); ax.set_xticklabels(rots, fontsize=8); ax.grid(alpha=.3, axis="y")
-    for i, qq in enumerate(M["q"]):
-        ax.text(i, qq, f"{qq:.0f}", ha="center", va="bottom", fontsize=8)
+    ax.plot(M["loss"], M["q"], "-", color="#555", lw=1.2, zorder=1)
+    ax.scatter(M["loss"], M["q"], c=cols, **pts)
+    ax.set_title("Esforço de controle — reativo injetado (médio)", fontweight="bold", fontsize=11)
+    ax.set_xlabel("perda de pacotes [%]"); ax.set_ylabel("Σ|Q| médio [kvar]")
+    ax.grid(alpha=.3)
 
-    # 4) informacao entregue vs efeito do controle
+    # 4) INFORMACAO entregue vs perda
     ax = axs[1, 1]
-    ax.bar(x, M["deliv"], color=cores)
-    ax.set_title("Informação entregue ao controlador (% dos pacotes)", fontweight="bold", fontsize=11)
-    ax.set_ylabel("Entregues [%]"); ax.set_ylim(0, 105)
-    ax.set_xticks(x); ax.set_xticklabels(rots, fontsize=8); ax.grid(alpha=.3, axis="y")
-    for i, dd in enumerate(M["deliv"]):
-        txt = "n/d" if np.isnan(dd) else f"{dd:.0f}%"
-        ax.text(i, (0 if np.isnan(dd) else dd) + 2, txt, ha="center", fontsize=8)
+    ax.plot(M["loss"], M["deliv"], "-", color="#555", lw=1.2, zorder=1)
+    ax.scatter(M["loss"], M["deliv"], c=cols, **pts)
+    ax.set_title("Informação entregue ao controlador", fontweight="bold", fontsize=11)
+    ax.set_xlabel("perda de pacotes [%]"); ax.set_ylabel("Entregues [%]")
+    ax.set_ylim(0, 105); ax.grid(alpha=.3)
 
     plt.tight_layout(rect=[0, 0, 1, 0.96])
     fig.savefig(OUT / "sensibilidade_perda.png", dpi=150)
