@@ -59,18 +59,34 @@ tensão média da barra 652 vs baseline (+ ajuda / − atrapalha). Q médio = Σ
 
 ## Leitura da figura (`sensibilidade_perda.png`)
 
-Os quatro painéis usam **% de perda no eixo x** (curva), para localizar o limiar:
+Painel 1 = curvas no tempo; painéis 2–4 = **barras por nível de perda** (uma barra
+por cenário, gradiente verde→vermelho):
 
-1. **Tensão da barra 652 ao longo do dia** (leque colorido por % de perda, com
-   barra de cor). As curvas de baixa perda (verdes) se descolam para cima no fim
-   do dia (suporte de tensão); as de alta perda (vermelhas) e o baseline (preto
-   pontilhado) ficam coladas no patamar baixo.
-2. **Benefício do controle (lift médio) × perda.** É o "penhasco": +5,4 mV até
-   25%, depois **despenca para negativo** já em 30%. A faixa cinza marca o
-   **limiar (25–30%)**. Volta a zero em 100% (controle inerte).
-3. **Esforço de controle (Q injetado) × perda.** ~87 kvar até 25%, cai para
-   ~64–70 kvar de 30% a 75%, e zera em 100%.
-4. **Informação entregue × perda.** Queda quase linear de 100% a 0%.
+1. **Tensão da barra 652 ao longo do dia.** As curvas de baixa perda (verdes) se
+   descolam para cima no fim do dia (suporte de tensão); as de alta perda e o
+   baseline (preto pontilhado) ficam coladas no patamar baixo. **Repare nas curvas
+   de 30/35/45%**: à noite elas sobem **acima de 1,0 pu** — ver "Anomalia" abaixo.
+2. **Benefício do controle (lift médio).** Barra divergente: verde (+5,4 mV) em
+   0% e 25%, vermelha (negativa) de 30% a 75%, e ~0 em 100%. Mostra o limiar:
+   o sinal vira entre 25% e 30%.
+3. **Esforço de controle (Q injetado).** ~87 kvar até 25%, ~64–70 kvar de 30% a
+   75%, e ~0 em 100%.
+4. **Informação entregue.** Queda quase linear de 100% a 0%.
+
+### Anomalia verificada: sobretensão noturna em 30/35/45% de perda
+
+Nas curvas de 30/35/45% a tensão da barra 652 **sobe acima de 1,0 pu de
+madrugada** (~1,018 pu), enquanto baseline, 0%, 25%, 40%, 50%, 100% ficam no
+patamar baixo. **Foi verificado e é um resultado REAL, não um artefato** de plot
+ou de borda do loadshape (a irradiância já é 0 à noite e o baseline fica
+totalmente plano no último passo). A causa: com perda alta, os controladores
+**PV1–PV4 perdem a comunicação e seguram um `Q` de boost** (chega a injetar
+30–105 kvar à noite, quando deveriam estar ~0); esse reativo preso **sobre-injeta**
+e empurra o alimentador à **sobretensão**. É a mesma "ação sobre dado velho" da
+conclusão, agora se manifestando como **violação de tensão** — é intermitente
+entre níveis (30/35/45% sim; 40/50% não) porque depende de *quais* pacotes caem
+(semente única). Ou seja, comunicação ruim não só anula o controle: pode
+**desestabilizá-lo** e gerar violação de tensão.
 
 ## Conclusões
 
