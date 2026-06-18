@@ -27,11 +27,13 @@ import pandas as pd
 OUT = Path(os.environ.get("MOSAIK_OUTPUT_DIR", "/app/output/sensibilidade_perda"))
 CRIT = "652"  # barra PV mais critica (subtensao)
 PV_BUSES = ["646", "632", "634", "645", "652"]
-# (tag, rotulo, cor)
+# (tag, rotulo, cor) — gradiente verde (sem perda) -> vermelho (perda total)
 RUNS = [
-    ("baseline", "sem controle",        "#7f7f7f"),
-    ("loss000",  "Volt/Var · 0% perda", "#2ca02c"),
+    ("baseline", "sem controle",         "#7f7f7f"),
+    ("loss000",  "Volt/Var · 0% perda",  "#2ca02c"),
+    ("loss025",  "Volt/Var · 25% perda", "#9acd32"),
     ("loss050",  "Volt/Var · 50% perda", "#ff7f0e"),
+    ("loss075",  "Volt/Var · 75% perda", "#e6550d"),
     ("loss100",  "Volt/Var · 100% perda", "#d62728"),
 ]
 

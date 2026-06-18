@@ -12,7 +12,9 @@ distribuído) variando a **perda de pacotes** da rede OMNeT++ (`drop_probability
 |---|---|---|
 | `baseline` | — (controle desligado) | Referência: nenhum controle (piso de tensão). |
 | `loss000` | 0,0 | Canal perfeito: toda medição chega. |
+| `loss025` | 0,25 | 25% das medições se perde. |
 | `loss050` | 0,5 | Metade das medições se perde. |
+| `loss075` | 0,75 | 75% das medições se perde. |
 | `loss100` | 1,0 | Sem comunicação: nenhuma medição chega. |
 
 O **ganho do Volt/Var** foi mantido no padrão (`Q_MAX_PCT = 0,05`,
@@ -41,7 +43,9 @@ Saídas em `output/sensibilidade_perda/`: `result_{baseline,loss000,loss050,loss
 |---|---:|---:|---:|---:|---:|---:|
 | `baseline` (sem controle) | 100% | 0,9773 | 0,0 mV | 0,9205 | 26,4% | 0 |
 | `loss000` (0% perda) | 100% | 0,9827 | **+5,4 mV** | 0,9382 | 20,1% | 87 kvar |
+| `loss025` (25% perda) | 76% | 0,9827 | **+5,4 mV** | 0,9382 | 20,1% | 87 kvar |
 | `loss050` (50% perda) | 49% | 0,9734 | **−3,8 mV** | 0,9205 | 26,4% | 64 kvar |
+| `loss075` (75% perda) | 24% | 0,9740 | **−3,7 mV** | 0,9205 | 26,4% | 64 kvar |
 | `loss100` (100% perda) | 0% | 0,9773 | 0,0 mV | 0,9205 | 26,4% | 0 |
 
 *Entregue% = `packets_sent / (packets_sent + packets_dropped)`. lift médio = Δ da
@@ -50,38 +54,47 @@ tensão média da barra 652 vs baseline (+ ajuda / − atrapalha). Q médio = Σ
 
 ## Leitura da figura (`sensibilidade_perda.png`)
 
-1. **Tensão da barra 652 ao longo do dia.** A curva de **0% perda** (verde) é a
-   única que se descola para cima no fim do dia (suporte de tensão). As de 50%,
-   100% e baseline ficam praticamente **coladas** no patamar baixo.
-2. **Benefício do controle (lift médio).** Barra divergente: **+5,4 mV** com 0%
-   perda (ajuda), **−3,8 mV** com 50% (atrapalha), **0** com 100% e baseline.
-3. **Esforço de controle (Q injetado).** 87 kvar (0%) → 64 kvar (50%) → 0 (100%).
-4. **Informação entregue.** 100% → 100% → 49% → 0%, acompanhando o parâmetro.
+1. **Tensão da barra 652 ao longo do dia.** As curvas de **0% e 25% perda**
+   (verdes) se descolam para cima no fim do dia (suporte de tensão) e ficam
+   **sobrepostas**. As de 50%, 75%, 100% e o baseline ficam **coladas** no
+   patamar baixo.
+2. **Benefício do controle (lift médio).** Barra divergente, e é o "penhasco":
+   **+5,4 mV** com 0% e 25% (ajuda), **−3,8 / −3,7 mV** com 50% e 75% (atrapalha),
+   **0** com 100% e baseline.
+3. **Esforço de controle (Q injetado).** 87 kvar (0% e 25%) → 64 kvar (50% e 75%)
+   → 0 (100%).
+4. **Informação entregue.** 100% → 76% → 49% → 24% → 0%, acompanhando o parâmetro.
 
 ## Conclusões
 
-- **Comunicação em dia ⇒ controle efetivo.** Com 0% de perda, o Volt/Var eleva a
-  tensão da barra crítica (mínima 0,920 → 0,938 pu; tempo em subtensão 26% → 20%)
-  injetando ~87 kvar. É o melhor caso, como esperado.
-- **Sem comunicação ⇒ controle inexistente.** Com 100% de perda o controlador
-  nunca recebe a tensão, segura `Q = 0` e o resultado é **idêntico ao baseline**.
-  Confirma a hipótese do time e valida o modelo (a ausência de informação anula o
-  controle, sem quebrar a simulação).
-- **Comunicação parcial não dá benefício parcial — pode atrapalhar.** O achado
-  mais importante: com 50% de perda o controlador **ainda injeta reativo**
-  (~64 kvar), mas sobre **dados desatualizados** — entre uma medição e outra ele
-  segura o último `Q`, que pode já não corresponder à tensão atual. O efeito
-  líquido sobre a tensão foi **neutro a levemente negativo** (lift médio −3,8 mV).
-  Ou seja: **esforço de controle sem informação fresca vira esforço desperdiçado
-  (ou contraproducente)**. É a versão forte da tese do projeto: não basta o
-  controlador agir — ele precisa de informação **a tempo**.
+A degradação **não é suave** — há um **limiar** (entre 25% e 50% de perda) em que
+o controle passa de eficaz para contraproducente, e três regimes claros:
 
-> **Ressalva metodológica.** Os números acima são de **uma realização** (semente
-> fixa; *quais* 50% se perdem é sorteado). O efeito qualitativo (esforço sem
-> benefício sob perda parcial) é robusto pelo mecanismo (dado velho → ação no
-> instante errado), mas o **valor** do lift no caso 50% varia conforme a semente.
-> Para quantificar com barras de erro, repetir o `loss050` com várias sementes
-> (`seed-0-mt` no `omnetpp.ini`) e tirar média/desvio — fica como próximo passo.
+- **Robusto até ~25% de perda ⇒ controle efetivo.** Com 0% **e 25%** de perda o
+  resultado é **o mesmo** (mínima 0,920 → 0,938 pu; tempo em subtensão 26% → 20%;
+  ~87 kvar). A tensão muda devagar (passos de 5 min), então perder 1 em 4
+  medições ainda deixa o controlador **suficientemente informado**. Boa notícia:
+  o controle tolera uma rede imperfeita até certo ponto.
+- **Perda alta (50–75%) ⇒ controle contraproducente.** O achado mais importante:
+  o controlador **ainda injeta reativo** (~64 kvar), mas sobre **dados
+  desatualizados** — entre uma medição e outra ele segura o último `Q`, que já não
+  corresponde à tensão atual. O efeito líquido vira **negativo** (lift −3,8/−3,7
+  mV): **esforço de controle sem informação fresca vira esforço desperdiçado, ou
+  pior, prejudicial**.
+- **Sem comunicação (100%) ⇒ controle inexistente.** O controlador nunca recebe a
+  tensão, segura `Q = 0` e o resultado é **idêntico ao baseline**. Valida o modelo
+  (ausência de informação anula o controle, sem quebrar a simulação).
+
+É a versão forte da tese do projeto: **não basta o controlador agir — ele precisa
+de informação a tempo**; comunicação ruim pode ser pior do que não ter controle.
+
+> **Ressalva metodológica.** Os números são de **uma realização** (semente fixa;
+> *quais* pacotes se perdem é sorteado). O efeito qualitativo (robusto até ~25%,
+> contraproducente em 50–75%, inerte em 100%) é coerente com o mecanismo (dado
+> velho → ação no instante errado), mas a **posição exata do limiar** e o **valor**
+> do lift variam com a semente. Para quantificar com barras de erro, repetir cada
+> nível com várias sementes (`seed-0-mt` no `omnetpp.ini`) e tirar média/desvio —
+> fica como próximo passo.
 
 Relacionado: a discussão fenomenológico × mecanístico do modelo de perda está em
 [`INTEGRACAO.md`](INTEGRACAO.md#a-perda-de-pacotes-é-parâmetro-não-resultado).

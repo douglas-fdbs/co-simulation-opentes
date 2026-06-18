@@ -265,8 +265,8 @@ parâmetro de perda) estão em [`INTEGRACAO.md`](INTEGRACAO.md#resultados).
 ## Experimento: sensibilidade à perda de pacotes
 
 O estudo do **impacto da qualidade da comunicação** sobre o controle distribuído
-(perda de 0%, 50% e 100%) tem doc própria: [`EXPERIMENTO_PERDA.md`](EXPERIMENTO_PERDA.md).
-Roda com `./run_loss_sweep.sh` e gera `output/sensibilidade_perda/sensibilidade_perda.png`.
-Achado central: com 0% de perda o Volt/Var dá suporte de tensão; com 100% degenera
-no baseline (controle inexistente); e com 50% o controle **age sobre dados velhos**
-— esforço sem benefício.
+(perda de 0%, 25%, 50%, 75% e 100%) tem doc própria:
+[`EXPERIMENTO_PERDA.md`](EXPERIMENTO_PERDA.md). Roda com `./run_loss_sweep.sh` e
+gera `output/sensibilidade_perda/sensibilidade_perda.png`. Achado central: a
+degradação tem **limiar** — robusto até ~25% de perda (controle efetivo),
+contraproducente em 50–75% (age sobre dados velhos), e inerte em 100% (= baseline).

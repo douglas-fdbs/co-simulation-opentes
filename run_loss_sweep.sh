@@ -15,12 +15,21 @@
 # antes de cada passada e RESTAURA o valor original ao final (trap EXIT). Mantem
 # o ganho do Volt/Var no padrao (Q_MAX_PCT=0.05) para isolar o efeito da PERDA.
 #
-# Uso:  ./run_loss_sweep.sh
-# Saidas: output/sensibilidade_perda/result_{baseline,loss000,loss050,loss100}.csv
-#         (+ comm_trace_*.csv). Gere a figura com plot_loss_sweep.py.
+# Uso:  ./run_loss_sweep.sh                  # roda todas as passadas
+#       ./run_loss_sweep.sh loss025 loss075  # roda so as passadas indicadas
+# Saidas: output/sensibilidade_perda/result_{baseline,loss000,loss025,loss050,
+#         loss075,loss100}.csv (+ comm_trace_*.csv). Figura: plot_loss_sweep.py.
 
 set -euo pipefail
 cd "$(dirname "$0")"
+
+# filtro opcional: se passar nomes de passada, roda so essas (reaproveita o resto)
+WANT=("$@")
+should_run() {
+    [ ${#WANT[@]} -eq 0 ] && return 0
+    local w; for w in "${WANT[@]}"; do [ "$w" = "$1" ] && return 0; done
+    return 1
+}
 
 INI="simulators_teams/comm-opentes/omnetpp.ini"
 OUTDIR_HOST="output/sensibilidade_perda"
@@ -63,10 +72,12 @@ mkdir -p "${OUTDIR_HOST}"
 echo ">> [sweep] drop_probability original = ${ORIG_DROP} (sera restaurado ao final)"
 cleanup
 
-run_pass baseline 0 0.0    # referencia: SEM controle (perda nao afeta)
-run_pass loss000  1 0.0    # Volt/Var, canal perfeito (0% de perda)
-run_pass loss050  1 0.5    # Volt/Var, 50% de perda
-run_pass loss100  1 1.0    # Volt/Var, 100% de perda (sem comunicacao)
+should_run baseline && run_pass baseline 0 0.0     # referencia: SEM controle
+should_run loss000  && run_pass loss000  1 0.0     # Volt/Var, canal perfeito
+should_run loss025  && run_pass loss025  1 0.25    # Volt/Var, 25% de perda
+should_run loss050  && run_pass loss050  1 0.5     # Volt/Var, 50% de perda
+should_run loss075  && run_pass loss075  1 0.75    # Volt/Var, 75% de perda
+should_run loss100  && run_pass loss100  1 1.0     # Volt/Var, 100% de perda
 
 cleanup
 echo ">> [sweep] concluido. saidas em ${OUTDIR_HOST}/"
