@@ -267,7 +267,8 @@ parâmetro de perda) estão em [`INTEGRACAO.md`](INTEGRACAO.md#resultados).
 O estudo do **impacto da qualidade da comunicação** sobre o controle distribuído
 (perda de 0/25/30/35/40/45/50/75/100%) tem doc própria:
 [`EXPERIMENTO_PERDA.md`](EXPERIMENTO_PERDA.md). Roda com `./run_loss_sweep.sh` e
-gera `output/sensibilidade_perda/sensibilidade_perda.png`. Achado central: a
-degradação **não é suave** — há um **limiar abrupto entre 25% e 30% de perda**:
-robusto e efetivo até 25%, contraproducente acima de 30% (age sobre dados velhos),
-inerte em 100% (= baseline).
+gera `output/sensibilidade_perda/sensibilidade_perda.png`. Achado central
+(confirmado por análise **multi-semente**, `run_loss_multiseed.sh`): comunicação
+boa (0%) → controle efetivo; degradada (~25–50%) → benefício **não-confiável**
+(variância alta) e **risco de sobretensão** noturna (pico ~50%); péssima/nula
+(75–100%) → controle inútil/inerte. Não há ponto de operação "parcial" seguro.

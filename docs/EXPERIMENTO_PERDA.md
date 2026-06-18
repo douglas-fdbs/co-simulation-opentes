@@ -88,37 +88,67 @@ entre níveis (30/35/45% sim; 40/50% não) porque depende de *quais* pacotes cae
 (semente única). Ou seja, comunicação ruim não só anula o controle: pode
 **desestabilizá-lo** e gerar violação de tensão.
 
+> **As tabelas e a figura acima são de UMA semente.** O "penhasco abrupto em
+> 25–30%" que ela sugere é, em boa parte, **ruído de semente única** — ver a
+> análise multi-semente abaixo, que é a conclusão robusta.
+
+## Multi-semente (5 sementes por nível) — resultado robusto
+
+Para separar sinal de ruído, repetimos cada nível estocástico com **5 sementes**
+(`seed-0-mt` = 1..5, via `run_loss_multiseed.sh`) e agregamos média ± desvio.
+Figura: `sensibilidade_perda_multiseed.png`.
+
+| Perda | n | lift médio ± dp [mV] | Q médio ± dp [kvar] | Entregue | Sobretensão noturna |
+|---:|:--:|---:|---:|---:|:--:|
+| 0% | 1 | +5,4 | 87 | 100% | 0/1 |
+| 25% | 5 | **+1,7 ± 4,6** | 79 ± 9 | 75% | 0/5 |
+| 30% | 5 | **−2,0 ± 3,7** | 72 ± 8 | 70% | 0/5 |
+| 35% | 5 | **+0,9 ± 3,8** | 75 ± 10 | 65% | **2/5** |
+| 40% | 5 | **+2,2 ± 4,0** | 79 ± 10 | 60% | **1/5** |
+| 45% | 5 | **−0,6 ± 3,0** | 71 ± 8 | 55% | **3/5** |
+| 50% | 5 | **−1,7 ± 1,1** | 68 ± 2 | 49% | **4/5** |
+| 75% | 5 | **−2,3 ± 0,8** | 70 ± 4 | 25% | 1/5 |
+| 100% | 1 | 0,0 | 0 | 0% | 0/1 |
+
+O multi-semente **corrige** a leitura da figura de uma semente:
+
+- **Não existe limiar abrupto.** Na faixa 25–45% o lift médio fica **perto de
+  zero com desvio enorme** (±3 a 4,6 mV — maior que a própria média): o benefício
+  é **estatisticamente indistinguível de zero** e o sinal de uma rodada para
+  outra é aleatório. O "+5,4 → −1,3" da semente única era ruído.
+- **A sobretensão noturna é real e tem frequência crescente**, com **pico em
+  ~45–50% de perda** (3/5 e **4/5** das sementes), caindo em 75% (o controle
+  quase não age). É a manifestação concreta do dado velho: Q de boost preso →
+  sobre-injeção → V > 1,0 pu de madrugada.
+
 ## Conclusões
 
-A degradação **não é suave** — há um **limiar abrupto entre 25% e 30% de perda**
-em que o controle passa de eficaz para contraproducente. Três regimes:
+A degradação da comunicação leva o controle distribuído por três fases:
 
-- **Robusto até ~25% de perda ⇒ controle efetivo.** Com 0% **e 25%** de perda o
-  resultado é **o mesmo** (mínima 0,920 → 0,938 pu; tempo em subtensão 26% → 20%;
-  ~87 kvar). A tensão muda devagar (passos de 5 min), então perder 1 em 4
-  medições ainda deixa o controlador **suficientemente informado**. Boa notícia:
-  o controle tolera uma rede imperfeita até certo ponto.
-- **Acima de ~30% ⇒ controle contraproducente.** O achado mais importante: a
-  partir de 30% o controlador **ainda injeta reativo** (~64–70 kvar), mas sobre
-  **dados desatualizados** — entre uma medição e outra ele segura o último `Q`,
-  que já não corresponde à tensão atual. O efeito líquido vira **negativo** (lift
-  de −1,3 a −3,8 mV no intervalo 30–75%): **esforço de controle sem informação
-  fresca vira esforço desperdiçado, ou pior, prejudicial**.
-- **Sem comunicação (100%) ⇒ controle inexistente.** O controlador nunca recebe a
-  tensão, segura `Q = 0` e o resultado é **idêntico ao baseline**. Valida o modelo
-  (ausência de informação anula o controle, sem quebrar a simulação).
+- **Comunicação boa (0% perda) ⇒ controle efetivo.** Eleva a barra crítica
+  (mínima 0,920 → 0,938 pu) com ~87 kvar. Melhor caso.
+- **Comunicação degradada (~25–50% perda) ⇒ controle NÃO-CONFIÁVEL e ARRISCADO.**
+  O benefício médio cai para perto de zero com **alta variância** (ora ajuda, ora
+  atrapalha) e surge **risco de sobretensão** (até 80% das rodadas em 50%). Não há
+  um ponto de operação "parcial" seguro: passando de ~25% de perda, **não dá para
+  confiar no controle**.
+- **Comunicação péssima/nula (75–100%) ⇒ controle inútil.** Em 75% o lift é
+  consistentemente levemente negativo (−2,3 ± 0,8) e o controlador quase não age;
+  em 100% fica `Q = 0`, **idêntico ao baseline**.
 
-É a versão forte da tese do projeto: **não basta o controlador agir — ele precisa
-de informação a tempo**; comunicação ruim pode ser pior do que não ter controle.
+É a versão forte (e agora estatisticamente apoiada) da tese do projeto: **não
+basta o controlador agir — ele precisa de informação a tempo e confiável**.
+Comunicação degradada não dá um "meio-controle": ela torna o controle
+**imprevisível e potencialmente danoso** antes de simplesmente pará-lo.
 
-> **Ressalva metodológica.** Os números são de **uma realização** (semente fixa;
-> *quais* pacotes se perdem é sorteado). Na região prejudicial (30–75%) o lift
-> **oscila** entre −1,3 e −3,8 mV de um nível para o outro — esse "balanço" é
-> ruído da semente única (depende de quais medições caem), **não** uma tendência
-> física. O que é robusto: o **sinal** (positivo até 25%, negativo de 30% a 75%,
-> zero em 100%) e a **posição do limiar** (~25–30%). Para suavizar a curva e ter
-> barras de erro, repetir cada nível com várias sementes (`seed-0-mt` no
-> `omnetpp.ini`) e tirar média/desvio — fica como próximo passo.
+## Como reproduzir o multi-semente
+
+```bash
+./run_loss_multiseed.sh     # 7 níveis estocásticos × 5 sementes + det. (resumível)
+docker compose run --rm --no-deps \
+  -e MOSAIK_OUTPUT_DIR=/app/output/sensibilidade_perda_multiseed \
+  mosaik python plot_loss_multiseed.py
+```
 
 Relacionado: a discussão fenomenológico × mecanístico do modelo de perda está em
 [`INTEGRACAO.md`](INTEGRACAO.md#a-perda-de-pacotes-é-parâmetro-não-resultado).
