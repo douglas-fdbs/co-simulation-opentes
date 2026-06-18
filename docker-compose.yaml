@@ -158,7 +158,7 @@ services:
       - elec-collector
     environment:
       - MOSAIK_SCENARIO=scenarios/first.py
-      - MOSAIK_OUTPUT_DIR=/app/output/integrated
+      - MOSAIK_OUTPUT_DIR=${MOSAIK_OUTPUT_DIR:-/app/output/integrated}
       - MOSAIK_N_PASSOS=${MOSAIK_N_PASSOS:-288}
       - CONTROL_ENABLED=${CONTROL_ENABLED:-1}
       - RESULT_TAG=${RESULT_TAG:-volt_var}

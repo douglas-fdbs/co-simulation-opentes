@@ -259,3 +259,14 @@ docker compose run --rm --no-deps mosaik python plot_ieee13.py
 
 Os números e observações consolidados (efeito do controle, estabilidade,
 parâmetro de perda) estão em [`INTEGRACAO.md`](INTEGRACAO.md#resultados).
+
+---
+
+## Experimento: sensibilidade à perda de pacotes
+
+O estudo do **impacto da qualidade da comunicação** sobre o controle distribuído
+(perda de 0%, 50% e 100%) tem doc própria: [`EXPERIMENTO_PERDA.md`](EXPERIMENTO_PERDA.md).
+Roda com `./run_loss_sweep.sh` e gera `output/sensibilidade_perda/sensibilidade_perda.png`.
+Achado central: com 0% de perda o Volt/Var dá suporte de tensão; com 100% degenera
+no baseline (controle inexistente); e com 50% o controle **age sobre dados velhos**
+— esforço sem benefício.
