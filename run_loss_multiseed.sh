@@ -23,7 +23,7 @@ OUTDIR_HOST="output/sensibilidade_perda_multiseed"
 OUTDIR_CONT="/app/output/sensibilidade_perda_multiseed"
 ALL_PROFILES=(--profile ieee13 --profile integrated)
 
-SEEDS=(1 2 3 4 5)
+SEEDS=($(seq 1 20))
 # niveis estocasticos: "tag:drop"
 STOCH=("loss025:0.25" "loss030:0.30" "loss035:0.35" "loss040:0.40"
        "loss045:0.45" "loss050:0.50" "loss075:0.75")

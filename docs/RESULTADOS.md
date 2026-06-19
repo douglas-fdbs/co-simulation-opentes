@@ -268,7 +268,8 @@ O estudo do **impacto da qualidade da comunicação** sobre o controle distribu�
 (perda de 0/25/30/35/40/45/50/75/100%) tem doc própria:
 [`EXPERIMENTO_PERDA.md`](EXPERIMENTO_PERDA.md). Roda com `./run_loss_sweep.sh` e
 gera `output/sensibilidade_perda/sensibilidade_perda.png`. Achado central
-(confirmado por análise **multi-semente**, `run_loss_multiseed.sh`): comunicação
-boa (0%) → controle efetivo; degradada (~25–50%) → benefício **não-confiável**
-(variância alta) e **risco de sobretensão** noturna (pico ~50%); péssima/nula
-(75–100%) → controle inútil/inerte. Não há ponto de operação "parcial" seguro.
+(robusto por **20 sementes/nível**, `run_loss_multiseed.sh`): só com comunicação
+boa (0%) o controle é **efetivo e confiável** (lift +5,4 mV); com **qualquer**
+perda (25–75%) o benefício médio **desaba para ~0** com variância alta
+(não-confiável) e surge **risco de sobretensão** noturna (~20–45% das rodadas);
+em 100% fica inerte (= baseline). Não há ponto de operação "parcial" seguro.
