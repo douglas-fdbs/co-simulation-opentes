@@ -28,7 +28,9 @@ import pandas as pd
 OUT = Path(os.environ.get("MOSAIK_OUTPUT_DIR", "/app/output/sensibilidade_perda_multiseed"))
 CRIT = "652"
 PV_BUSES = ["646", "632", "634", "645", "652"]
-CMAP = plt.get_cmap("RdYlGn_r")
+# 'turbo': cores fortes e de alto contraste em toda a faixa (azul->vermelho),
+# para distinguir os muitos niveis de perda (0..100% em passos de 5%).
+CMAP = plt.get_cmap("turbo")
 
 
 def _color(p):

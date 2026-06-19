@@ -92,54 +92,62 @@ entre níveis (30/35/45% sim; 40/50% não) porque depende de *quais* pacotes cae
 > 25–30%" que ela sugere é, em boa parte, **ruído de semente única** — ver a
 > análise multi-semente abaixo, que é a conclusão robusta.
 
-## Multi-semente (20 sementes por nível) — resultado robusto
+## Multi-semente — varredura completa 0–100% (passo 5%, 20 sementes)
 
-Para separar sinal de ruído, repetimos cada nível estocástico com **20 sementes**
-(`seed-0-mt` = 1..20, via `run_loss_multiseed.sh`) e agregamos média ± desvio.
-Figura: `sensibilidade_perda_multiseed.png`.
+Para responder "**até que perda o controle continua bom?**", varremos a perda de
+**0% a 100% em passos de 5%**, cada nível com **20 sementes** (`seed-0-mt` =
+1..20, via `run_loss_multiseed.sh`), e agregamos média ± desvio. 0% e 100% são
+determinísticos (1 rodada). Figura: `sensibilidade_perda_multiseed.png`.
 
-| Perda | n | lift médio ± dp [mV] | Q ± dp [kvar] | Entregue | Sobretensão noturna |
-|---:|:--:|---:|---:|---:|:--:|
-| 0% | 1 | **+5,4** | 87 | 100% | 0/1 |
-| 25% | 20 | +0,1 ± 4,0 | 74 ± 9 | 75% | 6/20 (30%) |
-| 30% | 20 | −1,5 ± 3,6 | 72 ± 8 | 70% | 4/20 (20%) |
-| 35% | 20 | +0,5 ± 3,7 | 75 ± 9 | 65% | 9/20 (45%) |
-| 40% | 20 | +0,6 ± 4,0 | 75 ± 9 | 60% | 6/20 (30%) |
-| 45% | 20 | +0,2 ± 3,9 | 74 ± 9 | 55% | 6/20 (30%) |
-| 50% | 20 | −0,8 ± 3,3 | 72 ± 7 | 49% | 8/20 (40%) |
-| 75% | 20 | +0,1 ± 3,6 | 74 ± 8 | 25% | 4/20 (20%) |
-| 100% | 1 | 0,0 | 0 | 0% | 0/1 |
+| Perda | lift médio ± dp [mV] | Sobretensão | Perda | lift médio ± dp [mV] | Sobretensão |
+|---:|---:|:--:|---:|---:|:--:|
+| **0%** | **+5,4** (det.) | 0/1 | 55% | −0,5 ± 3,9 | 4/20 |
+| 5% | −0,6 ± 3,6 | 9/20 | 60% | −0,2 ± 3,3 | 8/20 |
+| 10% | −0,1 ± 3,7 | 9/20 | 65% | −0,2 ± 3,9 | 5/20 |
+| 15% | +1,7 ± 4,2 | 4/20 | 70% | −0,8 ± 3,1 | 6/20 |
+| 20% | +0,4 ± 4,2 | 5/20 | 75% | +0,1 ± 3,6 | 4/20 |
+| 25% | +0,1 ± 4,0 | 6/20 | 80% | +1,3 ± 3,7 | 4/20 |
+| 30% | −1,5 ± 3,6 | 4/20 | 85% | −0,8 ± 2,8 | 6/20 |
+| 35% | +0,5 ± 3,7 | 9/20 | 90% | +1,0 ± 3,5 | 4/20 |
+| 40% | +0,6 ± 4,0 | 6/20 | 95% | +1,7 ± 2,3 | 7/20 |
+| 45% | +0,2 ± 3,9 | 6/20 | **100%** | **0,0** (det.) | 0/1 |
+| 50% | −0,8 ± 3,3 | 8/20 | | | |
 
-O multi-semente **corrige** a leitura da figura de uma semente:
+*(Q médio ≈ 72–78 kvar em toda a faixa 5–95%; Entregue% = 100 − perda%.)*
 
-- **Só sem perda o benefício é confiável.** Com 0% de perda o lift é **+5,4 mV**
-  (determinístico). Com **qualquer** perda relevante (25–75%) o lift médio
-  **desaba para ~0** e o desvio entre sementes (±3,3 a 4,0 mV) é **maior que a
-  média** — ou seja, o benefício é **estatisticamente indistinguível de zero** e
-  o sinal de uma rodada para outra é aleatório. Não há "robusto até 25%": já em
-  25% de perda o ganho confiável some. O "penhasco/limiar" da semente única era
-  ruído.
-- **A sobretensão noturna é real e intermitente.** Ocorre em **~20–45% das
-  sementes** ao longo de toda a faixa 25–75% de perda (sem pico nítido), e
-  **nunca** em 0% ou 100%. É a manifestação concreta do dado velho: Q de boost
-  preso → sobre-injeção → V > 1,0 pu de madrugada.
+### O ponto de quebra é entre 0% e 5%
+
+A varredura fina dá a resposta — e ela é **mais dura do que se imaginava**:
+
+- **Só com 0% de perda o controle é bom e confiável** (lift **+5,4 mV**,
+  determinístico, **sem sobretensão**).
+- **Já com 5% de perda o benefício confiável some.** De 5% a 95% o lift médio
+  fica **preso perto de zero** (oscila entre −1,5 e +1,7 mV) com desvio entre
+  sementes **±3 a 4 mV — maior que a própria média**. Ou seja, em toda essa faixa
+  o ganho é **estatisticamente indistinguível de zero**: o controle ora ajuda,
+  ora atrapalha, ao sabor de *quais* pacotes caem. Não existe "robusto até X%": a
+  confiabilidade cai de um degrau já na primeira perda.
+- **O risco de sobretensão noturna existe em qualquer perda** (≈ 4 a 9 das 20
+  sementes, 20–45%, sem tendência clara ao longo de 5–95%), e **nunca** em 0% ou
+  100%. É a manifestação do dado velho: Q de boost preso → sobre-injeção →
+  V > 1,0 pu de madrugada.
 
 ## Conclusões
 
-- **Comunicação boa (0% perda) ⇒ controle efetivo e confiável.** Lift +5,4 mV,
-  ~87 kvar, **sem sobretensão**. Melhor caso.
-- **Qualquer perda relevante (25–75%) ⇒ controle NÃO-CONFIÁVEL e ARRISCADO.** O
-  benefício médio cai para ~0 com **alta variância** (ora ajuda, ora atrapalha) e
-  surge **risco de sobretensão** (~20–45% das rodadas). Não existe ponto de
-  operação "parcial" seguro: **com perda de pacotes não dá para confiar no
-  controle**.
-- **Sem comunicação (100% perda) ⇒ controle inerte.** `Q = 0`, **idêntico ao
-  baseline** — e, por isso, **sem sobretensão**.
+- **Comunicação perfeita (0% perda) ⇒ único regime de controle bom.** Lift
+  +5,4 mV, ~87 kvar, sem sobretensão.
+- **Qualquer perda (≥5%) ⇒ controle NÃO-CONFIÁVEL e ARRISCADO.** O benefício médio
+  é ~0 com alta variância (ora ajuda, ora atrapalha) e há **risco de sobretensão**
+  (~20–45% das rodadas) em toda a faixa. **Não existe ponto de operação "parcial"
+  seguro** — basta começar a perder pacotes para não dar mais para confiar no
+  controle.
+- **Sem comunicação (100% perda) ⇒ controle inerte.** `Q = 0`, idêntico ao
+  baseline, sem sobretensão.
 
-É a versão forte (e agora estatisticamente apoiada) da tese do projeto: **não
-basta o controlador agir — ele precisa de informação a tempo e confiável**.
-Comunicação degradada não dá um "meio-controle": ela torna o controle
-**imprevisível e potencialmente danoso** antes de simplesmente pará-lo.
+É a versão forte (e agora estatisticamente apoiada por uma varredura de 0 a 100%)
+da tese do projeto: **não basta o controlador agir — ele precisa de informação a
+tempo e confiável**. Comunicação degradada não dá um "meio-controle": ela torna o
+controle **imprevisível e potencialmente danoso** antes de simplesmente pará-lo.
 
 ## Como reproduzir o multi-semente
 

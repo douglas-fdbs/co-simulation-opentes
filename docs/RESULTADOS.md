@@ -265,11 +265,11 @@ parâmetro de perda) estão em [`INTEGRACAO.md`](INTEGRACAO.md#resultados).
 ## Experimento: sensibilidade à perda de pacotes
 
 O estudo do **impacto da qualidade da comunicação** sobre o controle distribuído
-(perda de 0/25/30/35/40/45/50/75/100%) tem doc própria:
-[`EXPERIMENTO_PERDA.md`](EXPERIMENTO_PERDA.md). Roda com `./run_loss_sweep.sh` e
-gera `output/sensibilidade_perda/sensibilidade_perda.png`. Achado central
-(robusto por **20 sementes/nível**, `run_loss_multiseed.sh`): só com comunicação
-boa (0%) o controle é **efetivo e confiável** (lift +5,4 mV); com **qualquer**
-perda (25–75%) o benefício médio **desaba para ~0** com variância alta
-(não-confiável) e surge **risco de sobretensão** noturna (~20–45% das rodadas);
-em 100% fica inerte (= baseline). Não há ponto de operação "parcial" seguro.
+(varredura de perda **0→100% em passos de 5%**, **20 sementes/nível**) tem doc
+própria: [`EXPERIMENTO_PERDA.md`](EXPERIMENTO_PERDA.md). Roda com
+`run_loss_multiseed.sh` e gera `sensibilidade_perda_multiseed.png`. Achado central:
+o **ponto de quebra está entre 0% e 5%** — só com comunicação **perfeita** (0%) o
+controle é bom e confiável (lift +5,4 mV); **já em 5%** de perda o benefício
+confiável some (lift ~0 com desvio ±3–4 mV, indistinguível de zero) e há **risco
+de sobretensão** noturna (~20–45% das rodadas) em toda a faixa; em 100% fica
+inerte. Não existe ponto de operação "parcial" seguro.

@@ -24,9 +24,12 @@ OUTDIR_CONT="/app/output/sensibilidade_perda_multiseed"
 ALL_PROFILES=(--profile ieee13 --profile integrated)
 
 SEEDS=($(seq 1 20))
-# niveis estocasticos: "tag:drop"
-STOCH=("loss025:0.25" "loss030:0.30" "loss035:0.35" "loss040:0.40"
-       "loss045:0.45" "loss050:0.50" "loss075:0.75")
+# niveis estocasticos: varredura completa 5%..95% em passos de 5% ("tag:drop").
+# (0% e 100% sao deterministicos -> rodam 1 vez, mais abaixo.)
+STOCH=()
+for pct in 05 10 15 20 25 30 35 40 45 50 55 60 65 70 75 80 85 90 95; do
+    STOCH+=("loss0${pct}:0.${pct}")
+done
 
 # guarda valores originais e restaura ao sair (mesmo se interromper)
 ORIG_DROP="$(grep -E 'node_0\.drop_probability' "$INI" | sed -E 's/.*=[[:space:]]*//')"
