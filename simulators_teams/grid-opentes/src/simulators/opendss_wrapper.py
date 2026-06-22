@@ -738,30 +738,32 @@ class OpenDSS:
         """
         Força valores de potência ativa e reativa em um PVSystem no OpenDSS.
         Desacopla o elemento das curvas de temperatura e irradiância para controle via co-simulação.
+
+        IMPORTANTE — correção do congelamento do solve:
+        Em modo snapshot, o OpenDSS REAPROVEITA a tensão do passo anterior quando o
+        `Edit PVSystem` repete EXATAMENTE os mesmos valores (um "no-op"): a rede
+        deixa de responder à variação de carga e "congela". Isso acontecia
+        principalmente na madrugada (P=0 e Q estável → comando constante todo
+        passo), e mascarava o efeito do controle. Tentativas de forçar o re-solve
+        (rebuild Y, mode=snap, solve_direct, solve duplo) NÃO resolvem.
+        Solução: aplicar um DITHER desprezível no reativo (±0,001 kvar = ±1 var),
+        alternando a cada passo, de modo que o `Edit` nunca seja idêntico ao
+        anterior e o solve sempre re-resolva. O efeito físico é nulo (1 var vs.
+        dezenas/centenas de kvar de controle).
         """
+        if not hasattr(self, "_pv_dither"):
+            self._pv_dither = {}
+        self._pv_dither[name] = -self._pv_dither.get(name, 0.001)   # alterna ±0,001
+        q_eff = q_des + self._pv_dither[name]
+
         self.dss.circuit.set_active_element(f"PVSystem.{name}")
         p_abs = abs(p_des)
-        
+
         if p_abs > 0.001:
-            pmpp_req = p_abs
-            
-            # Cálculo do Fator de Potência Base
-            s_apparent = np.sqrt(p_des**2 + q_des**2)
-            pf_calc = p_des / s_apparent if s_apparent > 0 else 1.0
-            
-            # Correção do Sinal do PF (Convenção Real do OpenDSS)
-            if q_des > 0:
-                pf_calc = abs(pf_calc)   # Injeção de Q = PF Positivo
-            else:
-                pf_calc = -abs(pf_calc)  # Absorção de Q = PF Negativo
-                
-            cmd = f"Edit PVSystem.{name} pmpp={pmpp_req} irradiance=1.0 kvar={q_des}"
-            self.dss.text(cmd)
-            
+            self.dss.text(f"Edit PVSystem.{name} pmpp={p_abs} irradiance=1.0 kvar={q_eff}")
         else:
-            # Desligado ou Ocioso
-            cmd = f"Edit PVSystem.{name} irradiance=0.0 kvar={q_des}"
-            self.dss.text(cmd)
+            # Desligado ou ocioso (noite): P≈0, controla só o reativo (STATCOM)
+            self.dss.text(f"Edit PVSystem.{name} irradiance=0.0 kvar={q_eff}")
 
     def get_pvsystem_power(self, name: str):
         """

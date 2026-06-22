@@ -9,6 +9,7 @@ x-tsre-simulator: &tsre-simulator
     - opentes-net
   environment:
     - PYTHONUNBUFFERED=1
+    - PYTHONDONTWRITEBYTECODE=1   # nao grava .pyc no src montado (evita bytecode stale)
   volumes:
     - ./simulators_teams/grid-opentes/src:/app/src
 
