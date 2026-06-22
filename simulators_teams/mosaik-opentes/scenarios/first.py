@@ -39,8 +39,8 @@ PADE_PORT = os.environ.get('PADE_PORT', '5678')
 
 CONTAINER_DATA = "/app/src/data/13Bus"
 CIRCUITO_DSS = f"{CONTAINER_DATA}/run_ieee13_cosim_pv_5min.dss"
-IRRADIANCE = f"{CONTAINER_DATA}/ieee13_shape_pv_5min.csv"
-TEMPERATURE = f"{CONTAINER_DATA}/ieee13_temperature_5min.csv"
+IRRADIANCE = f"{CONTAINER_DATA}/{os.environ.get('MOSAIK_IRRADIANCE_FILE', 'ieee13_shape_pv_5min.csv')}"
+TEMPERATURE = f"{CONTAINER_DATA}/{os.environ.get('MOSAIK_TEMPERATURE_FILE', 'ieee13_temperature_5min.csv')}"
 
 OUTPUT_DIR = Path(os.environ.get("MOSAIK_OUTPUT_DIR", "/app/output/integrated"))
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)

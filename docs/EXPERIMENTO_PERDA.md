@@ -152,6 +152,24 @@ Volt/Var distribuído (de +5 mV para ~+2 mV), mas o controle **permanece benéfi
 em toda a faixa — o melhor desempenho exige comunicação confiável, sem que a perda
 parcial torne o controle perigoso.
 
+## Estudo de 48h — o ciclo diário se repete
+
+Para verificar a coerência temporal (o perfil diário deve **repetir** de um dia
+para o outro), rodou-se o cenário em **horizonte de 48h** (2 dias com a mesma
+irradiância), com o solve corrigido. Script: `run_48h.sh`; figura: `ciclo_48h.png`
+(`output/sensibilidade_48h/`).
+
+**Resultado:** o ciclo **fecha** — a tensão da barra 652 no dia 2 é **idêntica**
+à do dia 1 (diferença de 0,0 mV hora a hora no baseline; no Volt/Var, idêntica
+exceto **−1,4 mV apenas no passo 0**, o transitório de cold-start do solve). O
+perfil é fisicamente coerente: ~0,976 pu à meia-noite → 1,025 pu ao meio-dia (PV)
+→ **0,926 pu no pico de carga noturno (~21h)** → sobe de madrugada (carga caindo).
+
+Isso resolve a inconsistência do "início ≠ fim do dia": o ~1,02 pu que aparecia no
+começo era o **valor congelado** do solve; com a correção, o início (meia-noite)
+casa com o dia seguinte. Resta apenas o transitório de **1 passo** no arranque
+(antes eram ~31 passos / 2,5h).
+
 ## Como reproduzir o multi-semente
 
 ```bash
