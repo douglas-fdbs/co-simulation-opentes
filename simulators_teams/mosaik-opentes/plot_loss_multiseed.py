@@ -102,7 +102,7 @@ def main() -> int:
             lifts.append(1000 * (V.mean() - base_mean))
             qs.append(_q_total(d).mean())
             delivs.append(_delivered_pct(tag))
-            ovs.append(1.0 if V[d["h"] >= 21].max() > 1.0 else 0.0)  # sobretensao noturna
+            ovs.append(1.0 if V[d["h"] >= 21].max() > 1.05 else 0.0)  # violacao ANEEL (>1,05) a noite
             vseries.append(V.values); h = d["h"].values
         n = len(tags)
         rows.append(dict(
@@ -133,7 +133,7 @@ def main() -> int:
     for loss in M["loss"]:
         hh, vv = vday[loss]
         ax.plot(hh, vv, color=_color(loss), lw=1.6, label=f"{int(loss)}% perda")
-    ax.axhline(1.0, color="purple", ls="--", lw=1, label="1,0 pu (sobretensão)")
+    ax.axhline(1.05, color="purple", ls="--", lw=1, label="1,05 pu (limite ANEEL)")
     ax.axhline(0.95, color="#999", ls="--", lw=1, label="ANEEL 0,95")
     ax.set_title("Tensão da barra 652 ao longo do dia (média entre sementes)", fontweight="bold", fontsize=11)
     ax.set_xlabel("Hora do dia"); ax.set_ylabel("Tensão [pu]")
@@ -160,7 +160,7 @@ def main() -> int:
     # 4) FREQUENCIA de sobretensao noturna (a anomalia virou estatistica)
     ax = axs[1, 1]
     ax.bar(x, M["ov_freq"], color=cols)
-    ax.set_title("Frequência de sobretensão noturna (V652 > 1,0 pu)", fontweight="bold", fontsize=11)
+    ax.set_title("Violação de sobretensão noturna (V652 > 1,05 pu — ANEEL)", fontweight="bold", fontsize=11)
     ax.set_ylabel("% das sementes"); ax.set_ylim(0, 105)
     ax.set_xticks(x); ax.set_xticklabels(rots, fontsize=8); ax.grid(alpha=.3, axis="y")
     for i, (fr, nn) in enumerate(zip(M["ov_freq"], M["n"])):

@@ -94,60 +94,63 @@ entre níveis (30/35/45% sim; 40/50% não) porque depende de *quais* pacotes cae
 
 ## Multi-semente — varredura completa 0–100% (passo 5%, 20 sementes)
 
-Para responder "**até que perda o controle continua bom?**", varremos a perda de
-**0% a 100% em passos de 5%**, cada nível com **20 sementes** (`seed-0-mt` =
-1..20, via `run_loss_multiseed.sh`), e agregamos média ± desvio. 0% e 100% são
-determinísticos (1 rodada). Figura: `sensibilidade_perda_multiseed.png`.
+> ⚠️ **Resultados RE-RODADOS após a correção do solve (commit `ab0b04e`,
+> 2026-06-22).** A versão anterior desta seção concluía haver um "ponto de quebra
+> em ~5%", controle "não-confiável" e "sobretensão noturna" — tudo isso era
+> **artefato do congelamento do solve** do OpenDSS (que afetava justamente o caso
+> de 0% de perda). Com o solve corrigido, o quadro muda e fica coerente. As
+> conclusões antigas estão **retratadas**.
 
-| Perda | lift médio ± dp [mV] | Sobretensão | Perda | lift médio ± dp [mV] | Sobretensão |
-|---:|---:|:--:|---:|---:|:--:|
-| **0%** | **+5,4** (det.) | 0/1 | 55% | −0,5 ± 3,9 | 4/20 |
-| 5% | −0,6 ± 3,6 | 9/20 | 60% | −0,2 ± 3,3 | 8/20 |
-| 10% | −0,1 ± 3,7 | 9/20 | 65% | −0,2 ± 3,9 | 5/20 |
-| 15% | +1,7 ± 4,2 | 4/20 | 70% | −0,8 ± 3,1 | 6/20 |
-| 20% | +0,4 ± 4,2 | 5/20 | 75% | +0,1 ± 3,6 | 4/20 |
-| 25% | +0,1 ± 4,0 | 6/20 | 80% | +1,3 ± 3,7 | 4/20 |
-| 30% | −1,5 ± 3,6 | 4/20 | 85% | −0,8 ± 2,8 | 6/20 |
-| 35% | +0,5 ± 3,7 | 9/20 | 90% | +1,0 ± 3,5 | 4/20 |
-| 40% | +0,6 ± 4,0 | 6/20 | 95% | +1,7 ± 2,3 | 7/20 |
-| 45% | +0,2 ± 3,9 | 6/20 | **100%** | **0,0** (det.) | 0/1 |
-| 50% | −0,8 ± 3,3 | 8/20 | | | |
+Varredura de perda de **0% a 100% em passos de 5%**, cada nível com **20 sementes**
+(`seed-0-mt` = 1..20, via `run_loss_multiseed.sh`), agregando média ± desvio. 0% e
+100% são determinísticos. Figura: `sensibilidade_perda_multiseed.png`.
 
-*(Q médio ≈ 72–78 kvar em toda a faixa 5–95%; Entregue% = 100 − perda%.)*
+| Perda | lift médio ± dp [mV] | Perda | lift médio ± dp [mV] |
+|---:|---:|---:|---:|
+| **0%** | **+5,0** (det.) | 55% | +2,1 ± 2,3 |
+| 5% | +0,5 ± 1,0 | 60% | +1,4 ± 2,0 |
+| 10% | +2,6 ± 2,3 | 65% | +1,5 ± 2,1 |
+| 15% | +1,7 ± 2,2 | 70% | +2,1 ± 2,3 |
+| 20% | +2,2 ± 2,3 | 75% | +1,7 ± 2,2 |
+| 25% | +1,5 ± 2,0 | 80% | +1,7 ± 2,1 |
+| 30% | +1,7 ± 2,1 | 85% | +2,4 ± 2,3 |
+| 35% | +1,5 ± 2,0 | 90% | +1,6 ± 2,1 |
+| 40% | +1,9 ± 2,2 | 95% | +1,4 ± 1,9 |
+| 45% | +1,7 ± 2,2 | **100%** | **0,0** (det.) |
+| 50% | +2,4 ± 2,3 | | |
 
-### O ponto de quebra é entre 0% e 5%
+*(Q médio ≈ 60–69 kvar; Entregue% = 100 − perda%. Sobretensão ANEEL (V652 > 1,05
+pu): **0 violações em todos os níveis** — máximo global ≈ 1,029 pu.)*
 
-A varredura fina dá a resposta — e ela é **mais dura do que se imaginava**:
+### Leitura corrigida
 
-- **Só com 0% de perda o controle é bom e confiável** (lift **+5,4 mV**,
-  determinístico, **sem sobretensão**).
-- **Já com 5% de perda o benefício confiável some.** De 5% a 95% o lift médio
-  fica **preso perto de zero** (oscila entre −1,5 e +1,7 mV) com desvio entre
-  sementes **±3 a 4 mV — maior que a própria média**. Ou seja, em toda essa faixa
-  o ganho é **estatisticamente indistinguível de zero**: o controle ora ajuda,
-  ora atrapalha, ao sabor de *quais* pacotes caem. Não existe "robusto até X%": a
-  confiabilidade cai de um degrau já na primeira perda.
-- **O risco de sobretensão noturna existe em qualquer perda** (≈ 4 a 9 das 20
-  sementes, 20–45%, sem tendência clara ao longo de 5–95%), e **nunca** em 0% ou
-  100%. É a manifestação do dado velho: Q de boost preso → sobre-injeção →
-  V > 1,0 pu de madrugada.
+- **O controle AJUDA em toda a faixa de perda.** O lift é **positivo em todos os
+  níveis** (e o desvio entre sementes caiu para ~±2 mV, contra ±3–4 antes — bem
+  mais estável). Não há mais "ponto de quebra" nem comportamento "não-confiável":
+  aquilo era o solve congelado.
+- **O melhor caso é 0% de perda** (+5,0 mV). **Qualquer perda reduz o benefício**
+  para ~+1,5 a +2,5 mV, mas ele **continua positivo** — e surpreendentemente
+  **estável até 95%**: mesmo perdendo a maioria dos pacotes, o reativo "segurado"
+  (último Q válido) ainda dá um suporte médio de tensão. Só em **100%** (nenhum
+  pacote chega, Q=0) o controle zera.
+- **Não há sobretensão acima do limite ANEEL** (1,05 pu) em nenhum cenário. A
+  "sobretensão noturna" relatada antes era a tensão **naturalmente subindo de
+  madrugada** (carga baixa → ~1,02 pu, dentro da norma), que o solve congelado
+  mascarava — não um efeito do controle.
 
 ## Conclusões
 
-- **Comunicação perfeita (0% perda) ⇒ único regime de controle bom.** Lift
-  +5,4 mV, ~87 kvar, sem sobretensão.
-- **Qualquer perda (≥5%) ⇒ controle NÃO-CONFIÁVEL e ARRISCADO.** O benefício médio
-  é ~0 com alta variância (ora ajuda, ora atrapalha) e há **risco de sobretensão**
-  (~20–45% das rodadas) em toda a faixa. **Não existe ponto de operação "parcial"
-  seguro** — basta começar a perder pacotes para não dar mais para confiar no
-  controle.
-- **Sem comunicação (100% perda) ⇒ controle inerte.** `Q = 0`, idêntico ao
-  baseline, sem sobretensão.
+- **Comunicação perfeita (0%) ⇒ melhor benefício** (lift +5,0 mV).
+- **Comunicação degradada (5–95%) ⇒ benefício menor, porém positivo e estável**
+  (~+2 mV). O controle **continua útil** mesmo sob perda alta, graças ao reativo
+  segurado; a perda **atenua** o ganho, mas não o torna prejudicial.
+- **Sem comunicação (100%) ⇒ controle inerte** (Q=0, = baseline).
+- **Sem violação de tensão** (ANEEL) em nenhum caso.
 
-É a versão forte (e agora estatisticamente apoiada por uma varredura de 0 a 100%)
-da tese do projeto: **não basta o controlador agir — ele precisa de informação a
-tempo e confiável**. Comunicação degradada não dá um "meio-controle": ela torna o
-controle **imprevisível e potencialmente danoso** antes de simplesmente pará-lo.
+Tese (revisada): a perda de comunicação **degrada gradualmente** o benefício do
+Volt/Var distribuído (de +5 mV para ~+2 mV), mas o controle **permanece benéfico**
+em toda a faixa — o melhor desempenho exige comunicação confiável, sem que a perda
+parcial torne o controle perigoso.
 
 ## Como reproduzir o multi-semente
 

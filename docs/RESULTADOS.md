@@ -267,9 +267,10 @@ parâmetro de perda) estão em [`INTEGRACAO.md`](INTEGRACAO.md#resultados).
 O estudo do **impacto da qualidade da comunicação** sobre o controle distribuído
 (varredura de perda **0→100% em passos de 5%**, **20 sementes/nível**) tem doc
 própria: [`EXPERIMENTO_PERDA.md`](EXPERIMENTO_PERDA.md). Roda com
-`run_loss_multiseed.sh` e gera `sensibilidade_perda_multiseed.png`. Achado central:
-o **ponto de quebra está entre 0% e 5%** — só com comunicação **perfeita** (0%) o
-controle é bom e confiável (lift +5,4 mV); **já em 5%** de perda o benefício
-confiável some (lift ~0 com desvio ±3–4 mV, indistinguível de zero) e há **risco
-de sobretensão** noturna (~20–45% das rodadas) em toda a faixa; em 100% fica
-inerte. Não existe ponto de operação "parcial" seguro.
+`run_loss_multiseed.sh` e gera `sensibilidade_perda_multiseed.png`. Achado central
+(**re-rodado após a correção do solve — commit `ab0b04e`**): o controle **ajuda em
+toda a faixa** (lift positivo em todos os níveis). Melhor caso 0% (+5,0 mV);
+qualquer perda reduz para ~+2 mV mas mantém positivo e **estável até 95%** (o
+reativo segurado ainda dá suporte); 100% fica inerte. **Sem violação ANEEL**
+(>1,05). A leitura antiga ("ponto de quebra em ~5%", "não-confiável",
+"sobretensão") era **artefato do congelamento do solve**, agora corrigido.
