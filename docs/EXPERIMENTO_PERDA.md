@@ -170,6 +170,14 @@ começo era o **valor congelado** do solve; com a correção, o início (meia-no
 casa com o dia seguinte. Resta apenas o transitório de **1 passo** no arranque
 (antes eram ~31 passos / 2,5h).
 
+**Correção adicional (bug de dados no loadshape):** o estudo de 48h também revelou
+um **pico espúrio de tensão (~1,02 pu) no último ponto do dia** (23:50), presente
+inclusive no baseline. Causa: em `LoadShape.dss`, as curvas `LoadShape1–8`
+declaravam `npts=144` mas traziam **143 (ou 145) valores** — o OpenDSS preenchia o
+144º ponto com **0,0** (carga zero às 23:50 → sobretensão momentânea). Corrigido
+para que cada curva tenha exatamente `npts` valores. Erro herdado da base do TSRE;
+afetava só os 2 últimos passos de cada dia (abaixo do limite ANEEL).
+
 ## Como reproduzir o multi-semente
 
 ```bash
