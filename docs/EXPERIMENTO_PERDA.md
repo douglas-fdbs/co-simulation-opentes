@@ -94,63 +94,64 @@ entre níveis (30/35/45% sim; 40/50% não) porque depende de *quais* pacotes cae
 
 ## Multi-semente — varredura completa 0–100% (passo 5%, 20 sementes)
 
-> ⚠️ **Resultados RE-RODADOS após a correção do solve (commit `ab0b04e`,
-> 2026-06-22).** A versão anterior desta seção concluía haver um "ponto de quebra
-> em ~5%", controle "não-confiável" e "sobretensão noturna" — tudo isso era
-> **artefato do congelamento do solve** do OpenDSS (que afetava justamente o caso
-> de 0% de perda). Com o solve corrigido, o quadro muda e fica coerente. As
-> conclusões antigas estão **retratadas**.
+> ⚠️ **Resultados RE-RODADOS após DUAS correções (commits `ab0b04e` e `c63cc3a`,
+> 2026-06-22):** (1) o **congelamento do solve** (`set_pvsystem_pq`) e (2) o
+> **off-by-one nos LoadShapes**. A versão anterior desta seção concluía "ponto de
+> quebra em ~5%", controle "não-confiável" e "sobretensão noturna" — tudo
+> **artefato dos bugs**. As conclusões antigas estão **retratadas**.
 
-Varredura de perda de **0% a 100% em passos de 5%**, cada nível com **20 sementes**
-(`seed-0-mt` = 1..20, via `run_loss_multiseed.sh`), agregando média ± desvio. 0% e
-100% são determinísticos. Figura: `sensibilidade_perda_multiseed.png`.
+Varredura de perda de **0% a 100% em passos de 5%**, cada nível com **20 sementes**,
+agregando média ± desvio. Figura: `sensibilidade_perda_multiseed.png`.
 
 | Perda | lift médio ± dp [mV] | Perda | lift médio ± dp [mV] |
 |---:|---:|---:|---:|
-| **0%** | **+5,0** (det.) | 55% | +2,1 ± 2,3 |
-| 5% | +0,5 ± 1,0 | 60% | +1,4 ± 2,0 |
-| 10% | +2,6 ± 2,3 | 65% | +1,5 ± 2,1 |
-| 15% | +1,7 ± 2,2 | 70% | +2,1 ± 2,3 |
-| 20% | +2,2 ± 2,3 | 75% | +1,7 ± 2,2 |
-| 25% | +1,5 ± 2,0 | 80% | +1,7 ± 2,1 |
-| 30% | +1,7 ± 2,1 | 85% | +2,4 ± 2,3 |
-| 35% | +1,5 ± 2,0 | 90% | +1,6 ± 2,1 |
-| 40% | +1,9 ± 2,2 | 95% | +1,4 ± 1,9 |
-| 45% | +1,7 ± 2,2 | **100%** | **0,0** (det.) |
-| 50% | +2,4 ± 2,3 | | |
+| 0% | +0,3 (det.) | 55% | +1,7 ± 2,2 |
+| 5% | +0,8 ± 1,4 | 60% | +2,4 ± 2,3 |
+| 10% | +1,9 ± 2,2 | 65% | +1,0 ± 1,7 |
+| 15% | +1,9 ± 2,2 | 70% | +1,4 ± 2,0 |
+| 20% | +1,7 ± 2,2 | 75% | +1,7 ± 2,2 |
+| 25% | +2,4 ± 2,3 | 80% | +0,9 ± 1,6 |
+| 30% | +2,2 ± 2,3 | 85% | +2,0 ± 2,3 |
+| 35% | +1,9 ± 2,2 | 90% | +1,9 ± 2,1 |
+| 40% | +2,2 ± 2,3 | 95% | +2,0 ± 2,2 |
+| 45% | +2,6 ± 2,3 | 100% | 0,0 (det.) |
+| 50% | +1,2 ± 1,9 | | |
 
-*(Q médio ≈ 60–69 kvar; Entregue% = 100 − perda%. Sobretensão ANEEL (V652 > 1,05
-pu): **0 violações em todos os níveis** — máximo global ≈ 1,029 pu.)*
+*(Q médio ≈ 60–69 kvar; Entregue% = 100 − perda%. **0 violações ANEEL** (V652 >
+1,05 pu) em todos os níveis — máximo global ≈ 1,028 pu, ao meio-dia.)*
 
-### Leitura corrigida
+### Leitura corrigida (e uma ressalva importante de métrica)
 
-- **O controle AJUDA em toda a faixa de perda.** O lift é **positivo em todos os
-  níveis** (e o desvio entre sementes caiu para ~±2 mV, contra ±3–4 antes — bem
-  mais estável). Não há mais "ponto de quebra" nem comportamento "não-confiável":
-  aquilo era o solve congelado.
-- **O melhor caso é 0% de perda** (+5,0 mV). **Qualquer perda reduz o benefício**
-  para ~+1,5 a +2,5 mV, mas ele **continua positivo** — e surpreendentemente
-  **estável até 95%**: mesmo perdendo a maioria dos pacotes, o reativo "segurado"
-  (último Q válido) ainda dá um suporte médio de tensão. Só em **100%** (nenhum
-  pacote chega, Q=0) o controle zera.
-- **Não há sobretensão acima do limite ANEEL** (1,05 pu) em nenhum cenário. A
-  "sobretensão noturna" relatada antes era a tensão **naturalmente subindo de
-  madrugada** (carga baixa → ~1,02 pu, dentro da norma), que o solve congelado
-  mascarava — não um efeito do controle.
+- **O controle regula a tensão e é seguro em toda a faixa de perda**, sem violação
+  ANEEL em nenhum cenário. O perfil diário ficou fisicamente coerente (sem picos
+  espúrios; ver estudo de 48h).
+- **Cuidado com o "lift da média":** ele **premia injeção de reativo, não
+  regulação**. Em **0% de perda** o controle faz Volt/Var correto — **absorve**
+  quando a tensão sobe (meio-dia, PV) e **injeta** quando cai (noite) — então o
+  Q médio é negativo (−54 kvar) e o lift líquido fica pequeno (+0,3 mV), embora
+  esteja **regulando bem**. Sob perda alta o controle **segura** um Q que por acaso
+  injeta (+52 kvar em 95%), o que **infla a tensão média** (lift ~+2 mV) sem
+  necessariamente regular melhor. Por isso o lift **não** decai com a perda como
+  se esperaria — não é que a perda "ajude", é a métrica que engana.
+- **Métrica mais honesta — redução do desvio-padrão da tensão** (quanto o controle
+  *regula*): o controle reduz o desvio em **~7 a 11% em todos os níveis de perda**
+  (baseline 0,0197 → ~0,0175–0,0185 com controle), **sem tendência clara** ao longo
+  de 0–95%. Em **100%** (Q=0) não há regulação.
 
 ## Conclusões
 
-- **Comunicação perfeita (0%) ⇒ melhor benefício** (lift +5,0 mV).
-- **Comunicação degradada (5–95%) ⇒ benefício menor, porém positivo e estável**
-  (~+2 mV). O controle **continua útil** mesmo sob perda alta, graças ao reativo
-  segurado; a perda **atenua** o ganho, mas não o torna prejudicial.
-- **Sem comunicação (100%) ⇒ controle inerte** (Q=0, = baseline).
-- **Sem violação de tensão** (ANEEL) em nenhum caso.
+- **O controle Volt/Var funciona e é seguro** (regula ~7–11% do desvio de tensão,
+  sem violação ANEEL) em **toda a faixa de perda**.
+- **Neste estudo de caso, a perda de comunicação NÃO degrada fortemente o
+  benefício.** A tensão muda devagar (passos de 5 min) e o último Q válido
+  "segurado" ainda regula de forma comparável — só em 100% (Q=0) o controle some.
+- **As inconsistências apontadas eram artefatos de dois bugs** (solve congelado +
+  loadshape), agora corrigidos; a física está coerente.
 
-Tese (revisada): a perda de comunicação **degrada gradualmente** o benefício do
-Volt/Var distribuído (de +5 mV para ~+2 mV), mas o controle **permanece benéfico**
-em toda a faixa — o melhor desempenho exige comunicação confiável, sem que a perda
-parcial torne o controle perigoso.
+**Encaminhamento:** para um benchmark em que o impacto da comunicação **apareça com
+clareza**, vale (a) usar uma métrica de **violação/regulação** em vez do lift da
+média, e (b) tornar o caso mais exigente — dinâmica mais rápida, ganho mais
+agressivo ou eventos de rede — de modo que a perda de pacotes realmente "morda".
 
 ## Estudo de 48h — o ciclo diário se repete
 
