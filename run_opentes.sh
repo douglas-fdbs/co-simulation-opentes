@@ -69,13 +69,19 @@ case "${SCENARIO}" in
   ieee13)
     docker compose --profile ieee13 up --abort-on-container-exit \
       --exit-code-from mosaik-ieee13 mosaik-ieee13
-    RESULT="output/ieee13/  (result_run_ieee13_cosim_pv_5min.csv)"
+    echo ">> [OpenTES] gerando dashboard a partir do resultado fresco..."
+    docker compose run --rm --no-deps -e MOSAIK_OUTPUT_DIR=/app/output/ieee13 \
+      mosaik-ieee13 python plot_ieee13.py
+    RESULT="output/ieee13/  (result_run_ieee13_cosim_pv_5min.csv + ieee13_dashboard.png)"
     ;;
   integrated)
     # duas passadas: sem controle (baseline) e com controle (Volt/Var)
     run_integrated_pass baseline 0
     run_integrated_pass volt_var 1
-    RESULT="output/integrated/  (result_baseline.csv, result_volt_var.csv + comm_trace_*.csv)"
+    echo ">> [OpenTES] gerando dashboard a partir dos resultados frescos..."
+    docker compose run --rm --no-deps -e MOSAIK_OUTPUT_DIR=/app/output/integrated \
+      mosaik-integrated python plot_integrated.py
+    RESULT="output/integrated/  (result_baseline.csv, result_volt_var.csv + comm_trace_*.csv + dashboard_integrated.png)"
     ;;
   *)
     echo "!! cenario desconhecido: '${SCENARIO}'"

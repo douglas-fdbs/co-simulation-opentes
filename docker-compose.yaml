@@ -9,6 +9,7 @@ x-tsre-simulator: &tsre-simulator
     - opentes-net
   environment:
     - PYTHONUNBUFFERED=1
+    - PYTHONDONTWRITEBYTECODE=1   # nao grava .pyc no src montado (evita bytecode stale)
   volumes:
     - ./simulators_teams/grid-opentes/src:/app/src
 
@@ -158,8 +159,10 @@ services:
       - elec-collector
     environment:
       - MOSAIK_SCENARIO=scenarios/first.py
-      - MOSAIK_OUTPUT_DIR=/app/output/integrated
+      - MOSAIK_OUTPUT_DIR=${MOSAIK_OUTPUT_DIR:-/app/output/integrated}
       - MOSAIK_N_PASSOS=${MOSAIK_N_PASSOS:-288}
+      - MOSAIK_IRRADIANCE_FILE=${MOSAIK_IRRADIANCE_FILE:-ieee13_shape_pv_5min.csv}
+      - MOSAIK_TEMPERATURE_FILE=${MOSAIK_TEMPERATURE_FILE:-ieee13_temperature_5min.csv}
       - CONTROL_ENABLED=${CONTROL_ENABLED:-1}
       - RESULT_TAG=${RESULT_TAG:-volt_var}
       - Q_MAX_PCT=${Q_MAX_PCT:-0.05}

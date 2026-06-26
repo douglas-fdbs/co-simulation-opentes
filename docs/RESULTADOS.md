@@ -259,3 +259,18 @@ docker compose run --rm --no-deps mosaik python plot_ieee13.py
 
 Os números e observações consolidados (efeito do controle, estabilidade,
 parâmetro de perda) estão em [`INTEGRACAO.md`](INTEGRACAO.md#resultados).
+
+---
+
+## Experimento: sensibilidade à perda de pacotes
+
+O estudo do **impacto da qualidade da comunicação** sobre o controle distribuído
+(varredura de perda **0→100% em passos de 5%**, **20 sementes/nível**) tem doc
+própria: [`EXPERIMENTO_PERDA.md`](EXPERIMENTO_PERDA.md). Roda com
+`run_loss_multiseed.sh` e gera `sensibilidade_perda_multiseed.png`. Achado central
+(**re-rodado após 2 correções — solve `ab0b04e` + loadshape `c63cc3a`**): o controle
+**regula e é seguro em toda a faixa de perda** (reduz o desvio de tensão ~7–11% em
+todos os níveis; **sem violação ANEEL**). Neste caso, a perda **não degrada
+fortemente** o benefício (tensão muda devagar + Q segurado regula); só em 100% (Q=0)
+some. Ressalva: o "lift da média" engana (premia injeção, não regulação). A leitura
+antiga ("ponto de quebra", "não-confiável", "sobretensão") era **artefato dos bugs**.
