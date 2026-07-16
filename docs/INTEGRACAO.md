@@ -76,12 +76,12 @@ container do TSCC.
 ## Docker
 
 Build (uma vez): `docker compose build`. A execução recomendada é pelo
-`run_opentes.sh` (faz limpeza completa e espera o `comm` compilar):
+`run.sh` (faz limpeza completa e espera os simuladores ficarem prontos):
 
 ```bash
-./run_opentes.sh integrated   # co-simulação completa (baseline + Volt/Var)
-./run_opentes.sh ieee13       # rede elétrica isolada (validação)
-./run_opentes.sh star         # comunicação isolada
+./run.sh integrated   # co-simulação completa (baseline + Volt/Var)
+./run.sh ieee13       # rede elétrica isolada (validação)
+./run.sh star         # comunicação isolada
 ```
 
 Artefatos como `results.csv`, `grafico_trafego.png`, `sim_exec`, `out/` e
@@ -91,7 +91,7 @@ saídas do OpenDSS são produtos de simulação e estão no `.gitignore`.
 
 ### Co-simulação integrada (cenário `integrated`, IEEE 13 Barras)
 
-A co-simulação completa (`./run_opentes.sh integrated`) fecha o laço causal
+A co-simulação completa (`./run.sh integrated`) fecha o laço causal
 sobre o IEEE 13 Barras, sem bateria. Reproduz o estado do trabalho do TSRE
 (Paulo Victor) — os **5 inversores fotovoltaicos injetando** — porém agora
 **co-simulados e controlados**: cada inversor tem seu par de agentes PADE
@@ -211,7 +211,7 @@ docker compose run --rm --no-deps -e MOSAIK_OUTPUT_DIR=/app/output/integrated \
 
 ### Validação do bloco elétrico (cenário `ieee13`, isolado)
 
-O cenário elétrico puro (`./run_opentes.sh ieee13`, IEEE 13 + 5 PVs) reproduz
+O cenário elétrico puro (`./run.sh ieee13`, IEEE 13 + 5 PVs) reproduz
 **exatamente** os valores do trabalho do TSRE (Paulo Victor, branch
 `paulo-victor`), confirmando que a integração não alterou a física:
 
@@ -227,8 +227,8 @@ Tensões do IEEE 13 coerentes: barra 650 (fonte) = 1,000 pu; barras trifásicas
 ### Como reproduzir
 
 ```bash
-./run_opentes.sh integrated   # roda baseline + Volt/Var; saídas em output/integrated/
-./run_opentes.sh ieee13       # bloco elétrico isolado (validação vs Paulo Victor)
+./run.sh integrated   # roda baseline + Volt/Var; saídas em output/integrated/
+./run.sh ieee13       # bloco elétrico isolado (validação vs Paulo Victor)
 ```
 
 Para estudar o impacto da **perda de pacotes** no controle, aumente

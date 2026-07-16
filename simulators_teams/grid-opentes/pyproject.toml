@@ -6,12 +6,11 @@ readme = "README.md"
 requires-python = ">=3.9"
 dependencies = [
     "mosaik==3.5.0",
-    "mosaik-pandapower==0.2.2",
+    "mosaik-api==3.0.6",
     "opender==2.1.6",
     "pandas>=2.3.2",
     "py-dss-interface>=2.3.0",
     "setuptools==69.5.1",
-    "simbench>=1.5.3",
 ]
 
 [project.scripts]

@@ -245,7 +245,7 @@ Roda **só** a comunicação (50 agentes PADE conversando em estrela via OMNeT++
 ## Como gerar/atualizar os gráficos
 
 ```bash
-# dashboard do cenário integrado (após ./run_opentes.sh integrated)
+# dashboard do cenário integrado (após ./run.sh integrated)
 docker compose run --rm --no-deps -e MOSAIK_OUTPUT_DIR=/app/output/integrated \
   mosaik python plot_integrated.py
 
@@ -253,7 +253,7 @@ docker compose run --rm --no-deps -e MOSAIK_OUTPUT_DIR=/app/output/integrated \
 docker compose run --rm --no-deps -e MOSAIK_OUTPUT_DIR=/app/output/integrated \
   mosaik python plot_comparacao.py
 
-# dashboard do ieee13 isolado (após ./run_opentes.sh ieee13)
+# dashboard do ieee13 isolado (após ./run.sh ieee13)
 docker compose run --rm --no-deps mosaik python plot_ieee13.py
 ```
 
@@ -267,7 +267,7 @@ parâmetro de perda) estão em [`INTEGRACAO.md`](INTEGRACAO.md#resultados).
 O estudo do **impacto da qualidade da comunicação** sobre o controle distribuído
 (varredura de perda **0→100% em passos de 5%**, **20 sementes/nível**) tem doc
 própria: [`EXPERIMENTO_PERDA.md`](EXPERIMENTO_PERDA.md). Roda com
-`run_loss_multiseed.sh` e gera `sensibilidade_perda_multiseed.png`. Achado central
+`./run.sh loss-multiseed` e gera `sensibilidade_perda_multiseed.png`. Achado central
 (**re-rodado após 2 correções — solve `ab0b04e` + loadshape `c63cc3a`**): o controle
 **regula e é seguro em toda a faixa de perda** (reduz o desvio de tensão ~7–11% em
 todos os níveis; **sem violação ANEEL**). Neste caso, a perda **não degrada

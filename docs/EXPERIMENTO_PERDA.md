@@ -25,8 +25,8 @@ qualidade da comunicação. Barra de referência: **652** (PV5), a mais crítica
 ## Como reproduzir
 
 ```bash
-./run_loss_sweep.sh        # baseline + perda 0..100% (restaura o omnetpp.ini ao fim)
-# ou um subconjunto:  ./run_loss_sweep.sh loss030 loss040
+./run.sh loss-sweep        # baseline + perda 0..100% (restaura o omnetpp.ini ao fim)
+# ou um subconjunto:  ./run.sh loss-sweep loss030 loss040
 docker compose run --rm --no-deps -e MOSAIK_OUTPUT_DIR=/app/output/sensibilidade_perda \
   mosaik python plot_loss_sweep.py
 ```
@@ -34,7 +34,7 @@ docker compose run --rm --no-deps -e MOSAIK_OUTPUT_DIR=/app/output/sensibilidade
 Saídas em `output/sensibilidade_perda/`: `result_<tag>.csv`, `comm_trace_<tag>.csv`
 e `sensibilidade_perda.png`.
 
-> O `run_loss_sweep.sh` edita o `drop_probability` no `omnetpp.ini` (montado por
+> O `./run.sh loss-sweep` edita o `drop_probability` no `omnetpp.ini` (montado por
 > volume no `comm`) antes de cada passada e **restaura o valor original** ao final
 > (mesmo se interrompido). Nada permanente é alterado no modelo.
 
@@ -157,7 +157,7 @@ agressivo ou eventos de rede — de modo que a perda de pacotes realmente "morda
 
 Para verificar a coerência temporal (o perfil diário deve **repetir** de um dia
 para o outro), rodou-se o cenário em **horizonte de 48h** (2 dias com a mesma
-irradiância), com o solve corrigido. Script: `run_48h.sh`; figura: `ciclo_48h.png`
+irradiância), com o solve corrigido. Script: `./run.sh 48h`; figura: `ciclo_48h.png`
 (`output/sensibilidade_48h/`).
 
 **Resultado:** o ciclo **fecha** — a tensão da barra 652 no dia 2 é **idêntica**
@@ -182,7 +182,7 @@ afetava só os 2 últimos passos de cada dia (abaixo do limite ANEEL).
 ## Como reproduzir o multi-semente
 
 ```bash
-./run_loss_multiseed.sh     # 7 níveis estocásticos × 20 sementes + det. (resumível)
+./run.sh loss-multiseed     # 7 níveis estocásticos × 20 sementes + det. (resumível)
 docker compose run --rm --no-deps \
   -e MOSAIK_OUTPUT_DIR=/app/output/sensibilidade_perda_multiseed \
   mosaik python plot_loss_multiseed.py

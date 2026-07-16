@@ -178,7 +178,7 @@ def figura_comunicacao(tag="volt_var"):
 def main() -> int:
     for tag in ("baseline", "volt_var"):
         if not (OUT / f"result_{tag}.csv").exists():
-            print(f"[plot] falta result_{tag}.csv — rode ./run_opentes.sh integrated")
+            print(f"[plot] falta result_{tag}.csv — rode ./run.sh integrated")
             return 1
     b, v = _load("baseline"), _load("volt_var")
     figura_volt_var(b, v)

@@ -17,12 +17,13 @@ latência, jitter e perda de pacotes sejam contabilizados.
 
 ## Cenários disponíveis
 
-A forma recomendada de executar é pelo script `run_opentes.sh`, que faz a
-limpeza completa do Docker antes/depois (evita o erro `network ... not found`
-causado por containers de profile que o `down` simples não remove):
+Tudo se executa pelo script único `run.sh`, que faz a limpeza completa do Docker
+antes/depois (evita o erro `network ... not found` causado por containers de
+profile que o `down` simples não remove) e espera os simuladores ficarem prontos:
 
 ```bash
-./run_opentes.sh <cenario>     # integrated | star | ieee13
+./run.sh integrated     # co-simulação completa (o comando do dia a dia)
+./run.sh --help         # lista todos os cenários e experimentos
 ```
 
 | Cenário | O que faz | Resultado em |
@@ -94,24 +95,27 @@ Pré-requisito (uma vez): `docker compose build`.
 
 ```bash
 # co-simulação completa (4 containers, Volt/Var): roda baseline + Volt/Var
-./run_opentes.sh integrated
+./run.sh integrated
 docker compose run --rm --no-deps -e MOSAIK_OUTPUT_DIR=/app/output/integrated \
   mosaik python plot_integrated.py     # output/integrated/dashboard_integrated.png
 docker compose run --rm --no-deps -e MOSAIK_OUTPUT_DIR=/app/output/integrated \
   mosaik python plot_comparacao.py     # comparacao_volt_var.png + analise_comunicacao.png
 
 # rede elétrica IEEE 13 isolada + dashboard
-./run_opentes.sh ieee13
+./run.sh ieee13
 docker compose run --rm --no-deps mosaik python plot_ieee13.py   # output/ieee13/ieee13_dashboard.png
 
 # comunicação pura (gera output/star/grafico_trafego.png)
-./run_opentes.sh star
+./run.sh star
 ```
 
-> **Atenção operacional**: os simuladores `--remote` do grid aceitam uma única
-> conexão Mosaik e encerram após. Por isso o `run_opentes.sh` sempre sobe
-> containers frescos. Não sondar as portas `--remote` com TCP de readiness (isso
-> consome a conexão e mata o simulador) — sondar apenas o `comm` (5555, ZMQ).
+> **Atenção operacional**: os simuladores `--remote` do grid (portas 5671, 5673,
+> 5675, 5676, 5678, 5680) aceitam uma **única** conexão Mosaik e encerram após.
+> Por isso o `run.sh` sempre sobe containers frescos. **Não sondar essas portas
+> com TCP de readiness**: o probe consome a conexão e mata o simulador
+> (verificado — o container sai logo após o connect). Sondar por TCP apenas o
+> `comm` (5555, ZMQ). Para os `--remote`, a prontidão é detectada pelo **log**
+> (ver `_wait_remote_sims` no `run.sh`).
 
 ## Onde observar os resultados
 

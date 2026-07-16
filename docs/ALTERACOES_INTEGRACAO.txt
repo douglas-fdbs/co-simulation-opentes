@@ -36,7 +36,7 @@ Cada container tem UM Dockerfile ativo:
   - grid-opentes/Dockerfile   (python:3.12.11-slim + requirements do TSRE)
 
 O docker-compose.yaml da raiz e o ponto oficial de execucao; o script
-run_opentes.sh e a forma recomendada de rodar (ver secao 7).
+run.sh e a forma recomendada de rodar (ver secao 7).
 
 
 2. Collectors no Mosaik (saidos do TSRE/TSCC)
@@ -133,9 +133,17 @@ estocastico ao longo do tempo. (Discussao sobre o modelo de perda — fenomenolo
 hoje, mecanistico/INET no futuro — em docs/INTEGRACAO.md.)
 
 
-7. Execucao: run_opentes.sh
----------------------------
-Script unico de execucao (./run_opentes.sh <cenario>: integrated | star | ieee13):
+7. Execucao: run.sh
+-------------------
+Script unico de execucao (./run.sh <comando>; ./run.sh --help lista tudo):
+
+  cenarios     : integrated | ieee13 | star
+  experimentos : 48h | loss-sweep [tags...] | loss-multiseed
+
+Antes eram 4 scripts (run_opentes.sh, run_48h.sh, run_loss_sweep.sh,
+run_loss_multiseed.sh) que duplicavam a mesma logica (o cleanup() era identico
+byte a byte nos 4). Foram unificados: os comandos agora compartilham os mesmos
+internals e diferem so em parametros. O run.sh:
 
   - faz limpeza COMPLETA do Docker antes/depois (down de todos os profiles + rm
     de orfaos + rm da rede). Motivo: containers de profile nao sao removidos pelo
@@ -143,8 +151,15 @@ Script unico de execucao (./run_opentes.sh <cenario>: integrated | star | ieee13
   - no integrated, sobe os deps e ESPERA o comm (OMNeT++) compilar (probe ZMQ
     resiliente na porta 5555) antes de rodar o Mosaik. Motivo: evitar o race em
     que o Mosaik tenta conectar ao elec-collector antes de ele ligar.
+  - no ieee13 (que nao tem comm), sobe os deps e espera pelo LOG do
+    elec-collector. Motivo: o mesmo race — o depends_on do compose so garante
+    que o container iniciou, nao que o app esta ouvindo.
   - nunca sonda as portas dos simuladores --remote do grid: eles aceitam UMA
-    conexao Mosaik e encerram; um probe TCP mataria o simulador.
+    conexao Mosaik e encerram; um probe TCP mata o simulador (verificado: o
+    container sai logo apos o connect). Por isso a prontidao deles e detectada
+    por log, nunca por socket.
+  - restaura o omnetpp.ini (drop/seed/sim-time-limit) via trap, mesmo se
+    interrompido no meio.
 
 
 8. Saidas organizadas por cenario (output/)

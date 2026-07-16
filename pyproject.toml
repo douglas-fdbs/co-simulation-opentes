@@ -11,15 +11,12 @@ dependencies = [
     "mosaik-api==3.0.6",
     "mosaik-api-v3>=3.0.13,<3.1",
     "mosaik-csv==2.0.1",
-    "mosaik-pandapower==0.2.2",
     "opender==2.1.6",
     "pandas>=2.3.2",
     "matplotlib>=3.10.0",
     "py-dss-interface>=2.3.0",
     "pyzmq>=26.0.3,<28",
     "setuptools==69.5.1",
-    "simbench>=1.5.3",
-    "ipython==8.26.0",
 ]
 
 [tool.uv]
