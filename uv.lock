@@ -338,6 +338,7 @@ version = "0.1.0"
 source = { editable = "simulators_teams/grid-opentes" }
 dependencies = [
     { name = "mosaik" },
+    { name = "mosaik-api" },
     { name = "opender" },
     { name = "pandas" },
     { name = "py-dss-interface" },
@@ -347,6 +348,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "mosaik", specifier = "==3.5.0" },
+    { name = "mosaik-api", specifier = "==3.0.6" },
     { name = "opender", specifier = "==2.1.6" },
     { name = "pandas", specifier = ">=2.3.2" },
     { name = "py-dss-interface", specifier = ">=2.3.0" },
