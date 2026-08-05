@@ -87,21 +87,24 @@ def plot_operation(log_path, out_path):
     ax.plot(t, after, linewidth=2, color=SERIES[0], label="depois")
     ax.axhline(V_MAX, color=MUTED, linestyle="--", linewidth=1)
 
-    for level, marker, slot in (("rede", "o", 2), ("leilao", "^", 1)):
+    # Os marcadores dizem QUEM agiu, nao QUAL serie: por isso distinguem-se pela
+    # forma e ficam em tinta neutra. Reusar a cor de uma serie para outro
+    # significado quebraria a leitura por cor.
+    for level, marker in (("rede", "o"), ("leilao", "^")):
         pts = [r for r in acted if r["level"] == level]
         if pts:
             ax.scatter([r["t"] * 0.25 for r in pts],
                        [r["v_max_before"] for r in pts],
-                       s=42, marker=marker, color=SERIES[slot], zorder=3,
-                       edgecolor="white", linewidth=1.2,
-                       label=("armazenamento de rede" if level == "rede"
-                              else "leilao de operacao"))
+                       s=44, marker=marker, facecolor="white", edgecolor=INK,
+                       linewidth=1.3, zorder=4,
+                       label=("nivel 1: armazenamento de rede" if level == "rede"
+                              else "nivel 2: leilao de operacao"))
 
     _style(ax, "hora do dia", "tensao maxima da rede [pu]",
            "Fase de operacao: desvio da previsao e correcao a cada 15 min")
     ax.set_xlim(0, 24)
     ax.set_xticks(range(0, 25, 3))
-    ax.legend(frameon=False, fontsize=9, loc="lower right")
+    ax.legend(frameon=False, fontsize=9, loc="upper left")
     fig.tight_layout()
     fig.savefig(out_path, dpi=150)
     print(f"gravado {out_path}")
