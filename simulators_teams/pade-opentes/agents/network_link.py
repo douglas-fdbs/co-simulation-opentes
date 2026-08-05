@@ -37,7 +37,6 @@ O valor NAO simulado (o atraso nominal) e o que vai para a telemetria.
 """
 
 import csv
-import json
 import os
 import random
 import time

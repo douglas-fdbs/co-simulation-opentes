@@ -29,7 +29,7 @@ from pathlib import Path
 
 import numpy as np
 
-from .config import DATA_DIR, DT_H, PERIODS, V_MAX, V_MIN, load_case
+from .config import DATA_DIR, PERIODS, V_MAX, V_MIN, load_case
 from .optimization import solve_concentrator, solve_dso, solve_prosumer
 from .scenarios import build_scenarios
 

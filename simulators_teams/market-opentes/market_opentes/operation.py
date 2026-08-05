@@ -53,10 +53,6 @@ def realized_profiles(day=0):
     return {n: load[i] - pv[i] for i, n in enumerate(nodes)}
 
 
-def _slice(series_by_node, t):
-    return {n: np.array([float(v[t])]) for n, v in series_by_node.items()}
-
-
 def shifted_v0(case, v0_t, s_t, deviation):
     """Tensao base do intervalo JA com o desvio da demanda realizada embutido.
 

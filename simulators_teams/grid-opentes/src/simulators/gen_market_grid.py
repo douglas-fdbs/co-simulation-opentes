@@ -20,15 +20,18 @@ O trabalho original descreve a mesma rede em DOIS modelos diferentes:
     225 kVA com impedancia 0,01+0,2j, cargas MONOFASICAS na fase indicada pelo
     campo `phase` de cada no, linhas com modelo de condutor (Carson).
 
-Os dois nao sao a mesma rede. Este gerador reproduz o modelo do **pandapower**,
-porque e ele que carrega as restricoes operacionais e a matriz de sensibilidade
-que este projeto substitui. A divergencia esta documentada em docs/MERCADO.md.
+Os dois nao sao a mesma rede. Este gerador reproduz a ELETRICA do modelo do
+pandapower (impedancias de linha, modelo de carga, percentuais do trafo), porque
+e ele que carrega as restricoes operacionais e a matriz de sensibilidade que este
+projeto substitui. A divergencia entre os dois modelos originais esta documentada
+em docs/MERCADO.md.
 
 DECISOES DE CONVERSAO
 ---------------------
-- Trafos: o force.json declara `power` de 45/75/112,5 kVA por transformador, mas
-  o modelo pandapower de referencia cria TODOS com 250 kVA. Reproduzimos a
-  referencia (TRAFO_KVA), mantendo o valor do force.json em comentario no .dss.
+- Trafos: a potencia vem do force.json (45/75/112,5 kVA, serie NBR 5440), e nao
+  os 250 kVA uniformes do pandapower, que sao residuo do std type
+  '0.25 MVA 10/0.4 kV' e nao dimensionamento. Ver TRAFO_PROFILE: o perfil 'ref'
+  reproduz os 250 kVA para a regressao contra o modelo original.
 - Comprimentos: o force.json guarda `length` em milhas; a referencia converte
   para km multiplicando por 1,60934. Fazemos o mesmo e emitimos `units=km`.
 - Cargas: trifasicas equilibradas (o equivalente de sequencia positiva do
@@ -223,7 +226,7 @@ def gen_loads(data):
     out = [
         "! Uma carga por no (o no 0 e a subestacao e nao tem carga), com potencia",
         "! inicial zero: os valores vem dos agentes prosumidores a cada passo.",
-        f"! Vminpu/Vmaxpu alargados para manter potencia constante em toda a faixa",
+        "! Vminpu/Vmaxpu alargados para manter potencia constante em toda a faixa",
         "! de tensao analisada (o padrao 0,95/1,05 trocaria para impedancia const.).",
         "",
     ]

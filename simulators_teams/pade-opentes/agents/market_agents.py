@@ -48,7 +48,6 @@ passa a ser publicada como potencia de cada no a cada passo de 15 min.
 import json
 import os
 import sys
-from pathlib import Path
 
 import numpy as np
 from pade.acl.aid import AID

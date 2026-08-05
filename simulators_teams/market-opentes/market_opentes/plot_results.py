@@ -23,7 +23,7 @@ import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 
-from .config import V_MAX, V_MIN  # noqa: E402
+from .config import V_MAX  # noqa: E402
 
 SERIES = ["#2a78d6", "#eb6834", "#1baf7a"]
 INK = "#0b0b0b"
