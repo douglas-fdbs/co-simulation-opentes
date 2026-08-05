@@ -16,7 +16,9 @@ META = {
         'Load': {
             'public': False,
             'params': [],
-            'attrs': ['P_mw', 'Q_mvar', 'P_out_mw', 'Q_out_mvar']
+            # P_kw/Q_kvar sao ENTRADAS (potencia comandada por um agente);
+            # P_out_mw/Q_out_mvar sao as saidas medidas.
+            'attrs': ['P_kw', 'Q_kvar', 'P_mw', 'Q_mvar', 'P_out_mw', 'Q_out_mvar']
         },
         'Line': {
             'public': False,
@@ -240,6 +242,14 @@ class OpenDSSSimulator(mosaik_api_v3.Simulator):
         except Exception as e:
             print(f"[ERRO] Erro ao ler LoadShape '{shape_name}': {e}")
 
+    @staticmethod
+    def _first(attrs, key):
+        """Primeiro valor de um atributo de entrada, ou None se nao houver."""
+        values = attrs.get(key)
+        if not values:
+            return None
+        return list(values.values())[0]
+
     def step(self, time, inputs, max_advance):
         # PROCESSAR INPUTS DE CONTROLE
         for eid, attrs in inputs.items():
@@ -273,6 +283,21 @@ class OpenDSSSimulator(mosaik_api_v3.Simulator):
 
                 except Exception as e:
                     print(f"[ERRO] Falha ao ajustar bateria {name}: {e}")
+
+            # --- Carga acionada pelo Mosaik ---
+            # Sem isto a carga so obedece a LoadShape interna do circuito, e
+            # nenhum agente consegue injetar demanda na rede. P e Q sao
+            # independentes de proposito: um armazenamento ou inversor decide os
+            # dois separadamente, e prender Q ao fator de potencia falsearia a
+            # sensibilidade dV/dP (ver simulators/sensitivity.py).
+            elif model_type == 'Load':
+                p_kw = self._first(attrs, 'P_kw')
+                q_kvar = self._first(attrs, 'Q_kvar')
+                if p_kw is not None or q_kvar is not None:
+                    self.dss_wrapper.set_power(name, p=p_kw, q=q_kvar, element='Load')
+                    # Uma carga acionada externamente nao pode continuar sendo
+                    # sobrescrita pelo seu proprio perfil mais adiante no step.
+                    self.loads_with_profiles.pop(eid, None)
 
             # --- Controle do PVSystem ---
             elif model_type == 'PVSystem':
@@ -326,8 +351,13 @@ class OpenDSSSimulator(mosaik_api_v3.Simulator):
             data[eid] = {}
             
             if model_type == 'Load':
+                # get_power devolve escalar em carga monofasica e tupla por fase
+                # em carga trifasica; o IEEE 13 so exercitava o primeiro caso.
                 p_kw, q_kvar = self.dss_wrapper.get_power(name, element='Load')
+                p_kw = sum(p_kw) if isinstance(p_kw, (list, tuple)) else p_kw
+                q_kvar = sum(q_kvar) if isinstance(q_kvar, (list, tuple)) else q_kvar
                 if 'P_out_mw' in attrs: data[eid]['P_out_mw'] = p_kw / 1000.0
+                if 'Q_out_mvar' in attrs: data[eid]['Q_out_mvar'] = q_kvar / 1000.0
             
             elif model_type == 'Line':
                 curr_mag, curr_ang = self.dss_wrapper.get_current(name, element='Line', polar=True, mag_only=False, line_bus=1)

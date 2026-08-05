@@ -30,3 +30,9 @@ simulators_teams/comm-opentes/.cmdenv-log
 .idea/
 .vscode/
 .DS_Store
+
+# Produtos da camada de mercado (regenera com data_prep, sensitivity e dual)
+simulators_teams/market-opentes/data/*.npz
+simulators_teams/market-opentes/data/*.png
+simulators_teams/market-opentes/data/history_*.json
+simulators_teams/market-opentes/data/operation_log.json

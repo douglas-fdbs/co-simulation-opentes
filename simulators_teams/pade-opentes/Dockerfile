@@ -23,7 +23,17 @@ WORKDIR /app
 RUN pip install --no-cache-dir \
     mosaik-api-v3==3.0.14 \
     pyzmq==27.1.0 \
-    ipython==8.26.0
+    ipython==8.26.0 \
+    numpy>=2.0 \
+    pandas>=2.0 \
+    pyomo>=6.9
+
+# O CPLEX NAO entra na imagem: a licenca academica e pessoal e este repositorio e
+# publico. Ele e montado do host em tempo de execucao (ver docker-compose.yaml e
+# simulators_teams/market-opentes/README.md). Sem ele, os cenarios de mercado nao
+# rodam; os demais cenarios do repositorio nao dependem disso.
+ENV MARKET_SOLVER=cplex
+ENV MARKET_SOLVER_PATH=/opt/cplex/bin/x86-64_linux/cplex
 
 COPY agents /app/agents
 

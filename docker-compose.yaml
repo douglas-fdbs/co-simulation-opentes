@@ -81,6 +81,7 @@ services:
     profiles:
       - ieee13
       - integrated
+      - market
     expose:
       - "5673"
     ports:
@@ -181,6 +182,73 @@ services:
       - ./simulators_teams/mosaik-opentes:/app
       - ./output:/app/output
       - ./simulators_teams/grid-opentes/src/data:/grid-data:ro
+    networks:
+      - opentes-net
+
+  pade-market:
+    image: opentes/pade:local
+    build:
+      context: ./simulators_teams/pade-opentes
+      dockerfile: Dockerfile
+    container_name: opentes-pade-market
+    profiles:
+      - market
+    environment:
+      - PADE_PORT=5678
+      - AMS_PORT=8000
+      - AGENT_STEP_SIZE=900
+      - MARKET_OPENTES_PATH=/market
+      - MARKET_CONFIG=${MARKET_CONFIG:-/market/data/config.json}
+      - MARKET_GRID_DIR=/grid-data/MVLV75
+      - MARKET_ALPHA=${MARKET_ALPHA:-0.6}
+      - MARKET_EPS=${MARKET_EPS:-1e-3}
+      - MARKET_SCENARIOS=${MARKET_SCENARIOS:-1}
+      - MARKET_NEGOTIATE=${MARKET_NEGOTIATE:-1}
+      # O CPLEX vem do host por volume: licenca academica e pessoal, nao entra
+      # na imagem nem no repositorio. Ver market-opentes/README.md.
+      - MARKET_SOLVER=${MARKET_SOLVER:-cplex}
+      - MARKET_SOLVER_PATH=/opt/cplex/bin/x86-64_linux/cplex
+    expose:
+      - "5678"
+    ports:
+      - "15684:5678"
+    volumes:
+      - ./simulators_teams/pade-opentes/agents:/app/agents
+      - ./simulators_teams/market-opentes:/market
+      - ./simulators_teams/grid-opentes/src/data:/grid-data:ro
+      - ${CPLEX_HOME:-/nonexistent}:/opt/cplex:ro
+    command: python3 agents/market_agents.py
+    networks:
+      - opentes-net
+
+  mosaik-market:
+    image: opentes/mosaik:local
+    build:
+      context: ./simulators_teams/mosaik-opentes
+      dockerfile: Dockerfile
+    container_name: opentes-mosaik-market
+    profiles:
+      - market
+    depends_on:
+      - pade-market
+      - opendss
+      - elec-collector
+    environment:
+      - MOSAIK_SCENARIO=scenarios/market.py
+      - MOSAIK_OUTPUT_DIR=${MOSAIK_OUTPUT_DIR:-/app/output/market}
+      - MOSAIK_N_PASSOS=${MOSAIK_N_PASSOS:-96}
+      - MOSAIK_STEP_SIZE=900
+      - RESULT_TAG=${RESULT_TAG:-negociado}
+      - MARKET_CIRCUIT=/app/src/data/MVLV75/Master.dss
+      - PADE_HOST=pade-market
+      - PADE_PORT=5678
+      - OPENDSS_HOST=opendss
+      - ELEC_COLLECTOR_HOST=elec-collector
+    volumes:
+      - ./simulators_teams/mosaik-opentes:/app
+      - ./output:/app/output
+      - ./simulators_teams/grid-opentes/src/data:/grid-data:ro
+    command: python -u scenarios/market.py
     networks:
       - opentes-net
 

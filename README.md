@@ -74,6 +74,12 @@ profile que o `down` simples não remove) e espera os simuladores ficarem pronto
 | `integrated`      | **Co-simulação completa** dos 4 containers (Volt/Var causal) | `output/integrated/` |
 | `star`            | Comunicação pura: PADE ↔ OMNeT++ (50 agentes em estrela) — teste isolado | `output/star/` |
 | `ieee13`          | Rede elétrica IEEE 13 + 5 PVs + inversores (só elétrico) — teste isolado | `output/ieee13/` |
+| `market`          | **Mercado transativo** na rede MVLV75: negociação multiagente (PADE) + OpenDSS | `output/market/` |
+
+> O cenário `market` **exige um solver de otimização** (IBM CPLEX por padrão), que
+> não está no repositório nem nas imagens, por licença. Os demais cenários não
+> dependem disso. Instalação, limitações e alternativas em
+> [`simulators_teams/market-opentes/README.md`](simulators_teams/market-opentes/README.md#dependencias-e-o-solver).
 
 O `integrated` é **a** simulação (a aplicação); `star` e `ieee13` são bancadas
 de teste isoladas de cada bloco.
