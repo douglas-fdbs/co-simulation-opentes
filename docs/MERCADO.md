@@ -270,6 +270,51 @@ prêmio pago pela proteção. As três extensões estão implementadas e desliga
 padrão (`MARKET_DEVIATION_PENALTY`, `MARKET_CVAR_BETA`, `MARKET_CVAR_ALPHA`): o
 default reproduz a tese.
 
+## 5.4 O despacho da programação acordada
+
+Fechada a negociação, a programação precisa **chegar** a quem a executa. No
+original isso é feito por FIPA-Subscribe (`DSOPublisherProtocol`,
+`BESSPublisherProtocol`, `ProsumerSubscriberProtocol`), e uma versão anterior
+desta implementação simplesmente aplicava o resultado da otimização do DSO sem
+ato comunicativo nenhum. Além de infiel à arquitetura, isso subestimava o tráfego
+que a análise de comunicação mede.
+
+A cadeia implementada segue a da tese:
+
+```
+prosumidores  --assinam-->  concentrador  --assina-->  DSO
+                                                        |
+         acordo fechado, o DSO publica a programação ---+
+                                                        v
+concentrador aciona o armazenamento de REDE sob o seu transformador
+concentrador publica a parte de cada prosumidor
+prosumidores confirmam --> concentrador confirma --> DSO confirma --> mercado encerra
+```
+
+Com isso o **Agente Concentrador passa a ter o papel que a tese lhe dá**: acionar
+os dispositivos de armazenamento diretamente controláveis sob o seu
+transformador. O DSO decide, o concentrador despacha. Antes o DSO otimizava o
+armazenamento de rede e o resultado era aplicado sem passar por ninguém.
+
+O agente de mercado só encerra o passo do Mosaik quando o despacho é confirmado,
+com timeout, pelo mesmo motivo dos ciclos de negociação.
+
+### Quanto isso pesa no tráfego
+
+Medido numa negociação de 28 rodadas, com a telemetria da camada de rede:
+
+| Etapa | Mensagens | Bytes |
+|---|---:|---:|
+| Assinatura (arranque) | 60 | desprezível |
+| Negociação (28 rodadas) | 2127 | 79,80 MB |
+| **Despacho** | **127** | **2,04 MB** |
+| Total | 2320 | 82,16 MB |
+
+A etapa acrescenta 8,1% das mensagens e 2,5% dos bytes. Não muda a ordem de
+grandeza, mas é o que faltava para a contagem de mensagens corresponder à
+arquitetura descrita, e é indispensável no cenário com perda: uma confirmação
+perdida agora tem consequência, e o timeout de despacho existe por isso.
+
 ## 6. Limitações conhecidas
 - **A restrição de estado de carga terminal é NOSSA, não da tese.** A Eq. 6.9 não
   a tem, e sem ela o modelo despeja a energia da bateria no último intervalo,

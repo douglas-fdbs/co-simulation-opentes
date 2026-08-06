@@ -52,7 +52,9 @@ import sys
 import numpy as np
 from pade.acl.aid import AID
 from pade.acl.messages import ACLMessage
-from pade.behaviours.protocols import FipaContractNetProtocol, FipaRequestProtocol
+from pade.behaviours.protocols import (FipaContractNetProtocol,
+                                       FipaRequestProtocol,
+                                       FipaSubscribeProtocol)
 from pade.core.agent import Agent
 from pade.drivers.mosaik_driver import MosaikCon
 from pade.misc.utility import defer_to_thread, display_message
@@ -225,6 +227,87 @@ class SolverClient(FipaRequestProtocol):
 
 
 # ---------------------------------------------------------------------------
+# Despacho da programacao acordada: FIPA-Subscribe
+#
+# Fechada a negociacao, a programacao precisa CHEGAR a quem a executa. No
+# original isso e feito por Subscribe/Publish (`DSOPublisherProtocol`,
+# `BESSPublisherProtocol`, `ProsumerSubscriberProtocol`), e a versao anterior
+# daqui simplesmente aplicava o resultado da otimizacao do DSO sem ato
+# comunicativo nenhum. Alem de infiel a arquitetura, isso SUBESTIMA o trafego que
+# a analise de comunicacao mede.
+#
+# A cadeia e: os prosumidores assinam o seu concentrador, os concentradores
+# assinam o DSO. No aceite, o DSO publica aos concentradores, cada concentrador
+# despacha o armazenamento de rede sob ele e publica aos seus prosumidores, e as
+# confirmacoes sobem no caminho inverso ate o agente de mercado.
+# ---------------------------------------------------------------------------
+
+class DispatchPublisher(FipaSubscribeProtocol):
+    """Lado publicador: aceita assinaturas e distribui a programacao."""
+
+    def __init__(self, agent, on_all_confirmed=None):
+        super().__init__(agent, message=None, is_initiator=False)
+        self._on_all_confirmed = on_all_confirmed
+        self.expected = 0
+        self.confirmed = 0
+
+    def handle_subscribe(self, message):
+        self.register(message.sender)
+        answer = message.create_reply()
+        answer.set_performative(ACLMessage.AGREE)
+        self.agent.send(_set_content(answer, {"ok": True}))
+
+    def publish(self, payload):
+        self.expected = len(self.subscribers)
+        self.confirmed = 0
+        if not self.expected:
+            if self._on_all_confirmed:
+                self._on_all_confirmed()
+            return
+        message = ACLMessage(ACLMessage.INFORM)
+        message.set_protocol(ACLMessage.FIPA_SUBSCRIBE_PROTOCOL)
+        _set_content(message, payload)
+        self.notify(message)
+
+    def handle_inform(self, message):
+        # NAO chamar super(): o handle_inform da classe base do PADE e o do
+        # comportamento de registro no AMS e tenta desserializar a tabela de
+        # agentes, enchendo o log de erro.
+        payload = _parse(message.content)
+        if payload.get("confirm") != "DISPATCH":
+            return
+        self.confirmed += 1
+        if self.confirmed >= self.expected and self._on_all_confirmed:
+            self._on_all_confirmed()
+
+
+class DispatchSubscriber(FipaSubscribeProtocol):
+    """Lado assinante: recebe a programacao, aplica e confirma."""
+
+    def __init__(self, agent, publisher_name, on_dispatch):
+        message = ACLMessage(ACLMessage.SUBSCRIBE)
+        message.set_protocol(ACLMessage.FIPA_SUBSCRIBE_PROTOCOL)
+        message.add_receiver(AID(name=publisher_name))
+        _set_content(message, {"subscribe": agent.aid.localname})
+        super().__init__(agent, message, is_initiator=True)
+        self._on_dispatch = on_dispatch
+
+    def handle_agree(self, message):
+        pass
+
+    def handle_inform(self, message):
+        payload = _parse(message.content)
+        if "dispatch" not in payload:
+            return
+        # O assinante so confirma DEPOIS de aplicar; num concentrador, aplicar
+        # inclui repassar aos seus proprios assinantes.
+        self._on_dispatch(payload["dispatch"],
+                          lambda: self.agent.send(
+                              _reply(message, ACLMessage.INFORM,
+                                     {"confirm": "DISPATCH"})))
+
+
+# ---------------------------------------------------------------------------
 # AP: Agente Prosumidor
 # ---------------------------------------------------------------------------
 
@@ -245,13 +328,24 @@ class ProsumerParticipant(FipaContractNetProtocol):
 
 
 class ProsumerAgent(Agent):
-    def __init__(self, aid, node):
+    def __init__(self, aid, node, concentrator_name):
         super().__init__(aid=aid, debug=False)
         self.node = node
         self.schedule = None
+        self.dispatched = None
         self.solver = SolverClient(self)
         self.behaviours.append(self.solver)
         self.behaviours.append(ProsumerParticipant(self))
+        self.subscriber = DispatchSubscriber(self, concentrator_name,
+                                             self._apply_dispatch)
+        self.behaviours.append(self.subscriber)
+
+    def _apply_dispatch(self, dispatch, confirm):
+        """Recebe a programacao acordada do seu armazenamento e confirma."""
+        series = dispatch.get(str(self.node))
+        if series is not None:
+            self.dispatched = np.array(series)
+        confirm()
 
     def on_start(self):
         super().on_start()
@@ -323,7 +417,7 @@ class ConcentratorParticipant(FipaContractNetProtocol):
 
 
 class ConcentratorAgent(Agent):
-    def __init__(self, aid, name, nodes, on_ready):
+    def __init__(self, aid, name, nodes, on_ready, network_storage=()):
         super().__init__(aid=aid, debug=False)
         self.name = name
         self.nodes = nodes
@@ -337,6 +431,34 @@ class ConcentratorAgent(Agent):
         self.behaviours.append(self.solver)
         self.behaviours.append(ConcentratorParticipant(self))
         self.cycle1 = None
+        # Papel do AC na tese: acionar os dispositivos de armazenamento de rede
+        # sob o seu transformador. O DSO decide, o concentrador despacha.
+        self.network_storage = network_storage
+        self.network_dispatch = None
+        self.publisher = DispatchPublisher(self)
+        self.behaviours.append(self.publisher)
+        self.subscriber = DispatchSubscriber(self, "dso", self._apply_dispatch)
+        self.behaviours.append(self.subscriber)
+        self._confirm_to_dso = None
+
+    def _apply_dispatch(self, dispatch, confirm):
+        """Aciona o armazenamento de rede e repassa aos prosumidores."""
+        rede = {n: dispatch["network"][str(n)] for n in self.network_storage
+                if str(n) in dispatch.get("network", {})}
+        self.network_dispatch = {n: np.array(v) for n, v in rede.items()}
+        display_message(self.aid.localname,
+                        f"despachando {len(self.network_dispatch)} armazenamentos "
+                        f"de rede e repassando a {len(self.nodes)} prosumidores")
+        self._confirm_to_dso = confirm
+        self.publisher._on_all_confirmed = self._on_prosumers_confirmed
+        prosumer_part = {str(n): dispatch["prosumer"][str(n)]
+                         for n in self.nodes if str(n) in dispatch.get("prosumer", {})}
+        self.publisher.publish({"dispatch": prosumer_part})
+
+    def _on_prosumers_confirmed(self):
+        if self._confirm_to_dso:
+            self._confirm_to_dso()
+            self._confirm_to_dso = None
 
     def on_start(self):
         super().on_start()
@@ -427,11 +549,22 @@ class DSOParticipant(FipaContractNetProtocol):
 
 
 class DSOAgent(Agent):
-    def __init__(self, aid):
+    def __init__(self, aid, on_dispatch_done=None):
         super().__init__(aid=aid, debug=False)
         self.solver = SolverClient(self)
         self.behaviours.append(self.solver)
         self.behaviours.append(DSOParticipant(self))
+        self.publisher = DispatchPublisher(self, on_dispatch_done)
+        self.behaviours.append(self.publisher)
+
+    def dispatch(self, prosumer_schedule, network_schedule):
+        """Publica a programacao acordada aos concentradores."""
+        display_message(self.aid.localname,
+                        f"publicando o despacho a {len(self.publisher.subscribers)} "
+                        "concentradores")
+        self.publisher.publish({"dispatch": {
+            "prosumer": {str(n): v for n, v in prosumer_schedule.items()},
+            "network": {str(n): v for n, v in network_schedule.items()}}})
 
     def on_start(self):
         super().on_start()
@@ -484,6 +617,7 @@ class MarketAgent(Agent):
         self.mosaik_sim = MarketMosaikSim(self)
         self.round_behaviour = None
         self._timeout_call = None
+        self._dispatch_timeout = None
 
     def on_start(self):
         super().on_start()
@@ -657,6 +791,25 @@ class MarketAgent(Agent):
 
     def _accept(self):
         self._decision(ACLMessage.ACCEPT_PROPOSAL)
+        # A negociacao so termina quando a programacao acordada tiver CHEGADO a
+        # quem a executa. O DSO publica aos concentradores, que despacham o
+        # armazenamento de rede e repassam aos prosumidores; a confirmacao sobe
+        # de volta e cai em `dispatch_done`.
+        display_message(self.aid.localname, "acordo fechado; iniciando o despacho")
+        self._dispatch_timeout = self.call_later(ROUND_TIMEOUT, self._on_dispatch_timeout)
+        AGENTS["dso"].dispatch(
+            {n: self.y[n].tolist() for n in self.case.prosumer_storage_nodes},
+            {n: self.q[n].tolist() for n in self.case.network_storage_nodes})
+
+    def dispatch_done(self):
+        if self._dispatch_timeout is not None and self._dispatch_timeout.active():
+            self._dispatch_timeout.cancel()
+        display_message(self.aid.localname, "despacho confirmado por todos")
+        self._finish()
+
+    def _on_dispatch_timeout(self):
+        display_message(self.aid.localname,
+                        "TIMEOUT no despacho: nem todos confirmaram")
         self._finish()
 
     def _finish(self):
@@ -759,17 +912,22 @@ def build_agents():
                               price, sensitivity))
     port += 1
 
-    agents.append(DSOAgent(AID(name=f"dso@{HOST}:{port}")))
+    agents.append(DSOAgent(AID(name=f"dso@{HOST}:{port}"), market.dispatch_done))
     port += 1
 
+    concentrador_do_no = {}
     for c in case.concentrators:
         agents.append(ConcentratorAgent(AID(name=f"concentrator_{c.name}@{HOST}:{port}"),
                                         c.name, c.prosumer_storage,
-                                        market.concentrator_ready))
+                                        market.concentrator_ready,
+                                        network_storage=c.network_storage))
+        for node in c.prosumer_storage:
+            concentrador_do_no[node] = f"concentrator_{c.name}"
         port += 1
 
     for node in case.prosumer_storage_nodes:
-        agents.append(ProsumerAgent(AID(name=f"prosumer{node}@{HOST}:{port}"), node))
+        agents.append(ProsumerAgent(AID(name=f"prosumer{node}@{HOST}:{port}"), node,
+                                    concentrador_do_no[node]))
         port += 1
 
     return case, agents
