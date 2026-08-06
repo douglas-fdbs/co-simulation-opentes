@@ -98,7 +98,12 @@ de Lagrange, e o AM atualiza o preço sombra por subgradiente:
 λ_ω+1(t,l) = λ_ω(t,l) + α_ω · ( ACP_result(t,l) − ADP_result(t,l) )
 ```
 
-Critério de parada da tese: `|λ_ω − λ_ω+1| ≤ ε`.
+Critério de parada da tese: `|λ_ω − λ_ω+1| ≤ ε`. Ele é um resíduo primal
+escalado pelo passo, e por isso **não é confiável sob passo decrescente**:
+medido, o passo decrescente declarou convergência em 45 rodadas com resíduo
+primal de 0,0222 kW, cinco vezes pior que o passo constante em 60 rodadas
+(0,0041 kW). O teste disparou pela queda do passo, não pelo acordo entre as
+partes. Os dois resíduos são reportados lado a lado; compare pelo primal.
 
 Implementação: `market_opentes/dual.py` (centralizada) e
 `market_agents.MarketAgent` (distribuída, sobre FIPA).
@@ -167,13 +172,41 @@ tráfego em mais de uma ordem de grandeza. A implementação nova usa o tamanho
 serializado real (`_set_content` anota `message.message_length`), então os tempos
 de entrega medidos aqui e os da tese **não são diretamente comparáveis**.
 
-## 6. Limitações conhecidas
+## 5.2 Os dispositivos do prosumidor que não entram na demanda
 
-- **Não há restrição de estado de carga terminal.** Nem na Eq. 6.9 da tese nem
-  aqui. Como a energia que sobra na bateria no fim do dia não vale nada na função
-  objetivo, o modelo a despeja: no intervalo 95 o armazenamento agregado
-  descarrega 50 kW e a tensão sobe a 1,02 pu. A correção é uma restrição
-  `SoC(95) ≥ SoC(0)`, e refaz todos os números.
+O `config.json` aloca seis tipos de dispositivo. Apenas três chegam à rede, e
+isso é uma característica da implementação de referência, não uma omissão nossa:
+no `Prosumer.step` do `prosumer.py` original, as contribuições de
+`freely_control_gen`, `shiftable_load` e `buffering_device` estão **comentadas**
+(linhas 591, 603 e 609). Os dispositivos são instanciados, recebem `step()` e o
+resultado é descartado.
+
+| Dispositivo | Nós | Entra na demanda? |
+|---|---:|---|
+| `user_action_device` | 68 | sim, é a carga base |
+| `stochastic_gen` | 34 | sim, é a geração PV |
+| `storage_device` | 25 | sim, é a flexibilidade negociada |
+| `dso_storage_device` | 23 | sim, despachado pelo DSO |
+| `shiftable_load` | 68 | **não**, inerte no código original |
+| `buffering_device` | 54 | **não**, inerte no código original |
+| `freely_control_gen` | 3 | **não**, inerte no código original |
+
+Implementar os três inertes afastaria o caso da tese em vez de aproximá-lo dela.
+Fica registrado como extensão possível, não como pendência de fidelidade.
+
+## 6. Limitações conhecidas
+- **A restrição de estado de carga terminal é NOSSA, não da tese.** A Eq. 6.9 não
+  a tem, e sem ela o modelo despeja a energia da bateria no último intervalo,
+  porque ela não vale nada na função objetivo. Está ligada por padrão
+  (`MARKET_TERMINAL_SOC=1`); desligá-la reproduz o comportamento do original.
+- **A restrição de tensão precisa de margem contra o próprio erro.** O
+  otimizador cola a solução no limite, e o erro da linearização (1e-4 a 6e-4 pu)
+  vira violação no fluxo de potência completo: sem margem, a negociação promete
+  0,9700 pu e o OpenDSS entrega 0,96924, com 104 pontos violados. Com
+  `V_BACKOFF = 1e-3` aplicado aos limites dentro do modelo, o fluxo não linear
+  fica em 0,97020 pu e nenhuma violação. Isso NÃO existe na tese, que usa a mesma
+  restrição linearizada sem recuo; só aparece quando a restrição passa a atuar de
+  fato.
 - **A hipótese ΔQ = 0 domina o erro da restrição de tensão.** Se o dispositivo
   mantiver fator de potência constante em vez de reativo nulo, o erro é cerca de
   40 vezes o da própria linearização.

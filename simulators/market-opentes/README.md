@@ -117,18 +117,39 @@ python -m market_opentes.plot_convergence data/history.json -o data/convergencia
 
 ## Resultados medidos na rede MVLV75
 
-A carga base nao viola nada (V de 0,978 a 1,028 pu). Quem cria o conflito e a
-programacao economica dos prosumidores, que concentra carga e descarga nos
-mesmos horarios de preco. O DSO elimina a violacao ja na primeira rodada; as
-rodadas seguintes negociam quem paga o ajuste.
+A carga base ja viola por conta propria: 331 pontos abaixo de 0,97 pu, com minima
+de 0,9410 pu no intervalo 71, ou seja **17:45**, que e exatamente o horario
+critico de subtensao que a tese relata (entre 17:45 e 19:15). O DSO elimina a
+violacao ja na primeira rodada; as rodadas seguintes negociam quem paga o ajuste.
 
-| caso | violacoes propostas | rodadas | lambda final |
+Verificado com FLUXO DE POTENCIA COMPLETO no OpenDSS, nao com o modelo
+linearizado que a negociacao usa para decidir:
+
+| caso | faixa de tensao | abaixo de 0,97 pu |
+|---|---|---:|
+| sem negociacao | 0,93803 a 1,02503 pu | 336 |
+| negociado, sem margem de seguranca | 0,96924 a 1,02361 pu | 104 |
+| **negociado** | **0,97020 a 1,02330 pu** | **0** |
+
+A linha do meio e o motivo de existir a `V_BACKOFF`: o otimizador do DSO cola a
+solucao exatamente no limite e fica sem margem contra o erro da propria
+linearizacao (1e-4 a 6e-4 pu). Com uma margem de 1e-3 pu aplicada aos limites
+dentro do modelo, a promessa se confirma no fluxo nao linear.
+
+Convergencia, medida pelo RESIDUO PRIMAL e nao pelo criterio da tese:
+
+| caso | rodadas | residuo final | lambda final |
 |---|---:|---:|---:|
-| 1 cenario (deterministico), alpha 0,6 | 44 acima de 1,03 pu | 17 | 0,865 |
-| 9 cenarios (estocastico), alpha 0,6 | 35 acima de 1,03 pu | 13 | 0,285 |
+| 1 cenario (deterministico), alpha 0,6 | >60 | 0,0041 kW | 5,133 |
+| 9 cenarios (estocastico), alpha 0,6 | 30 | 0,0016 kW | 4,221 |
+| 1 cenario, passo decrescente alpha0 2,0 | 45 | 0,0222 kW | 5,116 |
 
-O prosumidor que decide sob incerteza programa de forma menos agressiva, estressa
-menos a rede e o preco sombra necessario para resolver o conflito cai a um terco.
+Duas leituras. O prosumidor que decide sob incerteza programa de forma menos
+agressiva, estressa menos a rede e converge mais rapido. E o passo decrescente
+**parece** melhor pelo criterio da tese (45 rodadas contra mais de 60) e e cinco
+vezes pior pelo residuo primal: o teste `|dlambda| <= eps` disparou porque o
+passo encolheu para 2,0/45, nao porque as partes chegaram a acordo. Compare
+sempre pelo residuo.
 
 ### Passo do subgradiente
 

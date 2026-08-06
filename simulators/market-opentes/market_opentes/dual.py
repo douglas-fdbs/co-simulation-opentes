@@ -29,7 +29,7 @@ from pathlib import Path
 
 import numpy as np
 
-from .config import DATA_DIR, PERIODS, V_MAX, V_MIN, load_case
+from .config import DATA_DIR, PERIODS, V_MAX, V_MIN, V_TOL, load_case
 from .optimization import solve_concentrator, solve_dso, solve_prosumer
 from .scenarios import build_scenarios
 
@@ -74,7 +74,7 @@ def voltage_of(case, v0, s, p_prosumer, p_network):
 
 
 def violations(v):
-    return int((v < V_MIN).sum()), int((v > V_MAX).sum())
+    return int((v < V_MIN - V_TOL).sum()), int((v > V_MAX + V_TOL).sum())
 
 
 def step_size(alpha, round_, rule):

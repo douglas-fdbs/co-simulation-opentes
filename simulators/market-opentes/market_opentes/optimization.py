@@ -39,7 +39,7 @@ import pyomo.environ as pyo
 from pyomo.opt import SolverFactory, SolverStatus, TerminationCondition
 
 from .config import (A_PROSUMER, B_NETWORK, CK, D_ENERGY, DT_H, PERIODS,
-                     V_MAX, V_MIN)
+                     V_BACKOFF, V_MAX, V_MIN)
 
 SOLVER_NAME = os.environ.get("MARKET_SOLVER", "cplex")
 SOLVER_PATH = os.environ.get("MARKET_SOLVER_PATH")
@@ -47,6 +47,12 @@ SOLVER_PATH = os.environ.get("MARKET_SOLVER_PATH")
 BILATERAL_PRICE = 38.0    # EUR/MWh, valor do stochastic_model/config.json
 BILATERAL_MAX_KW = 5.0
 INIT_SOC_FRACTION = 0.2   # soc[0] = 0,2 * max_soc, como no ReferenceModel
+# Estado de carga ao fim do dia nao pode ficar abaixo do inicial. NAO existe na
+# Eq. 6.9 da tese, e a ausencia tem efeito visivel: como a energia que sobra na
+# bateria no ultimo intervalo nao vale nada na funcao objetivo, o modelo a
+# despeja. Sem esta restricao, os 25 armazenamentos descarregam ao mesmo tempo no
+# intervalo 95 (50 kW agregados) e a tensao sobe a 1,02 pu.
+TERMINAL_SOC = os.environ.get("MARKET_TERMINAL_SOC", "1") == "1"
 
 
 def _solver():
@@ -118,6 +124,11 @@ def solve_prosumer(scenarios, storage=None, bilateral_price=BILATERAL_PRICE,
     for t in range(PERIODS - 1):
         m.soc_memory.add(
             m.soc[t + 1] == m.soc[t] + (m.p_charge[t] - m.p_discharge[t]) * DT_H)
+    if TERMINAL_SOC:
+        last = PERIODS - 1
+        m.soc_terminal = pyo.Constraint(
+            expr=m.soc[last] + (m.p_charge[last] - m.p_discharge[last]) * DT_H
+            >= INIT_SOC_FRACTION * storage.max_soc_kwh)
 
     # Eq. 6.3 a 6.5: balanco energetico e regra do mercado de tempo real.
     #
@@ -297,7 +308,9 @@ def solve_dso(case, base_load, p_prosumer_init, p_network_init, lam, v0, s,
         for i, node in enumerate(case.all_nodes):
             dv = sum(-float(s_t[i, node_index[n]]) * m.p[n, t] for n in pros_nodes)
             dv += sum(-float(s_t[i, node_index[n]]) * m.q[n, t] for n in net_nodes)
-            m.voltage.add(pyo.inequality(V_MIN, float(v0[t][i]) + dv, V_MAX))
+            m.voltage.add(pyo.inequality(V_MIN + V_BACKOFF,
+                                         float(v0[t][i]) + dv,
+                                         V_MAX - V_BACKOFF))
 
     # Eq. 6.28: carregamento do transformador. A carga base entra na conta,
     # senao a restricao nao significa nada.

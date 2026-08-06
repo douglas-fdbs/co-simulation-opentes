@@ -34,6 +34,20 @@ DT_H = 0.25
 # Limites operacionais da rede (subsecao 6.2.2 da tese).
 V_MIN = 0.97
 V_MAX = 1.03
+# Tolerancia para CONTAR violacao. O otimizador do DSO cola a solucao no limite,
+# e sem tolerancia o contador acusa violacao a 1e-13 pu de distancia, que e ruido
+# de ponto flutuante. A folga aqui e varias ordens de grandeza menor que o erro
+# da propria linearizacao (~1e-4 pu), entao nao esconde violacao real.
+V_TOL = 1e-9
+# Margem de seguranca aplicada aos limites DENTRO do modelo do DSO. A restricao
+# de tensao e linearizada, e o otimizador cola a solucao exatamente no limite: o
+# erro da linearizacao (1e-4 a 6e-4 pu, medido na validacao de sensitivity.py)
+# vira violacao no fluxo de potencia completo. Sem esta margem, a negociacao
+# promete 0,9700 pu e o OpenDSS entrega 0,96924.
+#
+# NAO existe na tese, que usa a mesma restricao linearizada sem recuo. Aparece
+# quando a restricao passa a atuar de fato.
+V_BACKOFF = float(__import__("os").environ.get("MARKET_V_BACKOFF", "1e-3"))
 
 # Pesos das funcoes objetivo.
 CK = 1.0        # concentrador, Eq. 6.25

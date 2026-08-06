@@ -35,7 +35,7 @@ from pathlib import Path
 
 import numpy as np
 
-from .config import DATA_DIR, PERIODS, V_MAX, V_MIN, load_case
+from .config import DATA_DIR, PERIODS, V_MAX, V_MIN, V_TOL, load_case
 from .dual import load_profiles, load_sensitivity, run
 from .optimization import solve_concentrator, solve_dso
 
@@ -111,7 +111,8 @@ def run_operation(config_json, schedule, first=0, count=PERIODS, alpha=ALPHA,
 
         v0_t = shifted_v0(case, v0[t], s[t], deviation)
         v_before = voltage_at(case, v0_t, s[t], p_t, q_t)
-        viol_before = int((v_before < V_MIN).sum() + (v_before > V_MAX).sum())
+        viol_before = int((v_before < V_MIN - V_TOL).sum()
+                          + (v_before > V_MAX + V_TOL).sum())
 
         level, rounds = "-", 0
         if viol_before:
@@ -129,7 +130,8 @@ def run_operation(config_json, schedule, first=0, count=PERIODS, alpha=ALPHA,
                 p_new, q_new, v_after = p_t, q_t, v_before
 
             # ---- nivel 2: leilao de operacao, decomposicao dual em 1 periodo
-            if int((v_after < V_MIN).sum() + (v_after > V_MAX).sum()):
+            if int((v_after < V_MIN - V_TOL).sum()
+                   + (v_after > V_MAX + V_TOL).sum()):
                 lam_t = {n: np.zeros(1) for n in pros}
                 for rounds in range(1, max_rounds + 1):
                     x = {}
@@ -152,7 +154,8 @@ def run_operation(config_json, schedule, first=0, count=PERIODS, alpha=ALPHA,
         else:
             p_new, q_new, v_after = p_t, q_t, v_before
 
-        viol_after = int((v_after < V_MIN).sum() + (v_after > V_MAX).sum())
+        viol_after = int((v_after < V_MIN - V_TOL).sum()
+                         + (v_after > V_MAX + V_TOL).sum())
         dt = time.time() - t0
         log.append({"t": t, "deviation_kw": desvio_total,
                     "v_min_before": float(v_before.min()),

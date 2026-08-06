@@ -10,12 +10,31 @@ O que este script faz e recortar UM dia e escrever tres CSVs compactos em
 `data/`, para o pacote nao depender de arrastar o SimBench inteiro (35 mil
 linhas por arquivo) nem do repositorio antigo em tempo de execucao.
 
-Escalonamento: o perfil bruto do SimBench e normalizado entre 0 e 1 e
-multiplicado pelo `active_power` do no no force.json (que e o valor de pico de
-demanda daquele prosumidor, em kW), reproduzindo o que `load_data.get_load_data`
-fazia com `data['load_kw']`. A geracao PV usa o `size` do dispositivo
-`stochastic_gen` do config.json, que existe em 34 dos 68 nos de baixa tensao
-(50% de penetracao, como manda a subsecao 6.2.1 da tese).
+ESCALONAMENTO DA CARGA
+---------------------
+O perfil bruto do SimBench e normalizado entre 0 e 1 e multiplicado pelo `size`
+do dispositivo `user_action_device` do config.json. E o que a classe `UserLoad`
+do `prosumer.py` original faz: `UserLoad(max_dem_value=device_params['size'])`,
+com a curva normalizada e multiplicada por esse valor.
+
+Uma versao anterior escalava pelo `active_power` do no no force.json, que da uma
+carga 2,7 vezes menor (soma de 67,3 kW contra 182,8 kW) e por isso produzia um
+caso base sem nenhuma violacao, ao contrario da tese, que relata subtensao entre
+17:45 e 19:15.
+
+OS DEMAIS DISPOSITIVOS DO PROSUMIDOR
+------------------------------------
+O config.json aloca ainda `shiftable_load` (68 nos), `buffering_device` (54) e
+`freely_control_gen` (3). Eles NAO entram na demanda: no `Prosumer.step` do
+`prosumer.py` original as tres contribuicoes estao comentadas (linhas 591, 603 e
+609), de modo que os dispositivos sao instanciados, recebem `step()` e o
+resultado e descartado. So `stochastic_gen`, `user_action_device` e
+`storage_device` compoem o `p_out` que chega a rede. Reproduzimos esse
+comportamento; implementa-los mudaria o caso em relacao a tese em vez de
+aproxima-lo dela.
+
+A geracao PV usa o `size` do `stochastic_gen`, que existe em 34 dos 68 nos de
+baixa tensao (50% de penetracao, subsecao 6.2.1 da tese).
 
 Uso:
 
@@ -80,8 +99,9 @@ def build(ms_path):
     force = _load_force()
     config = json.loads((ms / "config.json").read_text())
     lv_nodes = [n["name"] for n in force["nodes"] if n["voltage_level"] == "low voltage"]
-    peak_kw = {n["name"]: n["active_power"] for n in force["nodes"]
-               if n["voltage_level"] == "low voltage"}
+    # Pico de demanda por no: o `size` do user_action_device, como na tese.
+    peak_kw = {int(k): v["size"]
+               for k, v in config["devices"]["user_action_device"]["params"].items()}
     pv_size = {int(k): v["size"] for k, v in config["devices"]["stochastic_gen"]["params"].items()}
 
     load_cols = {}

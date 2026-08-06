@@ -606,3 +606,65 @@ foi corrigido, junto com a referência a um documento que não existia.
   código.
 - **Considerar trocar o critério de parada** para o resíduo primal, mantendo o
   `|Δλ|` como registro de compatibilidade.
+
+
+---
+
+## 17. Continuação: Fase 1 das pendências (6 de agosto de 2026)
+
+Depois da revisão, as pendências em relação à tese foram divididas em seis fases,
+e a primeira, a demanda do prosumidor, foi executada.
+
+**Dois achados mudaram o tamanho da fase.** O primeiro: os três dispositivos que
+pareciam faltar são código morto na implementação de referência. No
+`Prosumer.step` do `prosumer.py`, as contribuições de `freely_control_gen`,
+`shiftable_load` e `buffering_device` estão comentadas (linhas 591, 603 e 609):
+os objetos são instanciados, recebem `step()` e o resultado é descartado.
+Implementá-los afastaria o caso da tese em vez de aproximá-lo.
+
+O segundo, que era a pendência real: a carga base estava **2,72 vezes menor** do
+que a da tese. Ela escala a curva do SimBench pelo `size` do
+`user_action_device` (soma 182,8 kW) e nós escalávamos pelo `active_power` do
+`force.json` (soma 67,3 kW). Corrigido, o caso base passou de nenhuma violação
+para 331 pontos abaixo de 0,97 pu, com mínima de 0,9410 pu no intervalo 71, que é
+**17:45**, exatamente o horário crítico de subtensão que a tese relata.
+
+**Três correções derivadas.** Foi adicionada a restrição de estado de carga
+terminal, que não existe na tese e sem a qual as baterias despejam energia no
+último intervalo. O contador de violações ganhou tolerância: sem ela, acusava
+violação a 1e-13 pu do limite, ruído de ponto flutuante que só apareceu quando a
+restrição passou a atuar. E foi introduzida uma margem de segurança nos limites
+dentro do modelo do DSO (`V_BACKOFF = 1e-3`): o otimizador cola a solução no
+limite e ficava sem margem contra o erro da própria linearização, de modo que a
+negociação prometia 0,9700 pu e o OpenDSS entregava 0,96924, com 104 violações no
+fluxo completo. Com a margem, 0,97020 pu e nenhuma violação.
+
+**Resultado, verificado com fluxo de potência completo:**
+
+| Caso | Faixa de tensão | Abaixo de 0,97 pu |
+|---|---|---:|
+| Sem negociação | 0,93803 a 1,02503 pu | 336 |
+| Negociado, sem margem | 0,96924 a 1,02361 pu | 104 |
+| Negociado | 0,97020 a 1,02330 pu | 0 |
+
+**Convergência, medida pelo resíduo primal:**
+
+| Caso | Rodadas | Resíduo final | λ final |
+|---|---:|---:|---:|
+| 1 cenário, α = 0,6 constante | mais de 60 | 0,0041 kW | 5,133 |
+| 9 cenários, α = 0,6 constante | 30 | 0,0016 kW | 4,221 |
+| 1 cenário, α₀ = 2,0 decrescente | 45 | 0,0222 kW | 5,116 |
+
+O passo decrescente **declarou** convergência em 45 rodadas com resíduo cinco
+vezes pior que o do passo constante em 60: o critério `|Δλ| ≤ ε` disparou porque o
+passo encolheu para 2,0/45, não porque as partes chegaram a acordo. É a
+confirmação numérica da advertência que estava só no docstring.
+
+**Fase de operação com a demanda corrigida:** 25 dos 96 intervalos exigiram
+intervenção, contra 9 antes. Dezessete foram resolvidos apenas com o
+armazenamento de rede e oito precisaram do leilão de operação. Todos resolvidos,
+com a pior tensão indo de 0,9497 para 0,9700 pu.
+
+As figuras foram refeitas: a de tensão passou a ter dois quadros, mínima e
+máxima, porque com a demanda da tese a restrição que aperta é a de subtensão e um
+gráfico só da máxima escondia o fenômeno inteiro.
