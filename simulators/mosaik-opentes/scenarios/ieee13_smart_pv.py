@@ -9,7 +9,7 @@ containers:
   ``csv-data-1``, ``csv-data-2``) em vez de ``localhost:porta``.
 - O collector elétrico passou a viver no próprio container Mosaik
   (``collectors.elec_collector:Collector``), não como container remoto.
-- O DSS e os CSVs são lidos do volume ``./simulators_teams/grid-opentes/src``
+- O DSS e os CSVs são lidos do volume ``./simulators/grid-opentes/src``
   montado em ``/app/src`` dos containers remotos.
 - O CSV de resultado é escrito em ``/app/output/...`` dentro do container
   ``mosaik`` (volume ``./output`` mapeado pelo compose).

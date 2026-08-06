@@ -8,7 +8,7 @@ da co-simulação OpenTES.
 > original do time TSRE), depois `tsre-opentes`, e enfim `grid-opentes` na
 > refatoração de 4 containers — o nome reflete a **função** (simulação de rede),
 > não o time. O collector elétrico, antes em `src/simulators/collector.py`, foi
-> movido para `simulators_teams/mosaik-opentes/collectors/elec_collector.py`.
+> movido para `simulators/mosaik-opentes/collectors/elec_collector.py`.
 
 ## Como rodar
 

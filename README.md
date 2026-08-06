@@ -10,10 +10,10 @@ latência, jitter e perda de pacotes sejam contabilizados.
 
 | Container | Pasta | Papel |
 |-----------|-------|-------|
-| `comm`   | `simulators_teams/comm-opentes`   | Rede de comunicação (OMNeT++ + bridge ZMQ) |
-| `pade`   | `simulators_teams/pade-opentes`   | Agentes PADE (Python 3.12) |
-| `mosaik` | `simulators_teams/mosaik-opentes` | Orquestrador Mosaik + cenários + collectors |
-| `grid`   | `simulators_teams/grid-opentes`   | Rede elétrica IEEE 13 (OpenDSS via `py-dss-interface`) |
+| `comm`   | `simulators/comm-opentes`   | Rede de comunicação (OMNeT++ + bridge ZMQ) |
+| `pade`   | `simulators/pade-opentes`   | Agentes PADE (Python 3.12) |
+| `mosaik` | `simulators/mosaik-opentes` | Orquestrador Mosaik + cenários + collectors |
+| `grid`   | `simulators/grid-opentes`   | Rede elétrica IEEE 13 (OpenDSS via `py-dss-interface`) |
 
 ## Instalação
 
@@ -40,14 +40,14 @@ uv sync     # cria .venv com tudo (leva ~1s)
 
 Isso traz `mosaik`, `opender`, `py-dss-interface`, `pandas`, `matplotlib`,
 `pyzmq` e — como **dependências editáveis** apontando para o código deste repo —
-o `pade-agents` (`simulators_teams/pade-opentes`) e o `grid-opentes`
-(`simulators_teams/grid-opentes`). Editar o código dos simuladores reflete
+o `pade-agents` (`simulators/pade-opentes`) e o `grid-opentes`
+(`simulators/grid-opentes`). Editar o código dos simuladores reflete
 direto no ambiente. Útil para IDE/autocomplete, mexer no PADE ou no grid e rodar
 os scripts de figura:
 
 ```bash
 MOSAIK_OUTPUT_DIR=output/integrated \
-  uv run python simulators_teams/mosaik-opentes/plot_integrated.py
+  uv run python simulators/mosaik-opentes/plot_integrated.py
 ```
 
 > **Alcance de cada caminho:** o `uv` cobre todo o lado **Python**. A rede de
@@ -80,7 +80,7 @@ profile que o `down` simples não remove) e espera os simuladores ficarem pronto
 > O cenário `market` **exige um solver de otimização** (IBM CPLEX por padrão), que
 > não está no repositório nem nas imagens, por licença. Os demais cenários não
 > dependem disso. Instalação, limitações e alternativas em
-> [`simulators_teams/market-opentes/README.md`](simulators_teams/market-opentes/README.md#dependencias-e-o-solver).
+> [`simulators/market-opentes/README.md`](simulators/market-opentes/README.md#dependencias-e-o-solver).
 
 O `integrated` é **a** simulação (a aplicação); `star` e `ieee13` são bancadas
 de teste isoladas de cada bloco.
@@ -177,7 +177,7 @@ caminho no host):
 
 ```bash
 MOSAIK_OUTPUT_DIR=output/sensibilidade_perda \
-  uv run python simulators_teams/mosaik-opentes/plot_loss_sweep.py
+  uv run python simulators/mosaik-opentes/plot_loss_sweep.py
 ```
 
 > **Atenção operacional**: os simuladores `--remote` do grid (portas 5671, 5673,

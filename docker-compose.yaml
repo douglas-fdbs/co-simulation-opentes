@@ -2,7 +2,7 @@ name: opentes-integration
 
 x-tsre-simulator: &tsre-simulator
   build:
-    context: ./simulators_teams/grid-opentes
+    context: ./simulators/grid-opentes
     dockerfile: Dockerfile
   image: opentes/grid:local
   networks:
@@ -11,12 +11,12 @@ x-tsre-simulator: &tsre-simulator
     - PYTHONUNBUFFERED=1
     - PYTHONDONTWRITEBYTECODE=1   # nao grava .pyc no src montado (evita bytecode stale)
   volumes:
-    - ./simulators_teams/grid-opentes/src:/app/src
+    - ./simulators/grid-opentes/src:/app/src
 
 services:
   comm:
     build:
-      context: ./simulators_teams/comm-opentes
+      context: ./simulators/comm-opentes
       dockerfile: Dockerfile
     image: opentes/comm:local
     container_name: opentes-comm
@@ -25,13 +25,13 @@ services:
     ports:
       - "5555:5555"
     volumes:
-      - ./simulators_teams/comm-opentes:/root/models
+      - ./simulators/comm-opentes:/root/models
     networks:
       - opentes-net
 
   pade:
     build:
-      context: ./simulators_teams/pade-opentes
+      context: ./simulators/pade-opentes
       dockerfile: Dockerfile
     image: opentes/pade:local
     container_name: opentes-pade
@@ -42,14 +42,14 @@ services:
     ports:
       - "15678:5678"
     volumes:
-      - ./simulators_teams/pade-opentes/agents:/app/agents
+      - ./simulators/pade-opentes/agents:/app/agents
     command: python3 agents/pade_star.py
     networks:
       - opentes-net
 
   mosaik:
     build:
-      context: ./simulators_teams/mosaik-opentes
+      context: ./simulators/mosaik-opentes
       dockerfile: Dockerfile
     image: opentes/mosaik:local
     container_name: opentes-mosaik
@@ -65,9 +65,9 @@ services:
       - PADE_HOST=pade
       - PADE_PORT=5678
     volumes:
-      - ./simulators_teams/mosaik-opentes:/app
+      - ./simulators/mosaik-opentes:/app
       - ./output:/app/output
-      - ./simulators_teams/grid-opentes/src/data:/grid-data:ro
+      - ./simulators/grid-opentes/src/data:/grid-data:ro
     command: sh -c "python -u scenarios/star.py && python plot_results_star.py"
     networks:
       - opentes-net
@@ -75,7 +75,7 @@ services:
   elec-collector:
     image: opentes/mosaik:local
     build:
-      context: ./simulators_teams/mosaik-opentes
+      context: ./simulators/mosaik-opentes
       dockerfile: Dockerfile
     container_name: opentes-elec-collector
     profiles:
@@ -87,7 +87,7 @@ services:
     ports:
       - "5673:5673"
     volumes:
-      - ./simulators_teams/mosaik-opentes:/app
+      - ./simulators/mosaik-opentes:/app
       - ./output:/app/output
     command: python -u collectors/elec_collector.py --remote 0.0.0.0:5673
     networks:
@@ -96,7 +96,7 @@ services:
   mosaik-ieee13:
     image: opentes/mosaik:local
     build:
-      context: ./simulators_teams/mosaik-opentes
+      context: ./simulators/mosaik-opentes
       dockerfile: Dockerfile
     container_name: opentes-mosaik-ieee13
     profiles:
@@ -114,16 +114,16 @@ services:
       - GRID_DATA_DIR=/grid-data/13Bus
       - ELEC_COLLECTOR_HOST=elec-collector
     volumes:
-      - ./simulators_teams/mosaik-opentes:/app
+      - ./simulators/mosaik-opentes:/app
       - ./output:/app/output
-      - ./simulators_teams/grid-opentes/src/data:/grid-data:ro
+      - ./simulators/grid-opentes/src/data:/grid-data:ro
     networks:
       - opentes-net
 
   pade-integrated:
     image: opentes/pade:local
     build:
-      context: ./simulators_teams/pade-opentes
+      context: ./simulators/pade-opentes
       dockerfile: Dockerfile
     container_name: opentes-pade-integrated
     profiles:
@@ -137,7 +137,7 @@ services:
     ports:
       - "15683:5678"
     volumes:
-      - ./simulators_teams/pade-opentes/agents:/app/agents
+      - ./simulators/pade-opentes/agents:/app/agents
     command: python3 agents/agent_example_1_mosaik_updated.py
     networks:
       - opentes-net
@@ -145,7 +145,7 @@ services:
   mosaik-integrated:
     image: opentes/mosaik:local
     build:
-      context: ./simulators_teams/mosaik-opentes
+      context: ./simulators/mosaik-opentes
       dockerfile: Dockerfile
     container_name: opentes-mosaik-integrated
     profiles:
@@ -179,16 +179,16 @@ services:
       - CSV_TEMP_HOST=csv-data-2
       - ELEC_COLLECTOR_HOST=elec-collector
     volumes:
-      - ./simulators_teams/mosaik-opentes:/app
+      - ./simulators/mosaik-opentes:/app
       - ./output:/app/output
-      - ./simulators_teams/grid-opentes/src/data:/grid-data:ro
+      - ./simulators/grid-opentes/src/data:/grid-data:ro
     networks:
       - opentes-net
 
   pade-market:
     image: opentes/pade:local
     build:
-      context: ./simulators_teams/pade-opentes
+      context: ./simulators/pade-opentes
       dockerfile: Dockerfile
     container_name: opentes-pade-market
     profiles:
@@ -213,9 +213,9 @@ services:
     ports:
       - "15684:5678"
     volumes:
-      - ./simulators_teams/pade-opentes/agents:/app/agents
-      - ./simulators_teams/market-opentes:/market
-      - ./simulators_teams/grid-opentes/src/data:/grid-data:ro
+      - ./simulators/pade-opentes/agents:/app/agents
+      - ./simulators/market-opentes:/market
+      - ./simulators/grid-opentes/src/data:/grid-data:ro
       - ${CPLEX_HOME:-/nonexistent}:/opt/cplex:ro
     command: python3 agents/market_agents.py
     networks:
@@ -224,7 +224,7 @@ services:
   mosaik-market:
     image: opentes/mosaik:local
     build:
-      context: ./simulators_teams/mosaik-opentes
+      context: ./simulators/mosaik-opentes
       dockerfile: Dockerfile
     container_name: opentes-mosaik-market
     profiles:
@@ -245,9 +245,9 @@ services:
       - OPENDSS_HOST=opendss
       - ELEC_COLLECTOR_HOST=elec-collector
     volumes:
-      - ./simulators_teams/mosaik-opentes:/app
+      - ./simulators/mosaik-opentes:/app
       - ./output:/app/output
-      - ./simulators_teams/grid-opentes/src/data:/grid-data:ro
+      - ./simulators/grid-opentes/src/data:/grid-data:ro
     command: python -u scenarios/market.py
     networks:
       - opentes-net

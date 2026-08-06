@@ -20,7 +20,7 @@ cd "$(dirname "$0")"
 # ============================================================================
 # Configuracao comum
 # ============================================================================
-INI="simulators_teams/comm-opentes/omnetpp.ini"
+INI="simulators/comm-opentes/omnetpp.ini"
 ALL_PROFILES=(--profile ieee13 --profile integrated --profile market)
 # simuladores que precisam estar de pe antes do mosaik conectar
 DEPS=(comm pade-integrated opendss pv-panel csv-data-1 csv-data-2 elec-collector)
@@ -41,7 +41,7 @@ Cenarios:
                           multiagente (PADE) + OpenDSS. Roda 2 passadas:
                           baseline (sem negociacao) e negociado.
                           EXIGE um solver: export CPLEX_HOME=... (ver
-                          simulators_teams/market-opentes/README.md).
+                          simulators/market-opentes/README.md).
 
 Experimentos:
   48h                     Cenario integrado em horizonte de 48h (2 dias com a
@@ -223,12 +223,12 @@ cmd_integrated() {
 
 cmd_market() {
     # O solver nao esta no repositorio nem na imagem (licenca). Ver
-    # simulators_teams/market-opentes/README.md.
+    # simulators/market-opentes/README.md.
     if [ ! -x "${CPLEX_HOME:-/nao-definido}/bin/x86-64_linux/cplex" ]; then
         echo "!! CPLEX nao encontrado." >&2
         echo "   Defina CPLEX_HOME apontando para a sua instalacao, por exemplo:" >&2
         echo "     export CPLEX_HOME=\$HOME/IBM/CPLEX_Studio2211/cplex" >&2
-        echo "   Detalhes e alternativas em simulators_teams/market-opentes/README.md" >&2
+        echo "   Detalhes e alternativas em simulators/market-opentes/README.md" >&2
         exit 1
     fi
     export CPLEX_HOME

@@ -1,6 +1,6 @@
 # Mercado transativo: formulação, correspondência com a tese e desvios
 
-Documento de referência da camada de mercado (`simulators_teams/market-opentes`
+Documento de referência da camada de mercado (`simulators/market-opentes`
 e `pade-opentes/agents/market_agents.py`). Ele existe para responder três
 perguntas sem que ninguém precise ler o código: **qual é o modelo matemático,
 onde ele está implementado, e no que a nossa implementação difere da original.**

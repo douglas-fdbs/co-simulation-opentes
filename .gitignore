@@ -19,8 +19,8 @@ logs/
 out/
 sim_exec
 .cmdenv-log
-simulators_teams/comm-opentes/Makefile
-simulators_teams/comm-opentes/.cmdenv-log
+simulators/comm-opentes/Makefile
+simulators/comm-opentes/.cmdenv-log
 *.sca
 *.vec
 *.o
@@ -32,7 +32,7 @@ simulators_teams/comm-opentes/.cmdenv-log
 .DS_Store
 
 # Produtos da camada de mercado (regenera com data_prep, sensitivity e dual)
-simulators_teams/market-opentes/data/*.npz
-simulators_teams/market-opentes/data/*.png
-simulators_teams/market-opentes/data/history_*.json
-simulators_teams/market-opentes/data/operation_log.json
+simulators/market-opentes/data/*.npz
+simulators/market-opentes/data/*.png
+simulators/market-opentes/data/history_*.json
+simulators/market-opentes/data/operation_log.json

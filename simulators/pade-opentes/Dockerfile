@@ -30,7 +30,7 @@ RUN pip install --no-cache-dir \
 
 # O CPLEX NAO entra na imagem: a licenca academica e pessoal e este repositorio e
 # publico. Ele e montado do host em tempo de execucao (ver docker-compose.yaml e
-# simulators_teams/market-opentes/README.md). Sem ele, os cenarios de mercado nao
+# simulators/market-opentes/README.md). Sem ele, os cenarios de mercado nao
 # rodam; os demais cenarios do repositorio nao dependem disso.
 ENV MARKET_SOLVER=cplex
 ENV MARKET_SOLVER_PATH=/opt/cplex/bin/x86-64_linux/cplex

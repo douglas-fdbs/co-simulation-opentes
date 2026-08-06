@@ -32,7 +32,7 @@ import pandas as pd
 
 PKG_DIR = Path(__file__).resolve().parent
 DATA_DIR = PKG_DIR.parent / "data"
-# .../simulators_teams/market-opentes/market_opentes -> .../simulators_teams
+# .../simulators/market-opentes/market_opentes -> .../simulators
 SIMULATORS_DIR = PKG_DIR.parents[1]
 # Dentro do container o pacote e montado fora da arvore do repositorio, entao o
 # caminho da rede e parametrizavel.

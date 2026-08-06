@@ -280,7 +280,7 @@ preço-potência da tese. Foi a decisão adotada.
 
 ## 8. Fase 3: os modelos e a decomposição dual
 
-Foi criado o pacote `simulators_teams/market-opentes/` com seis módulos:
+Foi criado o pacote `simulators/market-opentes/` com seis módulos:
 `data_prep`, `config`, `scenarios`, `optimization`, `dual` e as figuras. Ele roda
 o mecanismo de forma **centralizada**, sem PADE e sem Mosaik, de propósito: para
 separar o risco numérico do risco de comunicação.
@@ -526,23 +526,23 @@ foi corrigido, junto com a referência a um documento que não existia.
 
 | Caminho | Conteúdo |
 |---|---|
-| `simulators_teams/market-opentes/pyproject.toml` | metadados e dependências do pacote |
-| `simulators_teams/market-opentes/README.md` | uso, solver, resultados medidos |
-| `simulators_teams/market-opentes/market_opentes/config.py` | monta o caso: nós, concentradores, dispositivos |
-| `simulators_teams/market-opentes/market_opentes/data_prep.py` | recorta perfis do SimBench e preços do Nordpool, mais o reservatório de cenários |
-| `simulators_teams/market-opentes/market_opentes/scenarios.py` | amostragem e redução por distância de Kantorovich |
-| `simulators_teams/market-opentes/market_opentes/optimization.py` | modelos do prosumidor, concentrador e DSO |
-| `simulators_teams/market-opentes/market_opentes/dual.py` | decomposição dual da fase de programação |
-| `simulators_teams/market-opentes/market_opentes/operation.py` | fase de operação, dois níveis |
-| `simulators_teams/market-opentes/market_opentes/plot_convergence.py` | figura de convergência |
-| `simulators_teams/market-opentes/market_opentes/plot_results.py` | figuras de tensão, operação e comunicação |
-| `simulators_teams/market-opentes/data/*.csv` | perfis de entrada e alocação de dispositivos |
-| `simulators_teams/grid-opentes/src/simulators/gen_market_grid.py` | conversor `force.json` para OpenDSS |
-| `simulators_teams/grid-opentes/src/simulators/sensitivity.py` | matriz dV/dP por perturbação |
-| `simulators_teams/grid-opentes/src/data/MVLV75/` | circuito gerado e o `force.json` de origem |
-| `simulators_teams/pade-opentes/agents/market_agents.py` | os quatro agentes FIPA e o solver |
-| `simulators_teams/pade-opentes/agents/network_link.py` | camada de rede |
-| `simulators_teams/mosaik-opentes/scenarios/market.py` | cenário da co-simulação |
+| `simulators/market-opentes/pyproject.toml` | metadados e dependências do pacote |
+| `simulators/market-opentes/README.md` | uso, solver, resultados medidos |
+| `simulators/market-opentes/market_opentes/config.py` | monta o caso: nós, concentradores, dispositivos |
+| `simulators/market-opentes/market_opentes/data_prep.py` | recorta perfis do SimBench e preços do Nordpool, mais o reservatório de cenários |
+| `simulators/market-opentes/market_opentes/scenarios.py` | amostragem e redução por distância de Kantorovich |
+| `simulators/market-opentes/market_opentes/optimization.py` | modelos do prosumidor, concentrador e DSO |
+| `simulators/market-opentes/market_opentes/dual.py` | decomposição dual da fase de programação |
+| `simulators/market-opentes/market_opentes/operation.py` | fase de operação, dois níveis |
+| `simulators/market-opentes/market_opentes/plot_convergence.py` | figura de convergência |
+| `simulators/market-opentes/market_opentes/plot_results.py` | figuras de tensão, operação e comunicação |
+| `simulators/market-opentes/data/*.csv` | perfis de entrada e alocação de dispositivos |
+| `simulators/grid-opentes/src/simulators/gen_market_grid.py` | conversor `force.json` para OpenDSS |
+| `simulators/grid-opentes/src/simulators/sensitivity.py` | matriz dV/dP por perturbação |
+| `simulators/grid-opentes/src/data/MVLV75/` | circuito gerado e o `force.json` de origem |
+| `simulators/pade-opentes/agents/market_agents.py` | os quatro agentes FIPA e o solver |
+| `simulators/pade-opentes/agents/network_link.py` | camada de rede |
+| `simulators/mosaik-opentes/scenarios/market.py` | cenário da co-simulação |
 | `docs/MERCADO.md` | formulação, correspondência e desvios |
 | `docs/DIARIO_MERCADO_2026-08.md` | este documento |
 
@@ -550,8 +550,8 @@ foi corrigido, junto com a referência a um documento que não existia.
 
 | Caminho | Alteração |
 |---|---|
-| `simulators_teams/grid-opentes/src/simulators/api_opendss.py` | modelo `Load` aceita `P_kw`/`Q_kvar` como entrada; `get_data` de `Load` corrigido para carga trifásica |
-| `simulators_teams/pade-opentes/Dockerfile` | numpy, pandas e pyomo na imagem; CPLEX por volume |
+| `simulators/grid-opentes/src/simulators/api_opendss.py` | modelo `Load` aceita `P_kw`/`Q_kvar` como entrada; `get_data` de `Load` corrigido para carga trifásica |
+| `simulators/pade-opentes/Dockerfile` | numpy, pandas e pyomo na imagem; CPLEX por volume |
 | `docker-compose.yaml` | serviços `pade-market` e `mosaik-market`, profile `market` |
 | `README.md` | cenário `market` na tabela, com o aviso sobre o solver |
 | `docs/ALTERACOES_INTEGRACAO.txt` | seção 10, com o changelog da camada de mercado |

@@ -192,7 +192,7 @@ output/ e ignorada pelo git (sao produtos de simulacao).
   da tese, desvios e limitacoes conhecidas: docs/MERCADO.md.
 
   Novos:
-    simulators_teams/market-opentes/          pacote com os modelos de otimizacao
+    simulators/market-opentes/          pacote com os modelos de otimizacao
                                               (prosumidor, concentrador, DSO), a
                                               decomposicao dual, a fase de
                                               operacao e as figuras
