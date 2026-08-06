@@ -29,6 +29,29 @@ services:
     networks:
       - opentes-net
 
+  # Rede LPWA 6TiSCH da tese, como servidor de rotas para os agentes do mercado.
+  # Nao participa do passo do Mosaik: responde consultas por ZMQ na 5556.
+  comm-tisch:
+    build:
+      context: ./simulators/comm-opentes
+      dockerfile: Dockerfile
+    image: opentes/comm:local
+    container_name: opentes-comm-tisch
+    profiles:
+      - market
+    expose:
+      - "5556"
+    ports:
+      - "5556:5556"
+    volumes:
+      - ./simulators/comm-opentes:/root/models
+    command: >-
+      bash -lc "source /root/omnetpp/setenv &&
+      opp_makemake -f --deep -O out -o sim_exec -lzmq && make -j4 &&
+      ./sim_exec -u Cmdenv -c tisch"
+    networks:
+      - opentes-net
+
   pade:
     build:
       context: ./simulators/pade-opentes
@@ -215,6 +238,12 @@ services:
       # na imagem nem no repositorio. Ver market-opentes/README.md.
       - MARKET_SOLVER=${MARKET_SOLVER:-cplex}
       - MARKET_SOLVER_PATH=/opt/cplex/bin/x86-64_linux/cplex
+      # Camada de rede entre os agentes: ideal, lossy ou omnet (6TiSCH da tese).
+      - NET_BACKEND=${NET_BACKEND:-ideal}
+      - NET_TIME_SCALE=${NET_TIME_SCALE:-1.0}
+      - NET_TRACE=${NET_TRACE:-}
+      - OMNET_HOST=${OMNET_HOST:-comm-tisch}
+      - OMNET_NET_PORT=${OMNET_NET_PORT:-5556}
     expose:
       - "5678"
     ports:

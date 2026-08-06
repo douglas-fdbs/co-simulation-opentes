@@ -600,8 +600,7 @@ foi corrigido, junto com a referência a um documento que não existia.
 - **Decidir sobre a restrição de SoC terminal** com o orientador, ciente de que
   ela refaz todos os números.
 - **Levar a fase de operação para os agentes**, já que hoje ela roda centralizada.
-- **Reproduzir o modelo 6TiSCH da tese** no OMNeT++, com PER por distância, para
-  que os resultados de comunicação sejam comparáveis.
+- ~~Reproduzir o modelo 6TiSCH da tese no OMNeT++~~ feito na Fase 5, seção 20.
 - **Reconciliar a documentação do `integrated`** com o comportamento atual do
   código.
 - **Considerar trocar o critério de parada** para o resíduo primal, mantendo o
@@ -741,3 +740,79 @@ pontos.
 Os dois intervalos que restam são t=0 e t=92. O primeiro é o passo inicial, em
 que o armazenamento parte do estado de carga inicial e a operação ainda não tem
 histórico para agir.
+
+## 20. Fase 5 das pendências: a rede 6TiSCH da tese no OMNeT++
+
+O modelo de rede que existia no `comm-opentes` era uma nuvem de nó único, com
+perda plana de 15% e latência de dezenas de milissegundos, sem relação com a rede
+da tese. A Fase 5 construiu a rede da subseção 6.1.5 e ligou os agentes a ela.
+
+**A tese especifica a rede com precisão suficiente para reprodução**, o que só
+ficou claro ao ler o texto e os apêndices: IEEE 802.15.4g modo 1 na banda ISM dos
+EUA, 50 kbps, 16 canais, TSCH com salto de canal, slotframe de 101 timeslots em
+4,04 s, quadro máximo de 127 bytes, RSSI de Friis menos uniforme de 0 a 40 dB
+(Pister-Hack), Tabela 7 para converter RSSI em PER, sensibilidade de −106,37 dBm,
+enlace viável com PER abaixo de 0,5. E o Apêndice B traz as coordenadas dos 77
+agentes, que foram transcritas para `comm-opentes/nodes_xy.csv`. Nada precisou ser
+inventado.
+
+**O que foi escrito.** `comm-opentes/Tisch.cc` e `Tisch.ned`, um servidor de rotas
+que monta a matriz de PER no arranque, roteia por Dijkstra sobre ETX = 1/(1−PER) e
+percorre o caminho salto a salto em tempo de evento do OMNeT++. Os agentes
+consultam por ZMQ a cada envio, e o `OmnetBackend` do `network_link.py`, que até
+aqui levantava `NotImplementedError`, virou cliente real.
+
+A escolha de servir rotas em vez de participar do passo do Mosaik não é
+arquitetural por gosto: a negociação inteira acontece dentro de um passo de 15
+minutos, com o relógio da co-simulação parado, então não existe passo do Mosaik
+onde encaixar as mensagens.
+
+**Topologia obtida:** 1.466 enlaces viáveis entre 2.925 pares, PER médio de 0,0291
+nos viáveis, 1,50 salto em média, nenhum par sem rota. A figura `tisch_per.png`
+reproduz a Figura 42 da tese, com a mesma dispersão vertical: a 1 km há enlaces de
+PER baixo, porque o desvio sorteado daquele par calhou de ser pequeno.
+
+**Validação, sem ajuste de parâmetro.** Com os tamanhos de mensagem que a tese
+declara, a negociação converge em 28 rodadas com 1 perda em 2.301 mensagens e
+atraso máximo de 96,4 s. A tese reporta 10 a 90 s para mensagens de 100 a 1500
+bytes. Os números caem sozinhos: 100 bytes cabem em um quadro e chegam em cerca
+de 4 s; 1250 bytes ocupam 10 quadros e chegam em cerca de 77 s. O modelo foi
+montado a partir dos parâmetros dela e devolveu o resultado dela.
+
+**O achado da fase.** A mesma negociação, na mesma rede, mudando apenas o tamanho
+informado:
+
+| | tamanhos da tese | tamanhos reais |
+|---|---:|---:|
+| tráfego total | 2,62 MB | 82,01 MB |
+| atraso p90 por mensagem | 77,2 s | 3.216,4 s |
+| atraso máximo | 96,4 s | 6.574,9 s |
+| tempo de rede da negociação | 3,7 h | 6,1 dias |
+| rodadas até convergir | 28 | 28 |
+
+As rodadas não mudam, e isso serve de verificação: a rede altera o tempo, não o
+ponto de convergência. Com os tamanhos declarados a programação do dia seguinte
+cabe nas horas disponíveis. Com o conteúdo real das mensagens ela não cabe, e
+gasta 6,1 dias para programar um dia. Os 100 e os 1000 a 1500 bytes do
+`market_agent.py` original não subestimam apenas o tráfego, eles escondem uma
+inviabilidade. O que pesa é o CFP carregar o preço sombra de 25 nós por 96
+intervalos a cada rodada; enviar só o que mudou, ou só a parte do nó
+destinatário, é a extensão natural.
+
+**Três defeitos encontrados no caminho, todos reais.**
+
+O primeiro derrubou a corrida duas vezes antes de ser identificado: o socket ZMQ
+do tipo REQ alterna envio e recepção por máquina de estados e não é seguro para
+uso concorrente, e o `SolverProtocol` responde de dentro de um `defer_to_thread`.
+Com duas threads no mesmo socket ele para com `Operation cannot be accomplished in
+current state` e o reactor espera para sempre. É a mesma classe do problema do
+`py_dss_interface` na Fase 4, e a correção é a mesma: serializar.
+
+O segundo: o relógio do OMNeT++ acumula o atraso de todas as mensagens e nunca
+zera. No `simtime-scale` padrão, de picossegundos, o `simtime_t` de 64 bits estoura
+em 9,2e6 s, ou 106 dias, e a simulação morria no meio da negociação com mensagens
+reais. Passou para nanossegundos, com teto de 9,2e9 s.
+
+O terceiro: o `close()` do cliente mandava `stop` ao servidor, que encerrava a
+simulação OMNeT++. Sendo o servidor compartilhado, uma corrida derrubava a
+seguinte. Quem controla o ciclo de vida do container é o compose.

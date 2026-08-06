@@ -36,3 +36,7 @@ simulators/market-opentes/data/*.npz
 simulators/market-opentes/data/*.png
 simulators/market-opentes/data/history_*.json
 simulators/market-opentes/data/operation_log.json
+
+# Levantamento de enlaces que o TischServer grava no arranque, dentro do
+# volume montado. E saida de execucao, nao fonte.
+simulators/comm-opentes/tisch_links.csv

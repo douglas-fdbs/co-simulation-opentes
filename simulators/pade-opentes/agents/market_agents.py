@@ -1270,17 +1270,27 @@ def build_agents():
     return case, agents
 
 
-def _install_network(agents):
+def _install_network(agents, case=None):
     """Camada de rede opcional entre os agentes (Fase 5)."""
     import network_link
     backend = os.environ.get("NET_BACKEND", "ideal")
     if backend == "ideal" and not os.environ.get("NET_TRACE"):
         return None
-    return network_link.install(agents, backend, os.environ.get("NET_TRACE"),
-                                float(os.environ.get("NET_TIME_SCALE", "1.0")))
+    # O 6TiSCH precisa saber onde cada agente esta: o PER e funcao da distancia.
+    node_map = network_link.node_map_from_case(case) if case is not None else None
+    link = network_link.install(agents, backend, os.environ.get("NET_TRACE"),
+                                float(os.environ.get("NET_TIME_SCALE", "1.0")),
+                                node_map=node_map)
+    if backend == "omnet":
+        info = link.backend.info()
+        print(f"[rede] 6TiSCH: {info['nodes']} nos, {info['links']} enlaces, "
+              f"PER medio {info['mean_link_per']:.4f}, "
+              f"{info['mean_hops']:.2f} saltos em media, "
+              f"{info['unreachable_pairs']} pares sem rota", flush=True)
+    return link
 
 
-def start_market_loop(agents):
+def start_market_loop(agents, case=None):
     """`start_loop` do PADE, mais o preenchimento do diretorio de agentes.
 
     O `Agent._send` so entrega a mensagem se o destinatario estiver em
@@ -1309,7 +1319,7 @@ def start_market_loop(agents):
     print(f"[market-mas] pronto: {len(agents)} agentes ouvindo a partir da porta "
           f"{BASE_PORT}", flush=True)
 
-    link = _install_network(agents)
+    link = _install_network(agents, case)
     if link is not None:
         reactor.addSystemEventTrigger(
             "before", "shutdown",
@@ -1326,4 +1336,4 @@ if __name__ == "__main__":
     ams = {"name": HOST, "port": AMS_PORT}
     for agent in agents:
         agent.update_ams(ams)
-    start_market_loop(agents)
+    start_market_loop(agents, case)

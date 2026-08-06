@@ -20,11 +20,12 @@ BACKENDS
            sorteia a perda, e o atraso e propagacao + transmissao (tamanho da
            mensagem sobre a banda) + jitter exponencial. Permite rodar o
            experimento de perda sem depender do OMNeT++.
-`omnet`    cliente ZMQ para o container `comm`. O lado servidor precisa de um
-           segundo ponto de entrada no MosaikBridge, que aceite um lote de
-           mensagens fora do passo do Mosaik e devolva atraso e descarte por
-           mensagem; ate isso existir, este backend levanta NotImplementedError
-           com a explicacao, em vez de fingir que funcionou.
+`omnet`    cliente ZMQ do servidor de rotas 6TiSCH do container `comm-tisch`
+           (`comm-opentes/Tisch.cc`, configuracao `-c tisch`). E a rede LPWA da
+           tese: PER por distancia pelo modelo de Pister-Hack, matriz de
+           adjacencia com limiar de PER 0,5, roteamento multi-salto e atraso
+           vindo do slotframe do TSCH. Cada envio vira uma consulta com origem,
+           destino e tamanho, e a resposta traz atraso e descarte daquele par.
 
 TEMPO
 -----
@@ -34,13 +35,22 @@ acontece DENTRO de um passo do Mosaik, com o relogio da co-simulacao parado.
 por mensagem, o que faria cada rodada levar minutos de relogio real. Com
 `time_scale = 0.01` o padrao temporal e preservado e o experimento fica viavel.
 O valor NAO simulado (o atraso nominal) e o que vai para a telemetria.
+
+IDENTIDADE DOS AGENTES
+----------------------
+O canal `lossy` so precisa do tamanho da mensagem. O 6TiSCH precisa saber QUEM
+fala com QUEM, porque o PER depende da distancia entre os dois radios. O `route`
+passa origem e destino em todos os backends, e o `node_map` traduz o nome local
+do agente para o nome da posicao no Apendice B da tese.
 """
 
 import csv
 import os
 import random
+import threading
 import time
 
+from pade.acl.messages import ACLMessage
 from twisted.internet import reactor
 
 # Parametros do canal, com os mesmos defaults do comm-opentes/omnetpp.ini.
@@ -51,13 +61,22 @@ PROPAGATION_S = float(os.environ.get("NET_PROPAGATION", "0.010"))
 TIME_SCALE = float(os.environ.get("NET_TIME_SCALE", "1.0"))
 SEED = int(os.environ.get("NET_SEED", "0"))
 
+# Tamanho da mensagem informado a rede. `real` usa o conteudo serializado, que e
+# o que de fato trafega. `thesis` reproduz os valores declarados no
+# `market_agent.py` original (100 bytes para o CFP, uniforme entre 1000 e 1500
+# para a proposta), que sao arbitrarios e nao tem relacao com o conteudo. A
+# opcao existe para tornar a diferenca mensuravel, nao para escolher a mentira.
+MESSAGE_SIZE = os.environ.get("NET_MESSAGE_SIZE", "real")
+THESIS_CFP_BYTES = 100
+THESIS_PROPOSE_RANGE = (1000, 1500)
+
 
 class IdealBackend:
     """Canal perfeito: nada se perde, nada atrasa."""
 
     name = "ideal"
 
-    def transmit(self, size_bytes):
+    def transmit(self, size_bytes, sender=None, receiver=None):
         return 0.0, False
 
 
@@ -74,7 +93,7 @@ class LossyBackend:
         self.propagation = propagation
         self.rng = random.Random(seed)
 
-    def transmit(self, size_bytes):
+    def transmit(self, size_bytes, sender=None, receiver=None):
         if self.rng.random() < self.drop_probability:
             return 0.0, True
         transmission = (size_bytes * 8.0) / self.bandwidth_bps
@@ -83,21 +102,81 @@ class LossyBackend:
 
 
 class OmnetBackend:
-    """Cliente do container `comm`; o lado servidor ainda nao existe."""
+    """Cliente do servidor de rotas 6TiSCH do container `comm-tisch`.
+
+    Uma consulta por envio, sincrona. O custo e de dezenas de microssegundos por
+    mensagem em ZMQ local, desprezivel perto do que a propria rede simulada
+    cobra, e mantem a ordem dos eventos: quem pergunta primeiro e atendido
+    primeiro, que e o que o servidor OMNeT++ supoe.
+
+    O acesso e serializado por trava. Um socket REQ tem maquina de estados
+    propria, alterna send e recv e NAO e seguro para uso concorrente; o
+    `SolverProtocol` responde de dentro de um `defer_to_thread`, entao ha mais de
+    uma thread enviando. Sem a trava o socket para com "Operation cannot be
+    accomplished in current state" no meio da negociacao.
+    """
 
     name = "omnet"
 
-    def __init__(self, host=None, port=None):
-        self.host = host or os.environ.get("OMNET_HOST", "comm")
-        self.port = int(port or os.environ.get("OMNET_NET_PORT", "5556"))
+    def __init__(self, host=None, port=None, node_map=None, timeout_ms=120000):
+        import zmq
 
-    def transmit(self, size_bytes):
-        raise NotImplementedError(
-            "O backend 'omnet' precisa de um segundo ponto de entrada no "
-            "MosaikBridge (porta {}), que aceite um lote de mensagens fora do "
-            "passo do Mosaik e devolva atraso e descarte por mensagem. "
-            "Enquanto isso nao existir, use NET_BACKEND=lossy, que reproduz o "
-            "mesmo modelo fenomenologico do NetworkNode.cc em Python.".format(self.port))
+        self.host = host or os.environ.get("OMNET_HOST", "comm-tisch")
+        self.port = int(port or os.environ.get("OMNET_NET_PORT", "5556"))
+        self.node_map = node_map or {}
+        self.unmapped = set()
+        self.timeout_ms = timeout_ms
+        self._zmq = zmq
+        self._lock = threading.Lock()
+        self._ctx = zmq.Context.instance()
+        self._sock = None
+        self._open()
+        self.hops = []
+
+    def _open(self):
+        self._sock = self._ctx.socket(self._zmq.REQ)
+        self._sock.setsockopt(self._zmq.RCVTIMEO, self.timeout_ms)
+        self._sock.setsockopt(self._zmq.LINGER, 0)
+        self._sock.connect(f"tcp://{self.host}:{self.port}")
+
+    def _ask(self, payload):
+        with self._lock:
+            try:
+                self._sock.send_json(payload)
+                return self._sock.recv_json()
+            except self._zmq.ZMQError:
+                # Um REQ que perdeu o sincronismo nao volta sozinho: so refazendo
+                # o socket. Melhor cair aqui, com a causa a vista, do que seguir
+                # com uma rede que nao responde.
+                self._sock.close()
+                self._open()
+                raise
+
+    def _name(self, aid_name):
+        if aid_name in self.node_map:
+            return self.node_map[aid_name]
+        # Sem posicao no Apendice B o no nao existe no modelo de radio. O
+        # servidor entrega sem atraso e o registro fica aqui, para nao passar
+        # despercebido.
+        self.unmapped.add(aid_name)
+        return aid_name
+
+    def info(self):
+        return self._ask({"action": "info"})
+
+    def transmit(self, size_bytes, sender=None, receiver=None):
+        reply = self._ask({"action": "route",
+                           "src": self._name(sender),
+                           "dst": self._name(receiver),
+                           "bytes": int(size_bytes)})
+        self.hops.append(int(reply.get("hops", 0)))
+        return float(reply.get("delay", 0.0)), bool(reply.get("dropped", False))
+
+    def close(self):
+        # Fecha so o socket. O `stop` encerraria a simulacao OMNeT++ do outro
+        # lado, e o servidor e compartilhado: quem controla o ciclo de vida dele
+        # e o compose, nao o cliente.
+        self._sock.close()
 
 
 BACKENDS = {"ideal": IdealBackend, "lossy": LossyBackend, "omnet": OmnetBackend}
@@ -109,6 +188,7 @@ class NetworkLink:
     def __init__(self, backend, trace_path=None, time_scale=TIME_SCALE):
         self.backend = backend
         self.time_scale = time_scale
+        self._rng = random.Random(SEED)
         self.sent = 0
         self.dropped = 0
         self.delays = []
@@ -121,6 +201,11 @@ class NetworkLink:
                                    "bytes", "delay_s", "dropped"])
 
     def _size(self, message):
+        if MESSAGE_SIZE == "thesis":
+            # `market_agent.py` do original, linhas 66, 79, 256 e 269.
+            if message.performative == ACLMessage.CFP:
+                return THESIS_CFP_BYTES
+            return self._rng.randint(*THESIS_PROPOSE_RANGE)
         size = getattr(message, "message_length", None)
         if size:
             return int(size)
@@ -131,7 +216,9 @@ class NetworkLink:
         """Chamado no lugar do `Agent._send`."""
         for receiver in receivers:
             size = self._size(message)
-            delay, dropped = self.backend.transmit(size)
+            src = getattr(message.sender, "localname", None)
+            dst = getattr(receiver, "localname", None)
+            delay, dropped = self.backend.transmit(size, src, dst)
             self.sent += 1
             if self._writer:
                 self._writer.writerow([
@@ -152,7 +239,7 @@ class NetworkLink:
 
     def summary(self):
         delivered = self.sent - self.dropped
-        return {
+        out = {
             "backend": self.backend.name,
             "sent": self.sent,
             "delivered": delivered,
@@ -161,13 +248,37 @@ class NetworkLink:
             "delay_mean_s": sum(self.delays) / len(self.delays) if self.delays else 0.0,
             "delay_max_s": max(self.delays) if self.delays else 0.0,
         }
+        hops = getattr(self.backend, "hops", None)
+        if hops:
+            out["hops_mean"] = sum(hops) / len(hops)
+            out["hops_max"] = max(hops)
+        return out
 
     def close(self):
         if self._trace:
             self._trace.close()
+        if hasattr(self.backend, "close"):
+            self.backend.close()
 
 
-def install(agents, backend_name=None, trace_path=None, time_scale=TIME_SCALE):
+def node_map_from_case(case):
+    """Nome local do agente para nome da posicao no Apendice B da tese.
+
+    O AM e o AD ficam ambos em (0,0) no apendice. O agente de solucao nao existe
+    na tese: e um servico de calculo do proprio AM, entao divide a posicao dele e
+    nao gasta radio.
+    """
+    mapping = {"market": "Market", "dso": "DSO", "solver": "Market"}
+    for c in case.concentrators:
+        # O concentrador fica no transformador, ou seja, no no de media tensao.
+        mapping[f"concentrator_{c.name}"] = str(c.mv_node)
+    for node in case.lv_nodes:
+        mapping[f"prosumer{node}"] = str(node)
+    return mapping
+
+
+def install(agents, backend_name=None, trace_path=None, time_scale=TIME_SCALE,
+            node_map=None):
     """Instala a camada de rede nos agentes dados.
 
     Substitui `agent._send` por uma versao que consulta o backend. Nao toca no
@@ -177,7 +288,8 @@ def install(agents, backend_name=None, trace_path=None, time_scale=TIME_SCALE):
     backend_name = backend_name or os.environ.get("NET_BACKEND", "ideal")
     if backend_name not in BACKENDS:
         raise ValueError(f"backend de rede desconhecido: {backend_name}")
-    link = NetworkLink(BACKENDS[backend_name](), trace_path, time_scale)
+    kwargs = {"node_map": node_map} if backend_name == "omnet" else {}
+    link = NetworkLink(BACKENDS[backend_name](**kwargs), trace_path, time_scale)
 
     for agent in agents:
         original = agent._send
@@ -187,6 +299,6 @@ def install(agents, backend_name=None, trace_path=None, time_scale=TIME_SCALE):
 
         agent._send = routed
 
-    print(f"[rede] backend={backend_name} time_scale={time_scale}"
+    print(f"[rede] backend={backend_name} tamanho={MESSAGE_SIZE} time_scale={time_scale}"
           + (f" trace={trace_path}" if trace_path else ""), flush=True)
     return link

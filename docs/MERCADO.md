@@ -157,6 +157,41 @@ Dois problemas que só aparecem quando a entrega deixa de ser instantânea:
    nunca responde: entra com programação nula, isto é, perde a remuneração pelo
    ajuste e a rede perde o recurso dele.
 
+## 5.0 A rede LPWA 6TiSCH da tese
+
+A subseção 6.1.5 especifica a rede com precisão suficiente para ser reproduzida:
+IEEE 802.15.4g modo 1 na banda ISM dos EUA, 50 kbps, 16 canais, TSCH com salto de
+canal, slotframe de 101 timeslots executado em 4,04 s, quadro máximo de 127 bytes.
+O RSSI vem do modelo de Friis menos uma uniforme de 0 a 40 dB (Pister-Hack, LE et
+al. 2009, que é a abordagem do Simulador 6TiSCH de MUNICIO et al. 2019), a
+conversão para PER é a Tabela 7 da tese, de Prando et al. (2019), com nível de
+sensibilidade de −106,37 dBm, e existe enlace entre dois agentes sempre que o PER
+fica abaixo de 0,5. As coordenadas dos 77 agentes são as do Apêndice B.
+
+Implementação: `comm-opentes/Tisch.cc`, configuração `-c tisch` do `omnetpp.ini`,
+coordenadas em `comm-opentes/nodes_xy.csv`, figura em
+`market_opentes/plot_tisch.py`.
+
+**O que muda em relação à tese.** Ela roda o Simulador 6TiSCH fora do laço,
+extrai PER e atraso e alimenta o ns-3 com esses números. Aqui o caminho é
+percorrido salto a salto em tempo de evento do OMNeT++, então o atraso sai da
+própria simulação. O roteamento é Dijkstra sobre ETX = 1/(1−PER), que minimiza o
+número esperado de transmissões, e não o número de saltos: minimizar saltos
+escolheria enlaces longos e ruins.
+
+**Topologia obtida:** 1.466 enlaces viáveis entre 2.925 pares, PER médio de
+0,0291 nos viáveis, 1,50 salto em média e nenhum par sem rota. A dispersão
+vertical da figura é o próprio Pister-Hack: a 1 km existem enlaces com PER baixo,
+porque o desvio sorteado daquele par calhou de ser pequeno. É o comportamento que
+a tese descreve para a Figura 42.
+
+**Validação contra a tese.** Com os tamanhos de mensagem que ela declara, a
+negociação sobre esta rede converge em 28 rodadas com 1 mensagem perdida em
+2.301, atraso mediano de 0,0 s e máximo de 96,4 s. A tese reporta tempos de
+recepção de 10 a 90 s para mensagens de 100 a 1500 bytes. Os números saem dos
+parâmetros dela, sem ajuste: 100 bytes cabem em um quadro e chegam em cerca de
+4 s, 1250 bytes ocupam 10 quadros e chegam em cerca de 77 s.
+
 ## 5.1 O tamanho das mensagens no modelo de rede original
 
 O `market-simulation` informa ao simulador de rede um tamanho de mensagem
@@ -171,6 +206,36 @@ Consequência: a análise de comunicação da tese, que reporta mensagens de 100
 tráfego em mais de uma ordem de grandeza. A implementação nova usa o tamanho
 serializado real (`_set_content` anota `message.message_length`), então os tempos
 de entrega medidos aqui e os da tese **não são diretamente comparáveis**.
+
+Com a rede 6TiSCH da seção 5.0 no laço, a diferença deixa de ser retórica. A
+mesma negociação, rodada duas vezes sobre a mesma rede, mudando apenas o tamanho
+informado (`NET_MESSAGE_SIZE=thesis` contra `real`):
+
+| | tamanhos da tese | tamanhos reais |
+|---|---:|---:|
+| tráfego total | 2,62 MB | 82,01 MB |
+| atraso p90 por mensagem | 77,2 s | 3.216,4 s |
+| atraso máximo | 96,4 s | 6.574,9 s |
+| tempo de rede da negociação | 3,7 h | 6,1 dias |
+| rodadas até convergir | 28 | 28 |
+| mensagens perdidas | 1 em 2.301 | 1 em 2.305 |
+
+O tempo de rede é o caminho crítico: as mensagens de uma rodada viajam em
+paralelo, então a rodada custa o maior atraso dela, e as rodadas é que são
+sequenciais.
+
+Três leituras. Primeira, o número de rodadas não muda: a rede altera o tempo, não
+o ponto de convergência, o que é o esperado e serve de verificação. Segunda, com
+os tamanhos declarados a programação do dia seguinte cabe no tempo disponível,
+que é de horas, e a tese se sustenta nos próprios termos. Terceira, com o
+conteúdo real das mensagens ela não cabe: 6,1 dias para programar um dia. Os 100
+e os 1000 a 1500 bytes não subestimam apenas o tráfego, eles escondem uma
+inviabilidade.
+
+Isso não é defeito da formulação de mercado, e sim do que ela precisa transmitir.
+O CFP carrega o preço sombra de 25 nós por 96 intervalos a cada rodada. Reduzir
+esse vetor, enviando só o que mudou ou só a parte do nó destinatário, é a
+extensão natural e fica registrada como tal.
 
 ## 5.2 Os dispositivos do prosumidor que não entram na demanda
 
@@ -345,9 +410,17 @@ perdida agora tem consequência, e o timeout de despacho existe por isso.
   Compare sempre pelo resíduo primal, que é reportado ao lado.
 - **O passo constante não converge ao ótimo**, e sim a uma vizinhança cujo raio
   cresce com α. Acima de α = 0,6 nesta rede o raio ultrapassa a tolerância.
-- **O backend `omnet` da camada de rede ainda não está ligado**: falta um segundo
-  ponto de entrada no `MosaikBridge`. O backend `lossy` reproduz o mesmo modelo
-  de canal do `NetworkNode.cc` em Python.
+- **O 6TiSCH avança o relógio de simulação e nunca o zera.** Cada consulta de
+  rota empurra o relógio do OMNeT++ pelo atraso da própria mensagem, então uma
+  negociação inteira soma milhões de segundos simulados. Com o `simtime-scale`
+  padrão, de picossegundos, o `simtime_t` de 64 bits estoura em 9,2e6 s, ou 106
+  dias, e a simulação morre no meio. O `omnetpp.ini` usa nanossegundos, que
+  levam o teto a 9,2e9 s.
+- **O cliente do 6TiSCH serializa o acesso por trava.** O socket ZMQ do tipo REQ
+  alterna envio e recepção por máquina de estados e não é seguro para uso
+  concorrente, e o `SolverProtocol` responde de dentro de um `defer_to_thread`.
+  Sem a trava o socket para com `Operation cannot be accomplished in current
+  state` e a negociação fica esperando para sempre.
 - **A rede é o caso de regressão, não o caso principal.** O `force.json` é um
   grafo sintético do trabalho original. O IEEE European LV Test Feeder, decidido
   como caso principal citável, ainda não foi montado.
