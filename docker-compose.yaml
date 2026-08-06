@@ -204,6 +204,13 @@ services:
       - MARKET_EPS=${MARKET_EPS:-1e-3}
       - MARKET_SCENARIOS=${MARKET_SCENARIOS:-1}
       - MARKET_NEGOTIATE=${MARKET_NEGOTIATE:-1}
+      - MARKET_OPERATION=${MARKET_OPERATION:-1}
+      - MARKET_REALIZED_DAY=${MARKET_REALIZED_DAY:-9}
+      - MARKET_REALIZED=${MARKET_REALIZED:-1}
+      # Recuo da restricao de tensao. A restricao e imposta sobre o modelo
+      # linearizado; o fluxo nao linear cai um pouco abaixo do ponto planejado, e
+      # o recuo cobre esse residuo. Medido em 1,5e-3 pu na MVLV75.
+      - MARKET_V_BACKOFF=${MARKET_V_BACKOFF:-2e-3}
       # O CPLEX vem do host por volume: licenca academica e pessoal, nao entra
       # na imagem nem no repositorio. Ver market-opentes/README.md.
       - MARKET_SOLVER=${MARKET_SOLVER:-cplex}

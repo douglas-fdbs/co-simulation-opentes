@@ -26,7 +26,8 @@ RUN pip install --no-cache-dir \
     ipython==8.26.0 \
     numpy>=2.0 \
     pandas>=2.0 \
-    pyomo>=6.9
+    pyomo>=6.9 \
+    py-dss-interface>=2.3.0
 
 # O CPLEX NAO entra na imagem: a licenca academica e pessoal e este repositorio e
 # publico. Ele e montado do host em tempo de execucao (ver docker-compose.yaml e

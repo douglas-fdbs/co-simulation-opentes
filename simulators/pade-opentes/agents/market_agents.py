@@ -46,6 +46,7 @@ passa a ser publicada como potencia de cada no a cada passo de 15 min.
 """
 
 import json
+import math
 import os
 import sys
 
@@ -67,6 +68,7 @@ from market_opentes.config import PERIODS, load_case          # noqa: E402
 from market_opentes.dual import load_profiles, load_sensitivity  # noqa: E402
 from market_opentes.optimization import (solve_concentrator, solve_dso,  # noqa: E402
                                          solve_prosumer)
+from market_opentes.operation import realized_profiles, voltage_at  # noqa: E402
 from market_opentes.scenarios import build_scenarios          # noqa: E402
 
 # Host dos AID: e o endereco que os agentes usam para se CONECTAR entre si.
@@ -90,6 +92,26 @@ MAX_RETRIES = int(os.environ.get("MARKET_MAX_RETRIES", "3"))
 # 0 = linha de base: publica a programacao PROPOSTA pelos prosumidores, sem
 # negociacao, para medir o que a rede sofreria sem o mecanismo.
 NEGOTIATE = os.environ.get("MARKET_NEGOTIATE", "1") == "1"
+# Fase de operacao: a cada passo de 15 min o DSO confere o desvio da previsao e,
+# se houver violacao, corrige. Dia realizado = outro dia do reservatorio de
+# cenarios, para que exista desvio.
+OPERATION = os.environ.get("MARKET_OPERATION", "1") == "1"
+REALIZED_DAY = int(os.environ.get("MARKET_REALIZED_DAY", "9"))
+# Circuito para o fluxo de potencia da fase de operacao. O agente DSO precisa do
+# ponto de operacao REALIZADO, e nao de uma extrapolacao linear do ponto do dia
+# seguinte: medido, a extrapolacao erra ate 7,2e-3 pu, sete vezes a margem de
+# seguranca. A tese resolve o fluxo de carga na operacao
+# (`analyse_auction_grid_restrictions` chama `run_powerflow_in_pandapower`), e
+# aqui e o mesmo: o solver abre o circuito e resolve.
+MARKET_CIRCUIT = os.environ.get("MARKET_CIRCUIT",
+                                "/grid-data/MVLV75/Master.dss")
+# Qual demanda a REDE ve. E independente de a fase de operacao estar ligada:
+# a demanda realizada e a mesma realidade fisica em todos os cenarios
+# comparados, e o que muda entre eles e se os agentes reagem a ela. Amarrar as
+# duas coisas faria a linha de base rodar sobre uma demanda diferente da do caso
+# negociado, e a comparacao deixaria de isolar o efeito do mecanismo.
+USE_REALIZED = os.environ.get("MARKET_REALIZED", "1") == "1"
+OP_MAX_ROUNDS = int(os.environ.get("MARKET_OP_MAX_ROUNDS", "30"))
 
 AGENTS = {}          # localname -> instancia, para o simulador Mosaik alcancar
 
@@ -129,6 +151,11 @@ def _set_content(message, payload):
     return message
 
 
+def _violations(v):
+    from market_opentes.config import V_MAX, V_MIN, V_TOL
+    return int((v < V_MIN - V_TOL).sum() + (v > V_MAX + V_TOL).sum())
+
+
 def _reply(message, performative, payload):
     answer = message.create_reply()
     answer.set_performative(performative)
@@ -161,7 +188,68 @@ class SolverAgent(Agent):
         self.case = case
         self.profiles, self.price = profiles, price
         self.v0, self.s = sensitivity
+        self.realized = realized_profiles(REALIZED_DAY) if OPERATION else None
+        self.v0_real = None
+        if OPERATION:
+            self.v0_real = self._solve_operation_points()
+            display_message(self.aid.localname,
+                            f"{len(self.v0_real)} pontos de operacao resolvidos "
+                            "no fluxo de potencia")
         self.behaviours.append(SolverProtocol(self))
+
+    def _solve_operation_points(self):
+        """Resolve o fluxo de potencia nos 96 intervalos da demanda REALIZADA.
+
+        Feito UMA vez, no arranque e na thread principal, por dois motivos.
+        Primeiro, o OpenDSS via py_dss_interface NAO e thread-safe: chama-lo de
+        dentro do `defer_to_thread` do solver derruba o processo com
+        `std::bad_alloc`. Segundo, o V0 depende so da demanda, nao das variaveis
+        de decisao, entao nao ha o que recalcular a cada rodada. O custo e de
+        cerca de um segundo para o dia inteiro.
+
+        Cuidado: o py_dss_interface troca o diretorio de trabalho do processo ao
+        instanciar e ao compilar. Sem restaurar, o logger do PADE tenta criar
+        `logs/` dentro do circuito e quebra se o volume for somente-leitura.
+        """
+        import py_dss_interface
+
+        cwd = os.getcwd()
+        try:
+            dss = py_dss_interface.DSS()
+            dss.text(f'Compile "{MARKET_CIRCUIT}"')
+            tan_phi = math.tan(math.acos(0.9))
+            pontos = []
+            for t in range(PERIODS):
+                for node in self.case.lv_nodes:
+                    if node in self.realized:
+                        kw = float(self.realized[node][t])
+                        dss.text(f"Edit Load.Load_{node} kW={kw} "
+                                 f"kvar={kw * tan_phi}")
+                dss.text("Solve")
+                v = []
+                for node in self.case.all_nodes:
+                    dss.circuit.set_active_bus(f"n{node}")
+                    mags = list(dss.bus.vmag_angle_pu[0::2])
+                    v.append(sum(mags) / len(mags))
+                pontos.append(np.array(v))
+        finally:
+            os.chdir(cwd)
+        return pontos
+
+    def _operation_point(self, t):
+        """Tensao base do intervalo, no ponto de operacao REALIZADO.
+
+        O desvio nao e variavel de decisao: e deslocamento do ponto de operacao.
+        Ele poderia entrar por extrapolacao linear (`shifted_v0`), mas medido
+        isso erra ate 7,2e-3 pu contra o fluxo de potencia, sete vezes a margem
+        de seguranca do modelo, e os agentes passam a corrigir uma tensao que
+        nao e a da rede. Por isso o fluxo e RESOLVIDO aqui.
+        """
+        deviation = {n: float(self.realized[n][t] - self.profiles[n][t])
+                     for n in self.profiles if n in self.realized}
+        base_kw = {n: np.array([float(self.realized[n][t])])
+                   for n in self.case.lv_nodes if n in self.realized}
+        return self.v0_real[t], base_kw, float(sum(deviation.values()))
 
     def on_start(self):
         super().on_start()
@@ -202,7 +290,57 @@ class SolverAgent(Agent):
             return {"p": {str(n): p[n].tolist() for n in pros},
                     "q": {str(n): q[n].tolist() for n in net}}
 
+        if kind in ("operation_level1", "operation_dso", "operation_concentrator"):
+            return self._dispatch_operation(kind, request)
+
         raise ValueError(f"pedido desconhecido ao solver: {kind}")
+
+    def _dispatch_operation(self, kind, request):
+        t = int(request["t"])
+        pros = self.case.prosumer_storage_nodes
+        net = self.case.network_storage_nodes
+        v0_t, base_kw, desvio = self._operation_point(t)
+
+        if kind == "operation_concentrator":
+            nodes = request["nodes"]
+            out = solve_concentrator(
+                nodes,
+                {n: np.array(request["p_init"][str(n)]) for n in nodes},
+                {n: np.array(request["lam"][str(n)]) for n in nodes},
+                self.case.prosumer_storage, periods=1)
+            return {"schedule": {str(n): out[n].tolist() for n in nodes}}
+
+        p_t = {n: np.array(request["p_init"][str(n)]) for n in pros}
+        q_t = {n: np.array(request["q_init"][str(n)]) for n in net}
+        lam_t = {n: np.array(request["lam"][str(n)]) for n in pros}
+
+        if kind == "operation_level1":
+            antes = voltage_at(self.case, v0_t, self.s[t], p_t, q_t)
+            viol_antes = _violations(antes)
+            if not viol_antes:
+                return {"t": t, "deviation": desvio, "violations_before": 0,
+                        "violations_after": 0, "level": "-",
+                        "p": {str(n): v.tolist() for n, v in p_t.items()},
+                        "q": {str(n): v.tolist() for n, v in q_t.items()}}
+            try:
+                p, q = solve_dso(self.case, base_kw, p_t, q_t, lam_t,
+                                 v0_t[None, :], self.s[t:t + 1], periods=1,
+                                 fix_prosumer=True)
+                depois = voltage_at(self.case, v0_t, self.s[t], p, q)
+            except RuntimeError:
+                p, q, depois = p_t, q_t, antes
+            return {"t": t, "deviation": desvio, "violations_before": viol_antes,
+                    "violations_after": _violations(depois), "level": "rede",
+                    "p": {str(n): np.asarray(v).tolist() for n, v in p.items()},
+                    "q": {str(n): np.asarray(v).tolist() for n, v in q.items()}}
+
+        # operation_dso: o leilao de operacao, sem fixar o prosumidor
+        p, q = solve_dso(self.case, base_kw, p_t, q_t, lam_t,
+                         v0_t[None, :], self.s[t:t + 1], periods=1)
+        depois = voltage_at(self.case, v0_t, self.s[t], p, q)
+        return {"t": t, "violations_after": _violations(depois),
+                "p": {str(n): v.tolist() for n, v in p.items()},
+                "q": {str(n): v.tolist() for n, v in q.items()}}
 
 
 class SolverClient(FipaRequestProtocol):
@@ -400,6 +538,19 @@ class ConcentratorParticipant(FipaContractNetProtocol):
                            for n in self.agent.nodes}}))
             return
 
+        if action == "OPERATE_AUCTION":  # leilao de operacao, um periodo so
+            nodes = self.agent.nodes
+            self.agent.solver.ask(
+                {"kind": "operation_concentrator", "t": request["t"],
+                 "nodes": nodes,
+                 "p_init": {str(n): request["p_init"][str(n)] for n in nodes},
+                 "lam": {str(n): request["lam"][str(n)] for n in nodes}},
+                lambda result: self.agent.send(
+                    _reply(message, ACLMessage.PROPOSE,
+                           {"round": request.get("round"),
+                            "schedule": result["schedule"]})))
+            return
+
         if action == "REOPTIMIZE":       # ciclo 4: reotimiza com o preco sombra
             # O preco sombra chega indexado POR NO. Casar por posicao seria um
             # erro silencioso: cada concentrador cuida de um subconjunto dos nos
@@ -535,17 +686,33 @@ class DSOParticipant(FipaContractNetProtocol):
     def handle_cfp(self, message):
         super().handle_cfp(message)
         request = _parse(message.content)
-        if request.get("action") != "REOPTIMIZE":
+        action = request.get("action")
+
+        if action == "REOPTIMIZE":
+            self.agent.solver.ask(
+                {"kind": "dso",
+                 "p_init": request["p_init"],
+                 "q_init": request["q_init"],
+                 "lam": request["lam"]},
+                lambda result: self.agent.send(
+                    _reply(message, ACLMessage.PROPOSE,
+                           {"round": request.get("round"),
+                            "p": result["p"], "q": result["q"]})))
             return
-        self.agent.solver.ask(
-            {"kind": "dso",
-             "p_init": request["p_init"],
-             "q_init": request["q_init"],
-             "lam": request["lam"]},
-            lambda result: self.agent.send(
-                _reply(message, ACLMessage.PROPOSE,
-                       {"round": request.get("round"),
-                        "p": result["p"], "q": result["q"]})))
+
+        if action in ("OPERATE", "OPERATE_AUCTION"):
+            # OPERATE e o primeiro nivel de interferencia: o DSO tenta corrigir
+            # so com o armazenamento de rede. OPERATE_AUCTION e uma rodada do
+            # leilao de operacao, com o armazenamento do prosumidor tambem.
+            kind = ("operation_level1" if action == "OPERATE"
+                    else "operation_dso")
+            self.agent.solver.ask(
+                {"kind": kind, "t": request["t"],
+                 "p_init": request["p_init"], "q_init": request["q_init"],
+                 "lam": request["lam"]},
+                lambda result: self.agent.send(
+                    _reply(message, ACLMessage.PROPOSE,
+                           dict(result, round=request.get("round")))))
 
 
 class DSOAgent(Agent):
@@ -575,6 +742,17 @@ class DSOAgent(Agent):
 # AM: Agente Mercado, que tambem hospeda a conexao com o Mosaik
 # ---------------------------------------------------------------------------
 
+class OperationInitiator(FipaContractNetProtocol):
+    """Ciclo da fase de operacao: um intervalo, dois niveis."""
+
+    def __init__(self, agent, message):
+        super().__init__(agent=agent, message=message, is_initiator=True)
+
+    def handle_propose(self, message):
+        super().handle_propose(message)
+        self.agent.collect_operation(message)
+
+
 class MarketInitiator(FipaContractNetProtocol):
     """Ciclo 4: uma rodada de negociacao com os AC e o AD."""
 
@@ -597,6 +775,11 @@ class MarketAgent(Agent):
         self.profiles, self.price = profiles, price
         self.v0, self.s = sensitivity
 
+        # A rede ve a demanda REALIZADA, nao a prevista: e o que existe de fato.
+        # A previsao serve para PROGRAMAR; o desvio entre as duas e o que a fase
+        # de operacao corrige. Sem isso o desvio so existiria dentro dos agentes
+        # e o OpenDSS nunca o veria, tornando a fase de operacao inobservavel.
+        self.realized = realized_profiles(REALIZED_DAY) if USE_REALIZED else None
         self.p_init = {}
         self.q_init = {n: np.zeros(PERIODS) for n in case.network_storage_nodes}
         self.lam = {n: np.zeros(PERIODS) for n in case.prosumer_storage_nodes}
@@ -618,6 +801,13 @@ class MarketAgent(Agent):
         self.round_behaviour = None
         self._timeout_call = None
         self._dispatch_timeout = None
+        self.op_behaviour = None
+        self.op_t = 0
+        self.op_round = 0
+        self.op_x = {}
+        self.op_lam = {}
+        self.op_result = None
+        self.operation_log = []
 
     def on_start(self):
         super().on_start()
@@ -801,6 +991,140 @@ class MarketAgent(Agent):
             {n: self.y[n].tolist() for n in self.case.prosumer_storage_nodes},
             {n: self.q[n].tolist() for n in self.case.network_storage_nodes})
 
+    # ---- fase de operacao, a cada 15 min ----------------------------------
+    def start_operation(self, t):
+        """Ciclo de operacao do intervalo t (subsecao 6.1.2, fase de operacao).
+
+        Primeiro nivel: o DSO tenta corrigir o desvio so com o armazenamento de
+        rede. Se nao bastar, o agente de mercado abre o leilao de operacao, que e
+        a mesma decomposicao dual sobre UM periodo.
+        """
+        self.op_t = t
+        self.op_round = 0
+        self.op_lam = {n: np.zeros(1) for n in self.case.prosumer_storage_nodes}
+        self.replied = set()
+        payload = {
+            "action": "OPERATE", "t": t, "round": 0,
+            "lam": {str(n): [0.0] for n in self.case.prosumer_storage_nodes},
+            "p_init": {str(n): [float(self.y[n][t])]
+                       for n in self.case.prosumer_storage_nodes},
+            "q_init": {str(n): [float(self.q[n][t])]
+                       for n in self.case.network_storage_nodes},
+        }
+        self._payload = payload
+        message = ACLMessage(ACLMessage.CFP)
+        message.set_protocol(ACLMessage.FIPA_CONTRACT_NET_PROTOCOL)
+        message.add_receiver(AID(name="dso"))
+        _set_content(message, payload)
+        if self.op_behaviour is None:
+            self.op_behaviour = OperationInitiator(self, message)
+            self.behaviours.append(self.op_behaviour)
+        else:
+            self.op_behaviour.message = message
+        self.op_behaviour.on_start()
+        self._timeout_call = self.call_later(ROUND_TIMEOUT, self._on_op_timeout)
+
+    def _on_op_timeout(self):
+        display_message(self.aid.localname,
+                        f"t={self.op_t}: TIMEOUT na operacao")
+        self.mosaik_sim.release_step()
+
+    def collect_operation(self, message):
+        payload = _parse(message.content)
+        if self._timeout_call is not None and self._timeout_call.active():
+            self._timeout_call.cancel()
+        t = self.op_t
+
+        if self.op_round == 0:
+            # Resposta do primeiro nivel.
+            self.op_result = payload
+            if payload["violations_before"] == 0:
+                self._finish_operation("sem violacao")
+                return
+            if payload["violations_after"] == 0:
+                self._apply_operation(payload)
+                self._finish_operation("resolvido pelo armazenamento de rede")
+                return
+            display_message(self.aid.localname,
+                            f"t={t}: armazenamento de rede nao basta, "
+                            "abrindo o leilao de operacao")
+            self._op_next_round()
+            return
+
+        # Rodada do leilao: junta concentradores e DSO.
+        sender = getattr(message.sender, "localname", "?")
+        self.replied.add(sender)
+        if "schedule" in payload:
+            for node, series in payload["schedule"].items():
+                self.op_x[int(node)] = np.array(series)
+        else:
+            self.op_result = payload
+        if self.replied != self.expected or not self.op_result:
+            return
+
+        pros = self.case.prosumer_storage_nodes
+        y_op = {n: np.array(self.op_result["p"][str(n)]) for n in pros}
+        residual = np.array([self.op_x[n] - y_op[n] for n in pros])
+        for i, n in enumerate(pros):
+            self.op_lam[n] = self.op_lam[n] + ALPHA * residual[i]
+
+        if (np.abs(ALPHA * residual).max() <= EPS
+                or self.op_round >= OP_MAX_ROUNDS
+                or self.op_result["violations_after"] == 0):
+            self._apply_operation(self.op_result)
+            self._finish_operation(f"leilao em {self.op_round} rodadas")
+        else:
+            self._op_next_round()
+
+    def _op_next_round(self):
+        self.op_round += 1
+        self.op_x = {}
+        self.op_result = None
+        self.replied = set()
+        t = self.op_t
+        payload = {
+            "action": "OPERATE_AUCTION", "t": t, "round": self.op_round,
+            "lam": {str(n): self.op_lam[n].tolist()
+                    for n in self.case.prosumer_storage_nodes},
+            "p_init": {str(n): [float(self.y[n][t])]
+                       for n in self.case.prosumer_storage_nodes},
+            "q_init": {str(n): [float(self.q[n][t])]
+                       for n in self.case.network_storage_nodes},
+        }
+        self._payload = payload
+        message = ACLMessage(ACLMessage.CFP)
+        message.set_protocol(ACLMessage.FIPA_CONTRACT_NET_PROTOCOL)
+        for c in self.case.concentrators:
+            message.add_receiver(AID(name=f"concentrator_{c.name}"))
+        message.add_receiver(AID(name="dso"))
+        _set_content(message, payload)
+        self.op_behaviour.message = message
+        self.op_behaviour.on_start()
+        self._timeout_call = self.call_later(ROUND_TIMEOUT, self._on_op_timeout)
+
+    def _apply_operation(self, payload):
+        """Grava a correcao do intervalo na programacao que vai para a rede."""
+        t = self.op_t
+        for node, series in payload["p"].items():
+            self.y[int(node)][t] = float(series[0])
+        for node, series in payload["q"].items():
+            self.q[int(node)][t] = float(series[0])
+
+    def _finish_operation(self, motivo):
+        r = self.op_result or {}
+        self.operation_log.append({
+            "t": self.op_t, "motivo": motivo,
+            "deviation_kw": r.get("deviation", 0.0),
+            "violations_before": r.get("violations_before", 0),
+            "violations_after": r.get("violations_after", 0),
+            "rounds": self.op_round,
+        })
+        if r.get("violations_before"):
+            display_message(self.aid.localname,
+                            f"t={self.op_t}: {r.get('violations_before')} violacoes, "
+                            f"{motivo}, restam {r.get('violations_after', 0)}")
+        self.mosaik_sim.release_step()
+
     def dispatch_done(self):
         if self._dispatch_timeout is not None and self._dispatch_timeout.active():
             self._dispatch_timeout.cancel()
@@ -848,6 +1172,12 @@ class MarketMosaikSim(MosaikCon):
             # ate a rodada fechar; quem o libera e o `release_step`.
             self.agent.call_later(0.1, self.agent.start_negotiation)
             return None
+        if OPERATION:
+            # Fase de operacao: a cada 15 min o DSO confere o desvio realizado.
+            # O passo fica aberto do mesmo jeito.
+            t = min(int(time // self.step_size), PERIODS - 1)
+            self.agent.call_later(0.05, self.agent.start_operation, t)
+            return None
         return time + self.step_size
 
     def release_step(self):
@@ -874,8 +1204,14 @@ class MarketMosaikSim(MosaikCon):
 
 
 def _node_power(self, node, t):
-    """Potencia total do no: demanda liquida mais os armazenamentos acordados."""
-    total = float(self.profiles.get(node, np.zeros(PERIODS))[t])
+    """Potencia total do no: demanda liquida mais os armazenamentos acordados.
+
+    A demanda e a REALIZADA quando ha fase de operacao; a prevista, quando nao
+    ha. Nos dois casos e a mesma grandeza fisica para todos os cenarios
+    comparados, entao a comparacao entre com e sem negociacao continua valida.
+    """
+    fonte = self.realized if self.realized is not None else self.profiles
+    total = float(fonte.get(node, np.zeros(PERIODS))[t])
     if node in self.y:
         total += float(self.y[node][t])
     if node in self.q:
@@ -886,7 +1222,8 @@ def _node_power(self, node, t):
 def _node_reactive(self, node, t):
     # Fator de potencia 0,9 sobre a demanda; o armazenamento nao injeta reativo
     # (hipotese dQ = 0 da Eq. 6.16 da tese).
-    return float(self.profiles.get(node, np.zeros(PERIODS))[t]) * 0.4843
+    fonte = self.realized if self.realized is not None else self.profiles
+    return float(fonte.get(node, np.zeros(PERIODS))[t]) * 0.4843
 
 
 MarketAgent.node_power = _node_power

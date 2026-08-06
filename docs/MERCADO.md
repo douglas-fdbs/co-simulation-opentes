@@ -327,7 +327,16 @@ perdida agora tem consequência, e o timeout de despacho existe por isso.
   `V_BACKOFF = 1e-3` aplicado aos limites dentro do modelo, o fluxo não linear
   fica em 0,97020 pu e nenhuma violação. Isso NÃO existe na tese, que usa a mesma
   restrição linearizada sem recuo; só aparece quando a restrição passa a atuar de
-  fato.
+  fato. Na operação, com o ponto de operação vindo do fluxo de potência, o
+  resíduo medido é maior: 1,5e-3 pu com margem de 1e-3, e 4,5e-4 pu com margem de
+  2e-3, que é o padrão atual (`MARKET_V_BACKOFF`). Aumentar mais troca resíduo
+  por custo de programação com retorno decrescente.
+- **A fase de operação resolve o fluxo de potência uma vez, no arranque.** Os 96
+  pontos de operação dependem só da demanda realizada, não das variáveis de
+  decisão, então não há o que recalcular por rodada. A alternativa, resolver sob
+  demanda dentro do `handle_request` do solver, derruba o processo com
+  `std::bad_alloc`: o `py_dss_interface` não é seguro para uso concorrente e o
+  `handle_request` roda no pool de threads do Twisted.
 - **A hipótese ΔQ = 0 domina o erro da restrição de tensão.** Se o dispositivo
   mantiver fator de potência constante em vez de reativo nulo, o erro é cerca de
   40 vezes o da própria linearização.

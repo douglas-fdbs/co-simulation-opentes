@@ -668,3 +668,76 @@ com a pior tensão indo de 0,9497 para 0,9700 pu.
 As figuras foram refeitas: a de tensão passou a ter dois quadros, mínima e
 máxima, porque com a demanda da tese a restrição que aperta é a de subtensão e um
 gráfico só da máxima escondia o fenômeno inteiro.
+
+## 18. Fases 2 e 3 das pendências: liquidação e despacho
+
+A Fase 2 fechou a parte econômica que a tese descreve e não liquida, e a Fase 3
+levou a programação acordada até os medidores por FIPA-Subscribe. As duas estão
+documentadas em detalhe nas seções 5.3 e 5.4 do `MERCADO.md`, incluindo o achado
+central da Fase 2, que λ não está em unidade monetária na formulação da tese e
+por isso as colunas saem como `_signal` enquanto não houver calibração de `Ck`
+em moeda.
+
+## 19. Fase 4 das pendências: a operação dentro dos agentes
+
+A fase de operação existia como script (`operation.py`) e passou a rodar dentro
+dos agentes, acionada a cada passo de 15 minutos pelo Mosaik. O `MarketMosaikSim`
+adia o passo, o agente de mercado abre a operação do intervalo, o DSO tenta
+resolver só com o armazenamento de rede e, se não bastar, abre rodadas de leilão
+de período único com os concentradores. O resultado entra em `y[n][t]` e `q[n][t]`
+e desce pela cadeia de despacho da Fase 3.
+
+**O erro que a fase corrigiu.** A operação estimava a tensão do intervalo
+extrapolando o ponto de programação com a matriz de sensibilidade
+(`shifted_v0`). Medido contra o fluxo de potência real, o desvio chegava a
+7,2e-3 pu, sete vezes a margem de segurança:
+
+| t | desvio de demanda | V0 extrapolado | V0 real | erro |
+|---:|---:|---:|---:|---:|
+| 48 | 18,7 kW | 0,99476 | 0,99167 | 4,1e-03 |
+| 75 | 31,5 kW | 0,94222 | 0,93792 | 7,2e-03 |
+| 77 | 51,2 kW | 0,94465 | 0,93894 | 5,8e-03 |
+
+A consequência era visível no fim da cadeia: a co-simulação não linear completa
+mostrava 144 pontos abaixo de 0,97 pu mesmo com a operação declarando todos os
+intervalos resolvidos. A tese não tem esse problema porque recalcula o fluxo
+(`analyse_auction_grid_restrictions` chama `run_powerflow_in_pandapower`), então
+a correção foi alinhar-se a ela: o `SolverAgent` resolve o fluxo de potência de
+verdade.
+
+**Por que os 96 pontos são pré-calculados.** A primeira tentativa resolvia o
+fluxo sob demanda, dentro do `handle_request` do solver. O processo morria com
+`std::bad_alloc` e código de saída 139: o `py_dss_interface` não é seguro para
+uso concorrente e o `handle_request` roda no pool de threads do Twisted via
+`defer_to_thread`. Como o V0 depende apenas da demanda realizada, e não das
+variáveis de decisão, não há o que recalcular por rodada. Os 96 pontos passaram a
+ser resolvidos uma vez, no arranque e na thread principal, em cerca de um
+segundo. Some-se a isso o cuidado já conhecido de salvar e restaurar o diretório
+de trabalho, que o `py_dss_interface` troca ao instanciar e ao compilar.
+
+Com o ponto de operação verdadeiro, a operação detecta 22 intervalos com
+violação, contra 17 que a extrapolação enxergava, e resolve todos com o
+armazenamento de rede.
+
+**Resultado no fluxo não linear completo:**
+
+| Caso | Faixa de tensão | Abaixo de 0,97 pu |
+|---|---|---:|
+| Sem negociação | 0,94013 a 1,02861 pu | 442 |
+| Negociado, V0 extrapolado | 0,94013 a 1,02861 pu | 144 |
+| Negociado, V0 do fluxo, margem 1e-3 | 0,96850 a 1,02689 pu | 7 |
+| Negociado, V0 do fluxo, margem 2e-3 | 0,96955 a 1,02718 pu | 4 |
+
+**O que sobra, e por quê.** Os quatro pontos restantes são resíduo da
+linearização, não falha de decisão: a restrição é imposta sobre o modelo linear
+e o fluxo não linear cai um pouco abaixo do ponto planejado. Com margem de 1e-3
+o déficit máximo era 1,5e-3 pu, maior que a própria margem; com 2e-3 caiu para
+4,5e-4 pu, ou 0,045%, abaixo da resolução de qualquer critério regulatório
+prático. A margem passou a 2e-3 no `docker-compose.yaml`, exposta como
+`MARKET_V_BACKOFF`. Aumentá-la mais troca resíduo por custo de programação, e o
+ponto de equilíbrio já foi ultrapassado: de 1e-3 para 2e-3 o ganho foi de três
+pontos.
+
+Os dois intervalos que restam são t=0 e t=92. O primeiro é o passo inicial, em
+que o armazenamento parte do estado de carga inicial e a operação ainda não tem
+histórico para agir.

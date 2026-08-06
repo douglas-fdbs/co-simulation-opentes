@@ -166,15 +166,18 @@ _wait_pade_market() {
 #   $1 = tag (nome do arquivo de saida) | $2 = MARKET_NEGOTIATE (0/1)
 _run_market_pass() {
     local tag="$1" negotiate="$2"
+    local operation="${MARKET_OPERATION:-1}"
+    # A rede ve a demanda realizada nas DUAS passadas; o que muda e se os
+    # agentes reagem a ela.
     _cleanup
     # As MESMAS variaveis nas duas chamadas do compose. Passar MARKET_NEGOTIATE
     # so na segunda faz o compose ver a configuracao do pade-market mudar e
     # RECRIAR o container bem na hora em que o mosaik conecta, o que aparece
     # como "Could not connect to pade-market:5678".
-    RESULT_TAG="$tag" MARKET_NEGOTIATE="$negotiate" \
+    RESULT_TAG="$tag" MARKET_NEGOTIATE="$negotiate" MARKET_OPERATION="$operation" \
         docker compose --profile market up -d opendss elec-collector pade-market
     _wait_pade_market
-    RESULT_TAG="$tag" MARKET_NEGOTIATE="$negotiate" \
+    RESULT_TAG="$tag" MARKET_NEGOTIATE="$negotiate" MARKET_OPERATION="$operation" \
         docker compose --profile market up --abort-on-container-exit \
             --exit-code-from mosaik-market mosaik-market
 }
@@ -233,8 +236,11 @@ cmd_market() {
     fi
     export CPLEX_HOME
     # duas passadas: sem negociacao (linha de base) e com negociacao
-    echo ">> [market] passada 'baseline' (programacao dos prosumidores, sem negociacao)"
-    _run_market_pass baseline 0
+    # A linha de base nao tem mecanismo de mercado nenhum: nem negociacao do dia
+    # seguinte, nem correcao na operacao. A rede ve a mesma demanda realizada nas
+    # duas passadas, entao a comparacao isola o efeito do mecanismo.
+    echo ">> [market] passada 'baseline' (programacao dos prosumidores, sem mecanismo)"
+    MARKET_OPERATION=0 _run_market_pass baseline 0
     echo ">> [market] passada 'negociado' (com a negociacao multiagente)"
     _run_market_pass negociado 1
     RESULT="output/market/  (result_baseline.csv, result_negociado.csv)"
