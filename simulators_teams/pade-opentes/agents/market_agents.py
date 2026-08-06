@@ -805,6 +805,12 @@ def start_market_loop(agents):
     for agent in agents:
         agent.agentInstance.table.update(directory)
 
+    # Sinal de prontidao: so agora as portas estao abertas. Quem espera por este
+    # processo (o run.sh, o Mosaik) deve esperar por ESTA linha, e nao pela que
+    # anuncia a criacao dos agentes, que sai antes do listenTCP.
+    print(f"[market-mas] pronto: {len(agents)} agentes ouvindo a partir da porta "
+          f"{BASE_PORT}", flush=True)
+
     link = _install_network(agents)
     if link is not None:
         reactor.addSystemEventTrigger(

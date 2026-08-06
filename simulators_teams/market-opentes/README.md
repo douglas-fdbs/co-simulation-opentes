@@ -92,7 +92,9 @@ export MARKET_SOLVER=ipopt
 ## Como rodar
 
 ```bash
-# 1. perfis do dia (uma vez)
+# 1. perfis do dia. So e preciso rodar para REGERAR os dados: os CSVs de
+#    entrada ja estao versionados em data/, e este e o unico passo que depende
+#    do repositorio market-simulation (SimBench e Nordpool).
 python -m market_opentes.data_prep --market-simulation ../../../market-simulation
 
 # 2. tensao base e sensibilidade dV/dP do dia (precisa do OpenDSS: container grid)
@@ -102,8 +104,12 @@ docker run --rm -v "$PWD/../grid-opentes/src:/app/src" -v "$PWD:/market" \
   --out /market/data/sensitivity_day.npz
 
 # 3. decomposicao dual
-python -m market_opentes.dual --config ../../../market-simulation/config.json \
+python -m market_opentes.dual --config data/config.json \
   --alpha 0.6 --eps 1e-3 --scenarios 3 --out data/history.json
+
+# 3b. fase de operacao (a cada 15 min, sobre o desvio da previsao)
+python -m market_opentes.operation --config data/config.json \
+  --realized-day 9 --out data/operation_log.json
 
 # 4. figura
 python -m market_opentes.plot_convergence data/history.json -o data/convergencia.png

@@ -64,6 +64,7 @@ profile que o `down` simples não remove) e espera os simuladores ficarem pronto
 
 ```bash
 ./run.sh integrated     # co-simulação completa (o comando do dia a dia)
+./run.sh market         # mercado transativo (exige CPLEX; ver abaixo)
 ./run.sh --help         # lista todos os cenários e experimentos
 ```
 
