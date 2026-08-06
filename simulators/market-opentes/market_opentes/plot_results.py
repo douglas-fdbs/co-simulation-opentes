@@ -13,6 +13,7 @@ legenda sempre que houver duas ou mais series, grade recessiva.
 """
 
 import argparse
+import csv
 import json
 from pathlib import Path
 
@@ -127,6 +128,41 @@ def plot_operation(log_path, out_path):
     print(f"gravado {out_path}")
 
 
+def plot_dlmp(dlmp_csv, out_path):
+    """Adicional de preco por no e por intervalo (a Figura 45 da tese, em 2D).
+
+    A tese usa barras 3D; um mapa de calor mostra o mesmo sem a oclusao que as
+    barras causam. Escala sequencial de UM tom, claro para escuro, porque a
+    grandeza e magnitude e nao categoria.
+    """
+    rows = list(csv.DictReader(open(dlmp_csv)))
+    col = "adder_eur_mwh" if "adder_eur_mwh" in rows[0] else "adder_signal"
+    nodes = sorted({int(r["node"]) for r in rows})
+    periods = sorted({int(r["t"]) for r in rows})
+    grid = np.zeros((len(nodes), len(periods)))
+    idx = {n: i for i, n in enumerate(nodes)}
+    for r in rows:
+        grid[idx[int(r["node"])], int(r["t"])] = float(r[col])
+
+    fig, ax = plt.subplots(figsize=(9, 4.4))
+    im = ax.imshow(grid, aspect="auto", origin="lower", cmap="Blues",
+                   extent=(0, 24, 0, len(nodes)))
+    unidade = "EUR/MWh" if col.endswith("eur_mwh") else "sinal (nao monetario)"
+    cbar = fig.colorbar(im, ax=ax)
+    cbar.set_label(f"adicional sobre o preco spot [{unidade}]", color=MUTED,
+                   fontsize=9)
+    cbar.ax.tick_params(colors=MUTED, labelsize=8)
+    ax.set_yticks(np.arange(len(nodes)) + 0.5)
+    ax.set_yticklabels([str(n) for n in nodes], fontsize=6)
+    _style(ax, "hora do dia", "no com armazenamento de prosumidor",
+           "Preco locacional: adicional descoberto na negociacao")
+    ax.grid(False)
+    ax.set_xticks(range(0, 25, 3))
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=150)
+    print(f"gravado {out_path}")
+
+
 def plot_communication(rows, out_path):
     """Custo da perda de pacotes: rodadas concluidas e retransmissoes."""
     fig, ax = plt.subplots(figsize=(7, 4))
@@ -164,6 +200,9 @@ def main():
     out.mkdir(parents=True, exist_ok=True)
 
     plot_voltage(args.output_dir, out / "tensao_mercado.png")
+    dlmp_csv = out / "dlmp.csv"
+    if dlmp_csv.exists():
+        plot_dlmp(dlmp_csv, out / "dlmp.png")
     plot_operation(args.operation_log, out / "operacao.png")
     # Medido nas corridas da Fase 5 (backend lossy, 3 retransmissoes).
     plot_communication([

@@ -53,6 +53,33 @@ INIT_SOC_FRACTION = 0.2   # soc[0] = 0,2 * max_soc, como no ReferenceModel
 # despeja. Sem esta restricao, os 25 armazenamentos descarregam ao mesmo tempo no
 # intervalo 95 (50 kW agregados) e a tensao sobe a 1,02 pu.
 TERMINAL_SOC = os.environ.get("MARKET_TERMINAL_SOC", "1") == "1"
+# Multa por desviar do programado no mercado de tempo real, em EUR/MWh.
+#
+# A subsecao 6.1.1 da tese descreve esta multa ("a diferenca entre o valor de
+# energia programado e o valor de energia efetivamente gerado ou consumido e
+# submetida a um valor mais elevado como forma de estimulo ao prosumidor para
+# obedecer sua programacao") e a Figura 36 mostra a faixa passivel dela. As
+# Equacoes 6.1 a 6.9 NAO tem esse termo.
+#
+# Sem ele o modelo e neutro ao risco e o mercado de tempo real nao tem limite de
+# quantidade, entao o ambiente bilateral nao cumpre funcao de protecao: medido,
+# fica em 1,5% da energia com um cenario e 1,3% com nove. Com a multa, desviar do
+# programado custa, e contratar antecipadamente passa a valer.
+#
+# Default 0,0 = formulacao da tese.
+DEVIATION_PENALTY = float(os.environ.get("MARKET_DEVIATION_PENALTY", "0.0"))
+# Aversao ao risco (CVaR de Rockafellar-Uryasev). beta = 0 e a formulacao da
+# tese, neutra ao risco.
+#
+# Medido: nem a incerteza sozinha nem a multa por desvio dao funcao ao mercado
+# bilateral (1,5%, 1,3% e 1,4% da energia). O motivo e estrutural: sob
+# NEUTRALIDADE AO RISCO a escolha entre um contrato de preco fixo e um mercado de
+# preco variavel e uma comparacao de esperancas, e a multa por desvio nao muda
+# isso porque comprar mais no bilateral reduz o NIVEL do spot, nao a DISPERSAO
+# dele entre cenarios. Um contrato de preco fixo so ganha papel proprio quando o
+# agente e averso ao risco, que e o que este termo introduz.
+CVAR_BETA = float(os.environ.get("MARKET_CVAR_BETA", "0.0"))
+CVAR_ALPHA = float(os.environ.get("MARKET_CVAR_ALPHA", "0.95"))
 
 
 def _solver():
@@ -86,11 +113,19 @@ def solve_prosumer(scenarios, storage=None, bilateral_price=BILATERAL_PRICE,
         storage: `Storage` do no, ou None se o prosumidor nao tiver armazenamento.
 
     Returns:
-        array com 96 posicoes: potencia liquida do armazenamento em kW
-        (positiva carregando). Sem armazenamento, devolve zeros.
+        dict com tres arrays de 96 posicoes:
+          `storage`   potencia liquida do armazenamento em kW (positiva carregando)
+          `bilateral` energia contratada no mercado bilateral, em kW
+          `spot`      lance no mercado de tempo real, em kW (negativo = venda),
+                      no cenario de maior probabilidade
+        As duas ultimas alimentam o registro de transacoes (settlement.py). Sem
+        armazenamento, o prosumidor ainda contrata: o modelo e resolvido do mesmo
+        jeito, so sem as variaveis de bateria.
     """
     if storage is None:
-        return np.zeros(PERIODS)
+        return {"storage": np.zeros(PERIODS),
+                "bilateral": np.zeros(PERIODS),
+                "spot": np.asarray(scenarios[0][1], dtype=float).clip(min=0.0)}
 
     probs = np.array([s[0] for s in scenarios], dtype=float)
     if not np.isclose(probs.sum(), 1.0):
@@ -111,6 +146,16 @@ def solve_prosumer(scenarios, storage=None, bilateral_price=BILATERAL_PRICE,
 
     # --- segundo estagio: lance no mercado de tempo real, por cenario ---
     m.p_spot = pyo.Var(m.Z, m.T, domain=pyo.Reals)
+    if DEVIATION_PENALTY > 0.0:
+        # Primeiro estagio: o quanto o prosumidor PROGRAMA comprar no spot. O
+        # desvio de cada cenario em relacao a isso e o que paga multa.
+        m.p_spot_plan = pyo.Var(m.T, domain=pyo.Reals)
+        m.dev_pos = pyo.Var(m.Z, m.T, domain=pyo.NonNegativeReals)
+        m.dev_neg = pyo.Var(m.Z, m.T, domain=pyo.NonNegativeReals)
+        m.deviation = pyo.Constraint(
+            m.Z, m.T,
+            rule=lambda m, z, t: m.p_spot[z, t] - m.p_spot_plan[t]
+            == m.dev_pos[z, t] - m.dev_neg[z, t])
 
     # Eq. 6.6 a 6.9: operacao do armazenamento
     m.excl = pyo.Constraint(m.T, rule=lambda m, t: m.b_charge[t] + m.b_discharge[t] <= 1)
@@ -150,18 +195,48 @@ def solve_prosumer(scenarios, storage=None, bilateral_price=BILATERAL_PRICE,
                 m.balance.add(m.p_spot[z, t] >= net)
                 m.spot_rule.add(m.p_spot[z, t] <= 0.0)
 
+    if CVAR_BETA > 0.0:
+        # Custo por cenario, para o CVaR.
+        m.cost_z = pyo.Var(m.Z, domain=pyo.Reals)
+        m.cost_z_def = pyo.Constraint(
+            m.Z,
+            rule=lambda m, z: m.cost_z[z] == (
+                sum(m.p_bilateral[t] * bilateral_price * DT_H for t in m.T)
+                + sum(m.p_spot[z, t] * scenarios[z][2][t] * DT_H for t in m.T)))
+        m.var_cost = pyo.Var(domain=pyo.Reals)          # VaR
+        m.excess = pyo.Var(m.Z, domain=pyo.NonNegativeReals)
+        m.cvar_excess = pyo.Constraint(
+            m.Z, rule=lambda m, z: m.excess[z] >= m.cost_z[z] - m.var_cost)
+
     # Eq. 6.1: custo esperado
     def obj(m):
         bilateral = sum(m.p_bilateral[t] * bilateral_price * DT_H for t in m.T)
         spot = sum(prob * sum(m.p_spot[z, t] * price[t] * DT_H for t in m.T)
                    for z, (prob, _, price) in enumerate(scenarios))
-        return bilateral + spot
+        total = bilateral + spot
+        if DEVIATION_PENALTY > 0.0:
+            total += sum(
+                prob * sum((m.dev_pos[z, t] + m.dev_neg[z, t])
+                           * DEVIATION_PENALTY * DT_H for t in m.T)
+                for z, (prob, _, _) in enumerate(scenarios))
+        if CVAR_BETA > 0.0:
+            cvar = m.var_cost + (1.0 / (1.0 - CVAR_ALPHA)) * sum(
+                prob * m.excess[z] for z, (prob, _, _) in enumerate(scenarios))
+            total = (1.0 - CVAR_BETA) * total + CVAR_BETA * cvar
+        return total
 
     m.obj = pyo.Objective(rule=obj, sense=pyo.minimize)
 
     _solve(m, "prosumidor")
-    return np.array([pyo.value(m.p_charge[t]) - pyo.value(m.p_discharge[t])
-                     for t in range(PERIODS)])
+    # O lance de tempo real e por cenario; para o registro de transacoes usa-se o
+    # de maior probabilidade, que e o que o prosumidor levaria ao mercado.
+    z_ref = int(np.argmax(probs))
+    return {
+        "storage": np.array([pyo.value(m.p_charge[t]) - pyo.value(m.p_discharge[t])
+                             for t in range(PERIODS)]),
+        "bilateral": np.array([pyo.value(m.p_bilateral[t]) for t in range(PERIODS)]),
+        "spot": np.array([pyo.value(m.p_spot[z_ref, t]) for t in range(PERIODS)]),
+    }
 
 
 # ---------------------------------------------------------------------------

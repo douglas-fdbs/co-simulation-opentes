@@ -32,6 +32,7 @@ import numpy as np
 from .config import DATA_DIR, PERIODS, V_MAX, V_MIN, V_TOL, load_case
 from .optimization import solve_concentrator, solve_dso, solve_prosumer
 from .scenarios import build_scenarios
+from .settlement import settle
 
 ALPHA = 5e-4        # constante de atualizacao do subgradiente (codigo original)
 EPS = 1e-4          # precisao desejada em lambda (codigo original)
@@ -112,9 +113,12 @@ def run(config_json, alpha=ALPHA, eps=EPS, max_rounds=MAX_ROUNDS, n_scenarios=1,
     # ---- ciclo 1: cada prosumidor programa seu armazenamento --------------
     t0 = time.time()
     p_init = {}
+    contracts = {}
     for node in case.prosumer_storage_nodes:
         scenarios = _scenarios(node, net_demand[node], price, n_scenarios)
-        p_init[node] = solve_prosumer(scenarios, case.prosumer_storage[node])
+        decision = solve_prosumer(scenarios, case.prosumer_storage[node])
+        p_init[node] = decision["storage"]
+        contracts[node] = decision
     t_pros = time.time() - t0
 
     q_init = {n: np.zeros(PERIODS) for n in case.network_storage_nodes}
@@ -184,8 +188,9 @@ def run(config_json, alpha=ALPHA, eps=EPS, max_rounds=MAX_ROUNDS, n_scenarios=1,
         if verbose:
             print(f"\nNAO convergiu em {max_rounds} rodadas")
 
-    return {"case": case, "p_init": p_init, "x": x, "y": y, "q": q,
-            "lambda": lam, "history": history}
+    return {"case": case, "p_init": p_init, "contracts": contracts,
+            "x": x, "y": y, "q": q, "lambda": lam, "history": history,
+            "price": price}
 
 
 def _scenarios(node, demand, price, n):
@@ -210,6 +215,10 @@ def main():
     ap.add_argument("--step-rule", default="constant",
                     choices=["constant", "diminishing"], dest="step_rule")
     ap.add_argument("--out", default=None, help="grava o historico em JSON")
+    ap.add_argument("--settle-dir", default=None, dest="settle_dir",
+                    help="grava transacoes, DLMP e flexibilidade neste diretorio")
+    ap.add_argument("--ck-eur", type=float, default=None, dest="ck_eur",
+                    help="calibracao de Ck em EUR/(kW^2.h); sem isso o DLMP e sinal")
     args = ap.parse_args()
 
     result = run(args.config, alpha=args.alpha, eps=args.eps,
@@ -219,6 +228,9 @@ def main():
     if args.out:
         Path(args.out).write_text(json.dumps(result["history"], indent=1))
         print(f"historico gravado em {args.out}")
+
+    if args.settle_dir:
+        settle(result, args.settle_dir, args.ck_eur)
 
 
 if __name__ == "__main__":

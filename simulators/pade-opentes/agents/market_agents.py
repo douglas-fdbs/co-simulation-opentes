@@ -173,8 +173,11 @@ class SolverAgent(Agent):
                 node, n_reduced=N_SCENARIOS,
                 deterministic_demand=self.profiles[node],
                 deterministic_price=self.price)
-            schedule = solve_prosumer(scenarios, self.case.prosumer_storage[node])
-            return {"node": node, "schedule": schedule.tolist()}
+            decision = solve_prosumer(scenarios, self.case.prosumer_storage[node])
+            return {"node": node,
+                    "schedule": decision["storage"].tolist(),
+                    "bilateral": decision["bilateral"].tolist(),
+                    "spot": decision["spot"].tolist()}
 
         if kind == "concentrator":
             nodes = request["nodes"]

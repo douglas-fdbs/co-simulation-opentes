@@ -194,6 +194,82 @@ resultado é descartado.
 Implementar os três inertes afastaria o caso da tese em vez de aproximá-lo dela.
 Fica registrado como extensão possível, não como pendência de fidelidade.
 
+## 5.3 A liquidação e o preço locacional
+
+A tese propõe dois ambientes de contratação (subseção 6.1.1): um mercado futuro
+bilateral, de preço fixo, em que o prosumidor só pode comprar, e um mercado spot
+de tempo real, em que pode comprar e vender. O agente de mercado grava as
+transações num `transactions_data.hdf5`.
+
+Duas observações sobre o registro original. **O preço do bilateral não é
+gravado**: `save_transactions_data` é chamado sem `value_um`, então o campo fica
+no default `-1.0`. E **o spot é registrado ao preço spot puro**, sem qualquer
+adicional vindo da negociação.
+
+Sobre o DLMP a tese é explícita (subseção 6.1.4.4): *"Este trabalho não entrará no
+mérito da questão de como tratar os valores encontrados para λ(t,l) como valores
+financeiros reais. Os valores de preços encontrados serão interpretados apenas
+como uma variável de controle"*. A Figura 45 mostra λ como "preço adicional", sem
+unidade monetária e sem aplicação a transação nenhuma.
+
+### λ não está em unidade monetária
+
+Isso não é detalhe de implementação. No ótimo do concentrador, derivando
+`Ck (x − x_init)² + λ x` em relação a `x`:
+
+```
+2 Ck (x − x_init) + λ = 0    =>    λ = 2 Ck (x_init − x)
+```
+
+ou seja, **λ tem unidade de `Ck` vezes potência**. Com o `Ck = 1` adimensional da
+tese, λ é numericamente um desvio de potência, não um preço. Para virar preço, o
+peso da função objetivo precisa ser calibrado em moeda, `Ck` em EUR/(kW²·h), e aí
+
+```
+DLMP(t,l) = preço_spot(t) + λ(t,l) / Δt × 1000     [EUR/MWh]
+```
+
+`market_opentes/settlement.py` expõe essa calibração em `MARKET_CK_EUR`. Sem ela,
+o DLMP é reportado com a conversão aplicada sobre o `Ck = 1`, e deve ser lido como
+**sinal**, na mesma condição em que a tese o lê. O aviso vai no cabeçalho do CSV,
+para que ninguém cite o número como preço sem saber disso.
+
+Saídas: `transactions.csv` (energia e custo por prosumidor nos dois mercados),
+`dlmp.csv` (preço por nó e por intervalo, com o adicional separado do spot) e
+`flexibility.csv` (quanto cada prosumidor deslocou e a que preço), gerados por
+`python -m market_opentes.dual --settle-dir data`. A figura `dlmp.png` é o
+equivalente 2D da Figura 45 da tese.
+
+### O mercado bilateral não cumpre função na formulação da tese
+
+Medido, variando só o que a formulação permite variar:
+
+| Configuração | Bilateral | Spot | Custo total |
+|---|---:|---:|---:|
+| 1 cenário, neutro ao risco | 3,1 kWh (1,5%) | 211,1 kWh | 4,24 EUR |
+| 9 cenários, neutro ao risco | 2,5 kWh (1,3%) | 188,4 kWh | 4,28 EUR |
+| 9 cenários + multa por desvio (20 EUR/MWh) | 2,8 kWh (1,4%) | 195,8 kWh | 4,27 EUR |
+| 9 cenários + aversão ao risco (CVaR, β = 0,5) | **7,8 kWh (3,8%)** | 195,6 kWh | 4,79 EUR |
+
+A tese apresenta os dois ambientes como uma escolha entre segurança e risco
+(subseção 6.1.1: contratar no bilateral "sem maiores riscos financeiros" ou
+"correr um pouco mais de risco" no spot). A formulação não realiza essa escolha:
+as Equações 6.1 a 6.9 minimizam **custo esperado**, sem termo de aversão, e o
+mercado de tempo real não tem limite de quantidade. Sob neutralidade ao risco, a
+decisão entre um preço fixo e um preço variável é uma comparação de esperanças, e
+o bilateral só entra nos intervalos em que o spot esperado passa de 38 EUR/MWh.
+
+A multa por desvio, que o texto da tese descreve mas as equações não têm, **não
+resolve**: comprar mais no bilateral reduz o nível do spot, não a dispersão dele
+entre cenários, então a multa é indiferente à escolha entre os mercados. Isso foi
+medido, não deduzido.
+
+O que dá papel próprio ao contrato de preço fixo é aversão ao risco. Com um termo
+de CVaR, a participação do bilateral quase triplica e o custo sobe 12%, que é o
+prêmio pago pela proteção. As três extensões estão implementadas e desligadas por
+padrão (`MARKET_DEVIATION_PENALTY`, `MARKET_CVAR_BETA`, `MARKET_CVAR_ALPHA`): o
+default reproduz a tese.
+
 ## 6. Limitações conhecidas
 - **A restrição de estado de carga terminal é NOSSA, não da tese.** A Eq. 6.9 não
   a tem, e sem ela o modelo despeja a energia da bateria no último intervalo,

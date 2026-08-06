@@ -15,6 +15,7 @@ rodadas?) do risco de comunicacao, que so aparece quando os agentes entram.
 | `scenarios.py` | amostragem e reducao de cenarios por distancia de Kantorovich (subsecao 6.1.4.1) |
 | `optimization.py` | modelos do prosumidor (Eq. 6.1-6.9), concentrador (6.25-6.26) e DSO (6.27-6.29) |
 | `dual.py` | laco de decomposicao dual e atualizacao do preco sombra (Eq. 6.30) |
+| `settlement.py` | registro de transacoes, preco locacional (DLMP) e valoracao da flexibilidade |
 | `plot_convergence.py` | figura de convergencia (residuo primal e preco sombra) |
 
 O modelo do prosumidor e ESTOCASTICO e parametrizado pelo numero de cenarios:
@@ -111,9 +112,17 @@ python -m market_opentes.dual --config data/config.json \
 python -m market_opentes.operation --config data/config.json \
   --realized-day 9 --out data/operation_log.json
 
-# 4. figura
+# 3c. liquidacao: transacoes, DLMP e flexibilidade
+python -m market_opentes.dual --config data/config.json --settle-dir data
+
+# 4. figuras
+python -m market_opentes.plot_results --output-dir ../../output/market
 python -m market_opentes.plot_convergence data/history.json -o data/convergencia.png
 ```
+
+> **Sobre o DLMP**: com o `Ck = 1` da tese, lambda NAO esta em unidade monetaria,
+> e as colunas de preco saem com o sufixo `_signal` em vez de `_eur_mwh`. Calibre
+> `MARKET_CK_EUR` (em EUR/kW^2.h) para obter preco. Ver docs/MERCADO.md.
 
 ## Resultados medidos na rede MVLV75
 
