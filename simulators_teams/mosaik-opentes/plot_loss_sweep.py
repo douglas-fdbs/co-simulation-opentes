@@ -81,7 +81,7 @@ def _delivered_pct(tag):
 def main() -> int:
     runs = [r for r in RUNS if (OUT / f"result_{r[0]}.csv").exists()]
     if not runs:
-        print(f"[plot] nenhum result_*.csv em {OUT} — rode ./run_loss_sweep.sh")
+        print(f"[plot] nenhum result_*.csv em {OUT} — rode ./run.sh loss-sweep")
         return 1
     data = {tag: _load(tag) for tag, _, _ in runs}
 

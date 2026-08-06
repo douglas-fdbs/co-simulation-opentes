@@ -85,7 +85,7 @@ def main() -> int:
         return 1
     levels = _discover()
     if not levels:
-        print(f"[plot] nenhum result_loss*.csv em {OUT} — rode ./run_loss_multiseed.sh")
+        print(f"[plot] nenhum result_loss*.csv em {OUT} — rode ./run.sh loss-multiseed")
         return 1
 
     base_df = _load("baseline")

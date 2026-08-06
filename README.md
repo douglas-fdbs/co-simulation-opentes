@@ -15,15 +15,59 @@ latência, jitter e perda de pacotes sejam contabilizados.
 | `mosaik` | `simulators_teams/mosaik-opentes` | Orquestrador Mosaik + cenários + collectors |
 | `grid`   | `simulators_teams/grid-opentes`   | Rede elétrica IEEE 13 (OpenDSS via `py-dss-interface`) |
 
-## Cenários disponíveis
+## Instalação
 
-A forma recomendada de executar é pelo script `run_opentes.sh`, que faz a
-limpeza completa do Docker antes/depois (evita o erro `network ... not found`
-causado por containers de profile que o `down` simples não remove):
+Há dois caminhos, com propósitos diferentes:
+
+### 1. Docker Compose — para **rodar** a co-simulação (recomendado)
+
+É o caminho oficial: cada simulador roda no seu container, nada é instalado no
+host. Requisitos: Docker + Docker Compose.
 
 ```bash
-./run_opentes.sh <cenario>     # integrated | star | ieee13
+docker compose build     # uma vez (ou após mudar Dockerfile/dependências)
+./run.sh integrated      # pronto
 ```
+
+### 2. `uv` — para **desenvolver** localmente, sem Docker
+
+Instala o **conjunto** num ambiente Python local (não é preciso instalar
+simulador por simulador). Requisito: [`uv`](https://docs.astral.sh/uv/).
+
+```bash
+uv sync     # cria .venv com tudo (leva ~1s)
+```
+
+Isso traz `mosaik`, `opender`, `py-dss-interface`, `pandas`, `matplotlib`,
+`pyzmq` e — como **dependências editáveis** apontando para o código deste repo —
+o `pade-agents` (`simulators_teams/pade-opentes`) e o `grid-opentes`
+(`simulators_teams/grid-opentes`). Editar o código dos simuladores reflete
+direto no ambiente. Útil para IDE/autocomplete, mexer no PADE ou no grid e rodar
+os scripts de figura:
+
+```bash
+MOSAIK_OUTPUT_DIR=output/integrated \
+  uv run python simulators_teams/mosaik-opentes/plot_integrated.py
+```
+
+> **Alcance de cada caminho:** o `uv` cobre todo o lado **Python**. A rede de
+> comunicação (`comm`) é o **OMNeT++, em C++**, e existe apenas como container —
+> por isso os cenários que usam comunicação (`integrated`, `star`) e todos os
+> experimentos precisam do **Docker**. O `uv` sozinho serve para desenvolvimento,
+> inspeção e geração de figuras.
+
+## Cenários e experimentos
+
+Tudo se executa pelo script único `run.sh`, que faz a limpeza completa do Docker
+antes/depois (evita o erro `network ... not found` causado por containers de
+profile que o `down` simples não remove) e espera os simuladores ficarem prontos:
+
+```bash
+./run.sh integrated     # co-simulação completa (o comando do dia a dia)
+./run.sh --help         # lista todos os cenários e experimentos
+```
+
+**Cenários:**
 
 | Cenário | O que faz | Resultado em |
 |---------|-----------|--------------|
@@ -33,6 +77,22 @@ causado por containers de profile que o `down` simples não remove):
 
 O `integrated` é **a** simulação (a aplicação); `star` e `ieee13` são bancadas
 de teste isoladas de cada bloco.
+
+**Experimentos** (variam parâmetros do cenário integrado):
+
+| Comando | O que faz | Resultado em |
+|---------|-----------|--------------|
+| `48h`             | Horizonte de 48 h (2 dias com a mesma irradiância) — verifica se o ciclo diário se repete. Perda 0% | `output/sensibilidade_48h/` |
+| `loss-sweep`      | Sensibilidade do Volt/Var à perda de pacotes: baseline + 0/25/30/35/40/45/50/75/100%, 1 semente | `output/sensibilidade_perda/` |
+| `loss-multiseed`  | Idem, varredura 0–100% (passo 5%) × 20 sementes, para média/desvio. **Resumível** | `output/sensibilidade_perda_multiseed/` |
+
+```bash
+./run.sh loss-sweep loss030 loss035   # roda só as passadas indicadas
+```
+
+Os experimentos editam o `omnetpp.ini` (perda/semente) e **o restauram ao final**,
+mesmo se interrompidos. Detalhes e leitura dos resultados em
+[`docs/EXPERIMENTO_PERDA.md`](docs/EXPERIMENTO_PERDA.md).
 
 ### O cenário integrado (`integrated`) — acoplamento causal Volt/Var
 
@@ -88,30 +148,38 @@ agressivo + atraso/perda da rede **desestabiliza** o controle distribuído (moti
 estudar o impacto da comunicação). Comparativo e
 observações em [`docs/INTEGRACAO.md`](docs/INTEGRACAO.md#resultados).
 
-## Como rodar
+## Figuras
 
-Pré-requisito (uma vez): `docker compose build`.
+O `run.sh` já gera a dashboard dos cenários `integrated` e `ieee13` ao final da
+execução. As figuras adicionais são geradas sob demanda — via Docker:
 
 ```bash
-# co-simulação completa (4 containers, Volt/Var): roda baseline + Volt/Var
-./run_opentes.sh integrated
-docker compose run --rm --no-deps -e MOSAIK_OUTPUT_DIR=/app/output/integrated \
-  mosaik python plot_integrated.py     # output/integrated/dashboard_integrated.png
+# comparação do Volt/Var + caracterização da rede (após ./run.sh integrated)
 docker compose run --rm --no-deps -e MOSAIK_OUTPUT_DIR=/app/output/integrated \
   mosaik python plot_comparacao.py     # comparacao_volt_var.png + analise_comunicacao.png
 
-# rede elétrica IEEE 13 isolada + dashboard
-./run_opentes.sh ieee13
-docker compose run --rm --no-deps mosaik python plot_ieee13.py   # output/ieee13/ieee13_dashboard.png
-
-# comunicação pura (gera output/star/grafico_trafego.png)
-./run_opentes.sh star
+# figuras dos experimentos
+docker compose run --rm --no-deps -e MOSAIK_OUTPUT_DIR=/app/output/sensibilidade_perda \
+  mosaik python plot_loss_sweep.py
+docker compose run --rm --no-deps -e MOSAIK_OUTPUT_DIR=/app/output/sensibilidade_48h \
+  mosaik python plot_48h.py
 ```
 
-> **Atenção operacional**: os simuladores `--remote` do grid aceitam uma única
-> conexão Mosaik e encerram após. Por isso o `run_opentes.sh` sempre sobe
-> containers frescos. Não sondar as portas `--remote` com TCP de readiness (isso
-> consome a conexão e mata o simulador) — sondar apenas o `comm` (5555, ZMQ).
+…ou localmente, com o ambiente do `uv` (apontando `MOSAIK_OUTPUT_DIR` para o
+caminho no host):
+
+```bash
+MOSAIK_OUTPUT_DIR=output/sensibilidade_perda \
+  uv run python simulators_teams/mosaik-opentes/plot_loss_sweep.py
+```
+
+> **Atenção operacional**: os simuladores `--remote` do grid (portas 5671, 5673,
+> 5675, 5676, 5678, 5680) aceitam uma **única** conexão Mosaik e encerram após.
+> Por isso o `run.sh` sempre sobe containers frescos. **Não sondar essas portas
+> com TCP de readiness**: o probe consome a conexão e mata o simulador
+> (verificado — o container sai logo após o connect). Sondar por TCP apenas o
+> `comm` (5555, ZMQ). Para os `--remote`, a prontidão é detectada pelo **log**
+> (ver `_wait_remote_sims` no `run.sh`).
 
 ## Onde observar os resultados
 
@@ -121,10 +189,14 @@ Tudo é gravado em `output/`, separado por cenário:
 output/
 ├── star/             results.csv  +  grafico_trafego.png
 ├── ieee13/           result_run_ieee13_cosim_pv_5min.csv  +  ieee13_dashboard.png
-└── integrated/       result_baseline.csv | result_volt_var.csv
-                      comm_trace_baseline.csv | comm_trace_volt_var.csv
-                      dashboard_integrated.png
-                      comparacao_volt_var.png | analise_comunicacao.png
+├── integrated/       result_baseline.csv | result_volt_var.csv
+│                     comm_trace_baseline.csv | comm_trace_volt_var.csv
+│                     dashboard_integrated.png
+│                     comparacao_volt_var.png | analise_comunicacao.png
+├── sensibilidade_48h/            result_{baseline,volt_var}.csv  +  ciclo_48h.png
+├── sensibilidade_perda/          result_<tag>.csv | comm_trace_<tag>.csv
+│                                 sensibilidade_perda.png
+└── sensibilidade_perda_multiseed/  result_lossNNN_sS.csv  +  figura multi-semente
 ```
 
 O **guia didático** de cada arquivo (coluna a coluna, linha a linha) e de cada
