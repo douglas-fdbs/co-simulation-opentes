@@ -834,7 +834,13 @@ class DSOAgent(Agent):
         """
         self._report_on_ready = on_ready
         self._report_expected = set(names)
+        self._report_all = set(names)
+        self._report_t = t
+        self._report_retries = 0
         self.reports = {}
+        self._send_report_cfp(names, t)
+
+    def _send_report_cfp(self, names, t):
         message = ACLMessage(ACLMessage.CFP)
         message.set_protocol(ACLMessage.FIPA_CONTRACT_NET_PROTOCOL)
         for name in names:
@@ -857,11 +863,32 @@ class DSOAgent(Agent):
         if not self._report_expected:
             self._finish_reports()
 
+    def report_retransmissions(self):
+        return getattr(self, "retransmissions", 0)
+
     def _on_report_timeout(self):
-        if self._report_expected:
+        """Reenvia aos faltantes, como fazem os ciclos 1 e 3.
+
+        Sem isto o ciclo 2 desistia na primeira perda e o mercado seguia sem a
+        programacao daquele concentrador, o que na pratica zera a flexibilidade
+        de todos os prosumidores sob ele. O FIPA nao define retransmissao, e essa
+        e a mesma lacuna ja tratada nos outros dois ciclos.
+        """
+        if not self._report_expected:
+            self._finish_reports()
+            return
+        if self._report_retries < MAX_RETRIES:
+            self._report_retries += 1
+            faltando = sorted(self._report_expected)
+            self.retransmissions = getattr(self, "retransmissions", 0) + len(faltando)
             display_message(self.aid.localname,
-                            f"ciclo 2: TIMEOUT, sem relatorio de "
-                            f"{sorted(self._report_expected)}")
+                            f"ciclo 2: timeout, retransmitindo para {faltando} "
+                            f"(tentativa {self._report_retries}/{MAX_RETRIES})")
+            self._send_report_cfp(faltando, self._report_t)
+            return
+        display_message(self.aid.localname,
+                        f"ciclo 2: TIMEOUT definitivo, sem relatorio de "
+                        f"{sorted(self._report_expected)}")
         self._finish_reports()
 
     def _finish_reports(self):
@@ -1518,6 +1545,19 @@ def _dump_run(market, link):
     try:
         RUN_DIR.mkdir(parents=True, exist_ok=True)
         payload = {
+            # Procedencia: sem isto, duas execucoes com configuracoes diferentes
+            # sobrescrevem o mesmo arquivo e as figuras saem misturadas em
+            # silencio. Ja aconteceu.
+            "config": {
+                "net_backend": os.environ.get("NET_BACKEND", "ideal"),
+                "message_size": os.environ.get("NET_MESSAGE_SIZE", "real"),
+                "realized_mode": os.environ.get("MARKET_REALIZED_MODE", "perturb"),
+                "v_backoff": os.environ.get("MARKET_V_BACKOFF", "1e-3"),
+                "max_rounds": MAX_ROUNDS,
+                "scenarios": N_SCENARIOS,
+                "storage_pf": os.environ.get("MARKET_STORAGE_PF", "none"),
+                "operation": bool(OPERATION),
+            },
             "rounds": market.round,
             "converged": market.converged,
             "history": market.history,

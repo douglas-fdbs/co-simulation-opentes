@@ -88,6 +88,31 @@ def tabela_tensao(result_csv, out_csv):
 # Figuras 51 e 52: a programação por nó ao longo das rodadas
 # ---------------------------------------------------------------------------
 
+def _procedencia(run):
+    """Rotulo curto com a configuracao que produziu a execucao."""
+    c = run.get("config") or {}
+    if not c:
+        return ""
+    return (f"rede={c.get('net_backend', '?')}  "
+            f"msg={c.get('message_size', '?')}  "
+            f"backoff={c.get('v_backoff', '?')}  "
+            f"demanda={c.get('realized_mode', '?')}")
+
+
+def _carimbo(fig, run):
+    """Carimba a procedencia no rodape da figura.
+
+    As figuras saem de execucoes diferentes: a de ciclos exige uma camada de rede
+    e o `run.sh market` roda com entrega ideal. Sem o carimbo, duas figuras da
+    mesma pasta parecem do mesmo experimento quando nao sao.
+    """
+    texto = _procedencia(run)
+    if texto:
+        fig.subplots_adjust(bottom=fig.subplotpars.bottom + 0.06)
+        fig.text(0.99, 0.012, texto, ha="right", va="bottom",
+                 fontsize=7, color=MUTED)
+
+
 def programacao_no(run_json, out_png, node=None):
     run = json.loads(Path(run_json).read_text())
     history = [h for h in run["history"] if h.get("x") and h.get("y")]
@@ -131,6 +156,7 @@ def programacao_no(run_json, out_png, node=None):
                    loc="lower center", bbox_to_anchor=(0.5, 1.10))
 
     fig.tight_layout()
+    _carimbo(fig, run)
     fig.savefig(out_png, dpi=160)
     print(f"gravado {out_png} (no {node}, {len(history)} rodadas)")
 
@@ -185,6 +211,7 @@ def ciclos(run_json, out_png):
               bbox_to_anchor=(0.5, 1.06), ncol=3)
 
     fig.tight_layout()
+    _carimbo(fig, run)
     fig.savefig(out_png, dpi=160)
     print(f"gravado {out_png}")
     for n, m, tot, r, o in zip(nomes, medias, totais, repeticoes, orcamentos):

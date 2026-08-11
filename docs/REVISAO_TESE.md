@@ -162,6 +162,29 @@ o horário crítico que a tese relata.
 HVAC e veículos elétricos: a subseção 6.1.3 os exclui explicitamente, por não
 haver modelo de otimização que integre a dinâmica deles. Não são lacuna.
 
+### 3.6 Defeitos encontrados durante a própria revisão
+
+Três, todos corrigidos, e vale registrá-los porque nenhum se manifestava como
+erro visível.
+
+**A negociação vinha sendo cortada antes de convergir.** O teto de 30 rodadas era
+herança de quando o `V_BACKOFF` era 1e-3; com a margem de 2e-3 da Fase 4 a região
+viável aperta e a convergência passa a exigir 34. O resultado saía com
+`converged=False` e nada avisava, porque a programação entregue continuava
+factível. Teto para 60, com o vínculo entre os dois parâmetros registrado.
+
+**O ciclo 2 não retransmitia.** Ao implementá-lo eu não repliquei o tratamento de
+timeout que os ciclos 1 e 3 já tinham. Numa execução sobre a rede 6TiSCH o DSO
+perdeu o relatório de um concentrador e desistiu, o que zera a flexibilidade de
+todos os prosumidores sob ele. É a mesma lacuna do FIPA descrita na seção 5 do
+`MERCADO.md`, reaberta por descuido.
+
+**Figuras liam arquivos mortos.** A `operacao.png` lia um `operation_log.json`
+que os agentes tinham deixado de escrever, e seguia desenhando dados antigos sem
+erro nenhum, porque o arquivo velho continuava no disco. Agora cada execução
+grava a própria configuração no `run.json` e as figuras saem carimbadas com ela,
+para que procedência divergente fique visível em vez de silenciosa.
+
 ## 5. Pendências que já eram conhecidas
 
 - Montar o IEEE European LV Test Feeder como caso principal citável; a MVLV75 é o
