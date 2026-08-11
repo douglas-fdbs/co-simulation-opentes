@@ -49,9 +49,20 @@ Consequência: a fase de operação está sendo exercitada num regime bem mais d
 que o da tese, e os números das duas **não são comparáveis**. Não invalida nada
 do que foi medido, mas invalida a comparação direta.
 
-**O que fazer:** implementar o mecanismo de ±10% como opção
-(`MARKET_REALIZED=perturb`), mantendo o dia alternativo como o caso severo. Custo
-baixo, e é o que torna os resultados de operação comparáveis.
+**Corrigido.** `MARKET_REALIZED_MODE=perturb` é agora o padrão e implementa o
+mecanismo da tese; `day` continua disponível como caso severo. O ±10% é por
+prosumidor e independente, então se cancela em 68 nós: o desvio agregado cai de
+9,4 kW de mediana para 0,2 kW.
+
+Efeito no fluxo não linear completo:
+
+| Mecanismo | Sem negociação | Negociado |
+|---|---|---|
+| ±10% da tese | 0,93946 pu, 337 pontos violados | 0,97033 pu, **0 pontos** |
+| dia alternativo | 0,94013 pu, 442 pontos violados | 0,96955 pu, 4 pontos |
+
+Com o mecanismo da tese a negociação resolve tudo. Os 4 pontos residuais do outro
+modo são o resíduo da linearização sob um desvio várias vezes maior.
 
 ### 3.2 A medição de comunicação foi feita na fase errada
 

@@ -228,8 +228,13 @@ services:
       - MARKET_SCENARIOS=${MARKET_SCENARIOS:-1}
       - MARKET_NEGOTIATE=${MARKET_NEGOTIATE:-1}
       - MARKET_OPERATION=${MARKET_OPERATION:-1}
-      - MARKET_REALIZED_DAY=${MARKET_REALIZED_DAY:-9}
       - MARKET_REALIZED=${MARKET_REALIZED:-1}
+      # Como a demanda realizada difere da programada. `perturb` e o mecanismo da
+      # tese, que altera a programacao em ate +/-10%; `day` toma um dia inteiro
+      # diferente do reservatorio, varias vezes mais severo. Ver operation.py.
+      - MARKET_REALIZED_MODE=${MARKET_REALIZED_MODE:-perturb}
+      - MARKET_REALIZED_SPREAD=${MARKET_REALIZED_SPREAD:-0.10}
+      - MARKET_REALIZED_DAY=${MARKET_REALIZED_DAY:-9}
       # Recuo da restricao de tensao. A restricao e imposta sobre o modelo
       # linearizado; o fluxo nao linear cai um pouco abaixo do ponto planejado, e
       # o recuo cobre esse residuo. Medido em 1,5e-3 pu na MVLV75.

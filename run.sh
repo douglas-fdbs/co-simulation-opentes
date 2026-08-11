@@ -111,11 +111,13 @@ _wait_remote_sims() {
 # --- omnetpp.ini: leitura, escrita e restauracao ---------------------------
 _set_drop()   { sed -i -E "s/(node_0\.drop_probability = ).*/\1${1}/" "$INI"; }
 _set_seed()   { sed -i -E "s/^(seed-0-mt = ).*/\1${1}/" "$INI"; }
-_set_simlim() { sed -i -E "s/^(sim-time-limit = ).*/\1${1}/" "$INI"; }
+# So a PRIMEIRA ocorrencia, que e a da secao [General]. O omnetpp.ini tem outra
+# em [Config tisch], com valor proprio, que nao pode ser sobrescrita.
+_set_simlim() { sed -i -E "0,/^sim-time-limit = /s//sim-time-limit = ${1}/" "$INI"; }
 
 ORIG_DROP="$(grep -E 'node_0\.drop_probability' "$INI" | sed -E 's/.*=[[:space:]]*//')"
 ORIG_SEED="$(grep -E '^seed-0-mt'               "$INI" | sed -E 's/.*=[[:space:]]*//')"
-ORIG_SIMLIM="$(grep -E '^sim-time-limit'        "$INI" | sed -E 's/.*=[[:space:]]*//')"
+ORIG_SIMLIM="$(grep -m1 -E '^sim-time-limit'    "$INI" | sed -E 's/.*=[[:space:]]*//')"
 
 # Restaura o ini mesmo se o script for interrompido no meio (Ctrl-C, erro).
 _ini_restore() {

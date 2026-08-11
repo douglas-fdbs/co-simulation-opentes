@@ -30,6 +30,7 @@ Uso:
 
 import argparse
 import json
+import os
 import time
 from pathlib import Path
 
@@ -44,13 +45,51 @@ EPS = 1e-3
 MAX_ROUNDS = 30
 
 
-def realized_profiles(day=0):
-    """Demanda liquida realizada: um dia diferente do reservatorio de cenarios."""
+# Como a demanda REALIZADA difere da programada.
+#
+# `perturb` e o mecanismo da tese (subsecao 6.2.3): "um mecanismo de alteracao
+# aleatoria dos valores de demanda liquida dos prosumidores foi implementado
+# podendo alterar os valores programados anteriormente em ate +/- 10%". E o modo
+# que torna os resultados de operacao comparaveis aos dela.
+#
+# `day` toma um dia inteiro diferente do reservatorio de cenarios. Medido, o
+# desvio agregado tem mediana de 9,4 kW e maximo de 51,2 kW sobre uma demanda
+# liquida tipica de 27 kW, varias vezes o que +/-10% produz. Serve como caso
+# severo, nao como reproducao da tese.
+REALIZED_MODE = os.environ.get("MARKET_REALIZED_MODE", "perturb")
+REALIZED_SPREAD = float(os.environ.get("MARKET_REALIZED_SPREAD", "0.10"))
+REALIZED_SEED = int(os.environ.get("MARKET_REALIZED_SEED", "0"))
+
+
+def realized_profiles(day=0, mode=None, spread=None, seed=None):
+    """Demanda liquida realizada, pelo mecanismo escolhido.
+
+    Args:
+        day: indice do dia alternativo, usado apenas no modo `day`.
+        mode: `perturb` (padrao, o da tese) ou `day`.
+        spread: amplitude da perturbacao relativa, so no modo `perturb`.
+        seed: semente, para que a realizacao seja a mesma entre execucoes.
+    """
+    mode = REALIZED_MODE if mode is None else mode
     pool = np.load(DATA_DIR / "scenario_pool.npz")
     nodes = [int(x) for x in pool["nodes"]]
-    load = pool["load"][day]
-    pv = pool["pv"][day]
-    return {n: load[i] - pv[i] for i, n in enumerate(nodes)}
+
+    if mode == "day":
+        load = pool["load"][day]
+        pv = pool["pv"][day]
+        return {n: load[i] - pv[i] for i, n in enumerate(nodes)}
+
+    if mode != "perturb":
+        raise ValueError(f"modo de demanda realizada desconhecido: {mode}")
+
+    # A perturbacao e sobre a demanda liquida PROGRAMADA, que e o dia base, e nao
+    # sobre um dia qualquer: e disso que a tese fala ao dizer "os valores
+    # programados anteriormente".
+    spread = REALIZED_SPREAD if spread is None else float(spread)
+    rng = np.random.default_rng(REALIZED_SEED if seed is None else seed)
+    net, _ = load_profiles()
+    return {n: series * (1.0 + rng.uniform(-spread, spread, size=len(series)))
+            for n, series in net.items()}
 
 
 def shifted_v0(case, v0_t, s_t, deviation):

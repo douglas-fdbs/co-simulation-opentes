@@ -189,6 +189,13 @@ class NetworkLink:
         self.backend = backend
         self.time_scale = time_scale
         self._rng = random.Random(SEED)
+        # Contabilidade por ciclo. A tese posiciona os tres ciclos de troca de
+        # mensagens nos minutos 1, 5 e 10 da janela de 15 min, o que so significa
+        # alguma coisa se der para dizer QUANTO tempo de rede cada ciclo gastou.
+        # Como as mensagens de um ciclo viajam em paralelo, o custo do ciclo e o
+        # MAIOR atraso dele, nao a soma.
+        self.cycle = None
+        self.cycles = []
         self.sent = 0
         self.dropped = 0
         self.delays = []
@@ -199,6 +206,17 @@ class NetworkLink:
             self._writer = csv.writer(self._trace)
             self._writer.writerow(["wall_time", "sender", "receiver", "performative",
                                    "bytes", "delay_s", "dropped"])
+
+    def begin_cycle(self, name):
+        """Abre um balde de contabilidade para o ciclo dado."""
+        self.cycle = {"name": name, "messages": 0, "dropped": 0, "max_delay": 0.0,
+                      "bytes": 0}
+        self.cycles.append(self.cycle)
+        return self.cycle
+
+    def end_cycle(self):
+        c, self.cycle = self.cycle, None
+        return c
 
     def _size(self, message):
         if MESSAGE_SIZE == "thesis":
@@ -220,6 +238,13 @@ class NetworkLink:
             dst = getattr(receiver, "localname", None)
             delay, dropped = self.backend.transmit(size, src, dst)
             self.sent += 1
+            if self.cycle is not None:
+                self.cycle["messages"] += 1
+                self.cycle["bytes"] += size
+                if dropped:
+                    self.cycle["dropped"] += 1
+                else:
+                    self.cycle["max_delay"] = max(self.cycle["max_delay"], delay)
             if self._writer:
                 self._writer.writerow([
                     f"{time.time():.6f}",
@@ -248,6 +273,13 @@ class NetworkLink:
             "delay_mean_s": sum(self.delays) / len(self.delays) if self.delays else 0.0,
             "delay_max_s": max(self.delays) if self.delays else 0.0,
         }
+        if self.cycles:
+            por_nome = {}
+            for c in self.cycles:
+                d = por_nome.setdefault(c["name"], {"n": 0, "delay": 0.0})
+                d["n"] += 1
+                d["delay"] += c["max_delay"]
+            out["cycle_mean_s"] = {k: v["delay"] / v["n"] for k, v in por_nome.items()}
         hops = getattr(self.backend, "hops", None)
         if hops:
             out["hops_mean"] = sum(hops) / len(hops)
