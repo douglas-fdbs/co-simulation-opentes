@@ -33,6 +33,9 @@ def _style(ax, xlabel, ylabel, title):
     ax.set_axisbelow(True)
     for side in ("top", "right"):
         ax.spines[side].set_visible(False)
+    for side in ("left", "bottom"):
+        ax.spines[side].set_color(GRID)
+    ax.tick_params(colors=MUTED, labelsize=8)
 
 
 def plot(links_csv, out_png, max_distance=1000.0):

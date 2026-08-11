@@ -360,6 +360,8 @@ class SolverAgent(Agent):
             if not viol_antes:
                 return {"t": t, "deviation": desvio, "violations_before": 0,
                         "violations_after": 0, "level": "-",
+                        "v_min_before": float(antes.min()),
+                        "v_min_after": float(antes.min()),
                         "p": {str(n): v.tolist() for n, v in p_t.items()},
                         "q": {str(n): v.tolist() for n, v in q_t.items()}}
             try:
@@ -371,6 +373,8 @@ class SolverAgent(Agent):
                 p, q, depois = p_t, q_t, antes
             return {"t": t, "deviation": desvio, "violations_before": viol_antes,
                     "violations_after": _violations(depois), "level": "rede",
+                    "v_min_before": float(antes.min()),
+                    "v_min_after": float(depois.min()),
                     "p": {str(n): np.asarray(v).tolist() for n, v in p.items()},
                     "q": {str(n): np.asarray(v).tolist() for n, v in q.items()}}
 
@@ -379,6 +383,7 @@ class SolverAgent(Agent):
                          v0_t[None, :], self.s[t:t + 1], periods=1)
         depois = voltage_at(self.case, v0_t, self.s[t], p, q)
         return {"t": t, "violations_after": _violations(depois),
+                "v_min_after": float(depois.min()),
                 "p": {str(n): v.tolist() for n, v in p.items()},
                 "q": {str(n): v.tolist() for n, v in q.items()}}
 
@@ -950,6 +955,7 @@ class MarketAgent(Agent):
         self.op_lam = {}
         self.op_result = None
         self.operation_log = []
+        self.op_v_min_before = None
 
     def on_start(self):
         super().on_start()
@@ -1230,7 +1236,10 @@ class MarketAgent(Agent):
         t = self.op_t
 
         if self.op_round == 0:
-            # Resposta do primeiro nivel.
+            # Resposta do primeiro nivel. A tensao ANTES da intervencao so e
+            # medida aqui; se o leilao abrir, o payload dele substitui
+            # `op_result` e o valor se perderia.
+            self.op_v_min_before = payload.get("v_min_before")
             self.op_result = payload
             if payload["violations_before"] == 0:
                 self._finish_operation("sem violacao")
@@ -1311,6 +1320,8 @@ class MarketAgent(Agent):
             "t": self.op_t, "motivo": motivo,
             "cycle3_net_s": c3["max_delay"] if c3 else None,
             "deviation_kw": r.get("deviation", 0.0),
+            "v_min_before": r.get("v_min_before", self.op_v_min_before),
+            "v_min_after": r.get("v_min_after"),
             "violations_before": r.get("violations_before", 0),
             "violations_after": r.get("violations_after", 0),
             "rounds": self.op_round,

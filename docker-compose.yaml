@@ -223,6 +223,11 @@ services:
       - MARKET_OPENTES_PATH=/market
       - MARKET_CONFIG=${MARKET_CONFIG:-/market/data/config.json}
       - MARKET_GRID_DIR=/grid-data/MVLV75
+      # Teto de rodadas da decomposicao dual. Precisa acompanhar o V_BACKOFF: com
+      # a margem de 2e-3 a regiao viavel aperta e a convergencia passa de 28 para
+      # 34 rodadas. Com o teto antigo, de 30, a negociacao era CORTADA antes de
+      # convergir e o resultado saia com `converged=False` sem que nada avisasse.
+      - MARKET_MAX_ROUNDS=${MARKET_MAX_ROUNDS:-60}
       - MARKET_ALPHA=${MARKET_ALPHA:-0.6}
       - MARKET_EPS=${MARKET_EPS:-1e-3}
       - MARKET_SCENARIOS=${MARKET_SCENARIOS:-1}

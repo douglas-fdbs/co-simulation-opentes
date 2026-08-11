@@ -92,17 +92,63 @@ def plot_voltage(output_dir, out_path):
     print(f"gravado {out_path}")
 
 
+def _load_operation(log_path):
+    """Registro da operacao, do `run.json` novo ou do formato antigo.
+
+    Os agentes gravavam um `operation_log.json` proprio; hoje gravam tudo num
+    `run/run.json`, com a operacao numa chave. Aceitar os dois evita que a figura
+    fique lendo um arquivo velho em silencio, que foi exatamente o que aconteceu.
+    """
+    log = json.loads(Path(log_path).read_text())
+    if isinstance(log, dict):
+        log = log.get("operation", [])
+    # Chaves do registro novo, traduzidas para as que a figura usa. O nivel e
+    # derivado do motivo quando nao vem explicito: o registro dos agentes diz
+    # POR QUE o intervalo fechou, e e disso que sai quem agiu.
+    saida = []
+    for r in log:
+        nivel = r.get("level")
+        if nivel is None:
+            motivo = r.get("motivo", "")
+            if motivo == "resolvido pelo armazenamento de rede":
+                nivel = "1"
+            elif r.get("rounds"):
+                nivel = "2"
+            else:
+                nivel = "-"
+        saida.append({"t": r["t"],
+                      "v_min_before": r.get("v_min_before"),
+                      "v_min_after": r.get("v_min_after"),
+                      "level": nivel})
+    return [r for r in saida
+            if r["v_min_before"] is not None and r["v_min_after"] is not None]
+
+
 def plot_operation(log_path, out_path):
     """Fase de operacao: violacao antes e depois da intervencao."""
-    log = json.loads(Path(log_path).read_text())
+    log = _load_operation(log_path)
+    if not log:
+        print(f"sem registro de operacao utilizavel em {log_path}; pulando")
+        return
     t = np.array([r["t"] for r in log]) * 0.25
     before = np.array([r["v_min_before"] for r in log])
     after = np.array([r["v_min_after"] for r in log])
     acted = [r for r in log if r["level"] != "-"]
 
     fig, ax = plt.subplots(figsize=(8, 4))
-    ax.plot(t, before, linewidth=2, color=SERIES[1], label="antes da intervencao")
-    ax.plot(t, after, linewidth=2, color=SERIES[0], label="depois")
+    # Quando nenhum intervalo exige intervencao, as duas curvas coincidem e a
+    # figura passaria a impressao de que uma delas sumiu. Melhor dizer que nao
+    # houve o que corrigir do que desenhar duas linhas identicas com legenda.
+    inerte = not acted and np.allclose(before, after)
+    if inerte:
+        ax.plot(t, after, linewidth=2, color=SERIES[0],
+                label="tensao minima da rede")
+        ax.annotate("nenhum intervalo exigiu intervencao",
+                    xy=(0.5, 0.06), xycoords="axes fraction", ha="center",
+                    fontsize=9, color=MUTED)
+    else:
+        ax.plot(t, before, linewidth=2, color=SERIES[1], label="antes da intervencao")
+        ax.plot(t, after, linewidth=2, color=SERIES[0], label="depois")
     ax.axhline(V_MIN, color=MUTED, linestyle="--", linewidth=1)
 
     # Os marcadores dizem QUEM agiu, nao QUAL serie: por isso distinguem-se pela
@@ -192,7 +238,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--output-dir", default="../../output/market",
                     help="pasta com result_baseline.csv e result_negociado.csv")
-    ap.add_argument("--operation-log", default="data/operation_log.json")
+    ap.add_argument("--operation-log", default="data/run/run.json")
     ap.add_argument("--out-dir", default="data")
     args = ap.parse_args()
 
