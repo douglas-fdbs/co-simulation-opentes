@@ -9,9 +9,20 @@
  * Friis menos uma uniforme de 0 a 40 dB (Pister-Hack, LE et al. 2009), que e a
  * abordagem do Simulador 6TiSCH (MUNICIO et al., 2019). Conversao de RSSI para
  * PER pela Tabela 7 da tese, obtida de Prando et al. (2019, Fig. 3), com nivel de
- * sensibilidade de -106,37 dBm. Matriz de adjacencia montada a partir das
- * coordenadas geograficas, com enlace viavel sempre que o PER ficar abaixo de
- * 0,5. As coordenadas sao as do Apendice B, reproduzidas em `nodes_xy.csv`.
+ * sensibilidade de -106,37 dBm. Enlace viavel sempre que o PER ficar abaixo de
+ * 0,5. As coordenadas sao as do Apendice B, reproduzidas em `nodes_xy.csv`, e
+ * conferem exatamente com o `bus_xy.txt` da implementacao de referencia.
+ *
+ * A MATRIZ DE ADJACENCIA E DADO, NAO RECONSTRUCAO
+ * ----------------------------------------------
+ * O Apendice C publica a matriz, e ela tambem esta no `adj_array.txt` da
+ * implementacao de referencia: 578 enlaces entre os 77 agentes. Reconstrui-la
+ * pelo limiar de PER exigiria supor o orcamento de enlace do radio, que a tese
+ * nao informa, e a suposicao natural de 0 dBm produz 1.466 enlaces, duas vezes e
+ * meia a densidade real. Uma rede mais conectada tem menos saltos e menos perda,
+ * ou seja, resultados de comunicacao otimistas. Por isso a matriz e lida do
+ * arquivo, e o modelo de propagacao fica responsavel apenas pelo PER de cada
+ * enlace que existe.
  *
  * O QUE ESTE MODULO ACRESCENTA
  * ---------------------------
@@ -85,6 +96,7 @@ class TischServer : public cSimpleModule {
     int frameBytes, maxRetries, cells;
 
     void loadPositions(const std::string& path);
+    bool loadAdjacency(const std::string& path);
     void buildLinks(const std::string& csvPath);
     void buildRoutes();
     double perFromRssi(double rssi) const;
@@ -135,10 +147,47 @@ double TischServer::perFromRssi(double rssi) const {
     return PER_TABLE[step];
 }
 
+bool TischServer::loadAdjacency(const std::string& path) {
+    if (path.empty()) return false;
+    std::ifstream f(path);
+    if (!f) return false;
+
+    size_t n = names.size();
+    adjacent.assign(n, std::vector<bool>(n, false));
+    size_t i = 0;
+    std::string line;
+    while (std::getline(f, line) && i < n) {
+        if (line.find_first_not_of(" \t\r\n") == std::string::npos) continue;
+        std::stringstream ss(line);
+        int v;
+        size_t j = 0;
+        while (ss >> v && j < n) {
+            adjacent[i][j] = (v != 0);
+            j++;
+        }
+        if (j != n)
+            throw cRuntimeError("matriz de adjacencia com %zu colunas na linha %zu, "
+                                "esperava %zu", j, i, n);
+        i++;
+    }
+    if (i != n)
+        throw cRuntimeError("matriz de adjacencia com %zu linhas, esperava %zu", i, n);
+    EV << "[6TiSCH] adjacencia lida de " << path << "\n";
+    return true;
+}
+
 void TischServer::buildLinks(const std::string& csvPath) {
     size_t n = names.size();
     per.assign(n, std::vector<double>(n, 1.0));
-    adjacent.assign(n, std::vector<bool>(n, false));
+
+    // A matriz de adjacencia da tese existe como dado publicado (Apendice C, e o
+    // `adj_array.txt` da implementacao de referencia). Quando disponivel ela e
+    // usada como esta, em vez de ser reconstruida: reconstruir exigiria supor o
+    // orcamento de enlace do radio, e a suposicao de 0 dBm gera uma rede 2,5
+    // vezes mais densa que a real (1.466 enlaces contra 578), o que tornaria os
+    // resultados de comunicacao otimistas.
+    bool doArquivo = loadAdjacency(par("adjacency_file").stdstringValue());
+    if (!doArquivo) adjacent.assign(n, std::vector<bool>(n, false));
 
     std::ofstream out;
     if (!csvPath.empty()) {
@@ -146,7 +195,7 @@ void TischServer::buildLinks(const std::string& csvPath) {
         out << "i,j,name_i,name_j,distance_m,rssi_dbm,per,adjacent\n";
     }
 
-    int links = 0;
+    int links = 0, forcados = 0;
     for (size_t i = 0; i < n; ++i) {
         for (size_t j = i + 1; j < n; ++j) {
             double d = std::hypot(xs[i] - xs[j], ys[i] - ys[j]);
@@ -164,11 +213,26 @@ void TischServer::buildLinks(const std::string& csvPath) {
                 // Pister-Hack: subtrai uma uniforme de 0 a `shiftDb`. Sorteada
                 // uma vez por enlace: e variacao de longo prazo do ambiente,
                 // nao desvanecimento por pacote.
-                rssi = pr - uniform(0.0, shiftDb);
-                p = perFromRssi(rssi);
+                //
+                // Com a adjacencia vinda de arquivo, o sorteio de um enlace que
+                // EXISTE e condicionado a PER < limiar, que e a distribuicao
+                // implicada por ele existir. Sem isso, um enlace publicado como
+                // viavel poderia receber PER 1,0 e virar rota morta.
+                int tentativas = 0;
+                do {
+                    rssi = pr - uniform(0.0, shiftDb);
+                    p = perFromRssi(rssi);
+                } while (doArquivo && adjacent[i][j] && p >= threshold
+                         && ++tentativas < 200);
+                if (doArquivo && adjacent[i][j] && p >= threshold) {
+                    // A distancia e grande demais para o modelo admitir o enlace
+                    // publicado. Fica com o melhor PER possivel, e o aviso sai.
+                    p = PER_TABLE[PER_TABLE_LEN - 2];
+                    forcados++;
+                }
             }
             per[i][j] = per[j][i] = p;
-            bool ok = (p < threshold);
+            bool ok = doArquivo ? adjacent[i][j] : (p < threshold);
             adjacent[i][j] = adjacent[j][i] = ok;
             if (ok) links++;
             if (out.is_open())
@@ -176,7 +240,14 @@ void TischServer::buildLinks(const std::string& csvPath) {
                     << d << "," << rssi << "," << p << "," << (ok ? 1 : 0) << "\n";
         }
     }
-    EV << "[6TiSCH] " << links << " enlaces viaveis (PER < " << threshold << ")\n";
+    std::printf("[6TiSCH] %d enlaces viaveis (%s)%s\n", links,
+                doArquivo ? "matriz da tese" : "PER abaixo do limiar",
+                forcados ? " com enlaces alem do alcance do modelo" : "");
+    if (forcados)
+        std::printf("[6TiSCH] AVISO: %d enlaces publicados excedem o alcance que o "
+                    "modelo de propagacao admite; PER fixado no melhor valor.\n",
+                    forcados);
+    std::fflush(stdout);
 }
 
 void TischServer::buildRoutes() {

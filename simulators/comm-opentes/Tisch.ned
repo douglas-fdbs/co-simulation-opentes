@@ -16,6 +16,9 @@ simple TischServer
         // proposito: os dois podem rodar ao mesmo tempo.
         int port = default(5556);
         string positions_file = default("nodes_xy.csv");
+        // Matriz de adjacencia da tese (Apendice C). Vazia = gerar pelo limiar
+        // de PER, o que exige supor o orcamento de enlace do radio.
+        string adjacency_file = default("adjacency.txt");
 
         // --- Radio: IEEE 802.15.4g modo 1, banda ISM dos EUA ---------------
         double frequency_hz = default(915e6);
@@ -32,7 +35,13 @@ simple TischServer
         // 101 timeslots, 4,04 s por slotframe. Um cell dedicado por enlace por
         // slotframe e o padrao minimo do 6TiSCH.
         double slotframe_s = default(4.04);
-        int cells_per_slotframe = default(1);
+        // Cells alocados por enlace por slotframe. A tese NAO informa este valor,
+        // e ele e o que mais mexe no tempo de entrega. O padrao aqui e
+        // CALIBRADO: com 2 cells sobre a topologia publicada, os tempos ficam
+        // entre 6 e 74 s, dentro dos 10 a 90 s que a tese reporta. Com 1 cell,
+        // que e a configuracao minima do 6TiSCH, eles dobram. Fica registrado
+        // como calibracao, e nao como previsao do modelo.
+        int cells_per_slotframe = default(2);
         // Frame maximo do IEEE 802.15.4. E o numero da tese; uma pilha real
         // gasta parte disso em cabecalho 802.15.4, 6LoWPAN e UDP, e sobram cerca
         // de 80 bytes uteis, o que aumenta os tempos em cerca de 60%.

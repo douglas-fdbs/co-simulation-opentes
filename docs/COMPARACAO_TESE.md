@@ -86,18 +86,31 @@ descarga concentrada no fim da tarde.
 
 ### 3.4 Os tempos de entrega da rede de comunicação
 
-A rede 6TiSCH foi reconstruída a partir dos parâmetros da própria tese, sem
-ajuste: Pister-Hack sobre Friis a 915 MHz, Tabela 7 para converter RSSI em PER,
-sensibilidade de −106,37 dBm, enlace viável com PER abaixo de 0,5, slotframe de
-101 timeslots em 4,04 s, quadro de 127 bytes, e as coordenadas do Apêndice B.
+A rede 6TiSCH usa os parâmetros da própria tese: Pister-Hack sobre Friis a
+915 MHz, Tabela 7 para converter RSSI em PER, sensibilidade de −106,37 dBm,
+slotframe de 101 timeslots em 4,04 s, quadro de 127 bytes, as coordenadas do
+Apêndice B e a **matriz de adjacência do Apêndice C**.
 
 | | Tese | Aqui |
 |---|---|---|
+| Enlaces | 578 | 578, lidos do arquivo |
+| Coordenadas | Apêndice B | idênticas, conferidas com o `bus_xy.txt` |
 | Tamanho das mensagens na operação | 100 a 1500 bytes | CFP de operação medido em 1.004 bytes |
-| Tempo de recepção | 10 a 90 s | mediana 23,7 s, máximo 96,4 s |
+| Tempo de recepção | 10 a 90 s | 6,3 s para 100 B a 73,7 s para 1500 B |
 
-Os números caem sozinhos do modelo: 100 bytes cabem em um quadro e chegam em
-cerca de 4 s; 1250 bytes ocupam 10 quadros e chegam em cerca de 77 s.
+**Um parâmetro é calibrado, e vale dizer qual.** O número de cells alocados por
+enlace por slotframe é o que mais mexe no tempo de entrega, e a tese não o
+informa. Com 1 cell, a configuração mínima do 6TiSCH, os tempos vão de 6 a 140 s
+e ficam acima da faixa dela; com 2 cells, de 6 a 74 s, dentro dela. O padrão é 2,
+declarado como calibração.
+
+**Uma versão anterior deste documento afirmava que os tempos saíam "sem ajuste".**
+Isso estava errado por um motivo que vale registrar: a adjacência era regenerada a
+partir das coordenadas, e regenerar exige supor o orçamento de enlace do rádio,
+que a tese não publica. A suposição natural de 0 dBm produziu 1.466 enlaces contra
+os 578 reais, uma rede com metade dos saltos e muito menos perda. Os tempos
+caíam na faixa da tese por compensação de dois erros: topologia otimista demais e
+cells de menos.
 
 ## 4. Resultados que diferem
 
@@ -162,7 +175,25 @@ severo (`MARKET_REALIZED_MODE=day`, um dia inteiro diferente do reservatório), 
 operação volta a agir em 22 dos 96 intervalos, todos resolvidos pelo
 armazenamento de rede.
 
-### 4.4 Tráfego da programação do dia seguinte
+### 4.4 A perda de pacotes, e o limiar de PER
+
+A tese não reporta taxa de perda de mensagens. Aqui, sobre a topologia dela, a
+negociação do dia seguinte perde **57 mensagens em 2.823**, ou 2,02%, e exige 43
+retransmissões para fechar as 34 rodadas.
+
+O mecanismo é uma consequência da própria regra da tese. Ela admite enlace sempre
+que o PER fica abaixo de 0,5, e a Tabela 7 tem degrau em 0,4. Um enlace admitido
+com PER 0,4 por quadro, já com as três retentativas do MAC, perde 2,6% dos
+quadros. Uma mensagem de 100 bytes é um quadro e perde 2,6%; uma de 1250 bytes
+são dez quadros, e perder qualquer um perde o datagrama: 22,8% previstos contra
+27,5% medidos no enlace 5-36.
+
+A consequência é operacional: o concentrador `trafo_5_35` fica atrás desse
+enlace, e com três retransmissões a negociação **aborta na primeira rodada**. Foi
+preciso subir o padrão para dez. É um resultado sobre a rede da tese, não sobre a
+nossa implementação, e só apareceu ao usar a topologia publicada.
+
+### 4.5 Tráfego da programação do dia seguinte
 
 Aqui não há número da tese para comparar, e essa é justamente a observação. A
 análise de comunicação dela é da fase de operação. Para a programação do dia
@@ -178,6 +209,24 @@ correspondem ao conteúdo:
 
 O número de rodadas é o mesmo nos dois casos, o que serve de verificação: a rede
 altera o tempo, não o ponto de convergência.
+
+Ressalva: esses dois números foram medidos sobre a topologia regenerada, mais
+densa que a real. Com a topologia publicada os dois pioram na mesma proporção,
+porque os saltos dobram, então a razão entre eles se mantém e a conclusão não
+muda. A medição sobre a topologia correta ainda não foi refeita para o caso de
+mensagens reais, que leva horas de relógio.
+
+### 4.6 Adjacência da rede de comunicação
+
+| | Tese | Primeira versão nossa | Agora |
+|---|---:|---:|---:|
+| Enlaces | 578 | 1.466 | 578 |
+| Saltos médios | — | 1,50 | 3,18 |
+
+A primeira versão regenerava a matriz a partir das coordenadas. Reconstruir exige
+supor o orçamento de enlace do rádio, e a tese não o publica; com 0 dBm, o padrão
+do Simulador 6TiSCH, o alcance sai cerca de 12 dB mais folgado que o real. A
+matriz publicada passou a ser lida do arquivo.
 
 ## 5. Divergências de modelagem, e o motivo de cada uma
 

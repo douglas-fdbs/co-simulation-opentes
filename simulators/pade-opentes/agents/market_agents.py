@@ -85,7 +85,24 @@ ALPHA = float(os.environ.get("MARKET_ALPHA", "0.6"))
 EPS = float(os.environ.get("MARKET_EPS", "1e-3"))
 MAX_ROUNDS = int(os.environ.get("MARKET_MAX_ROUNDS", "30"))
 N_SCENARIOS = int(os.environ.get("MARKET_SCENARIOS", "1"))
-ROUND_TIMEOUT = float(os.environ.get("MARKET_ROUND_TIMEOUT", "120"))
+# Espera antes de retransmitir, em segundos de RELOGIO REAL. Precisa ser coerente
+# com o `NET_TIME_SCALE` da camada de rede, que comprime o atraso nominal: com
+# escala 0,02, uma entrega de 150 s nominais leva 3 s reais, e um timeout de 600 s
+# reais equivale a esperar 8 horas de rede antes de reenviar. Quando a escala e
+# conhecida, o valor e derivado dela; `MARKET_ROUND_TIMEOUT` sobrepoe.
+def _round_timeout():
+    explicito = os.environ.get("MARKET_ROUND_TIMEOUT")
+    if explicito:
+        return float(explicito)
+    escala = float(os.environ.get("NET_TIME_SCALE", "1.0"))
+    if os.environ.get("NET_BACKEND", "ideal") == "ideal":
+        return 120.0
+    # Folga de cinco vezes sobre o pior caso plausivel de entrega nesta rede,
+    # cerca de 200 s nominais por mensagem, com piso para nao ficar curto demais.
+    return max(20.0, 5.0 * 200.0 * escala)
+
+
+ROUND_TIMEOUT = _round_timeout()
 
 # Posicao dos tres ciclos de troca de mensagens dentro da janela de 15 min
 # (subsecao 6.1.2 da tese): AC com seus AP no minuto 1, AD com os AC no minuto 5,
@@ -128,7 +145,13 @@ def close_cycle(index, label=""):
 # que a camada de transporte entrega. Com o OMNeT++ descartando pacotes, uma
 # unica mensagem perdida em ~24 por rodada mata a rodada, entao sem isto a
 # negociacao nao sobrevive a nenhuma perda realista.
-MAX_RETRIES = int(os.environ.get("MARKET_MAX_RETRIES", "3"))
+# Retransmissoes antes de desistir de um destinatario. Tres bastavam com a rede
+# idealizada; sobre a topologia publicada da tese NAO bastam. O enlace 5-36, por
+# exemplo, e admitido com PER 0,4, que a Tabela 7 aceita por estar abaixo do
+# limiar de 0,5: uma mensagem de 1250 bytes ocupa dez quadros e perde 27,5% dos
+# datagramas mesmo com as retentativas do MAC. Com tres tentativas a negociacao
+# aborta na primeira rodada; com dez ela converge.
+MAX_RETRIES = int(os.environ.get("MARKET_MAX_RETRIES", "10"))
 # 0 = linha de base: publica a programacao PROPOSTA pelos prosumidores, sem
 # negociacao, para medir o que a rede sofreria sem o mecanismo.
 NEGOTIATE = os.environ.get("MARKET_NEGOTIATE", "1") == "1"

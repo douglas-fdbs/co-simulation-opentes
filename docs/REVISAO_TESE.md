@@ -21,7 +21,7 @@ energia*. Tese de doutorado, UFC, 2022.
 | 6.1.4.2 | Otimização do concentrador (Eq. 6.25 e 6.26) | `solve_concentrator` | — |
 | 6.1.4.3 | Otimização do DSO (Eq. 6.12 a 6.17, 6.27 a 6.29) | `solve_dso` | Sensibilidade bate com `J⁻¹₂₁` a 0,04% |
 | 6.1.4.4 | Decomposição dual e descoberta do preço sombra (Eq. 6.24 e 6.30) | `dual.py` e `MarketAgent` | Convergência caracterizada, incluindo o limite do critério de parada |
-| 6.1.5 | Rede LPWA 6TiSCH | `comm-opentes/Tisch.cc` | Reproduz os 10 a 90 s da tese sem ajuste |
+| 6.1.5 | Rede LPWA 6TiSCH | `comm-opentes/Tisch.cc` | Topologia do Apêndice C lida do arquivo; tempos na faixa da tese com 2 cells por slotframe, que é calibração declarada |
 | 6.2.2 | Fase de programação da operação | Fluxo completo | 442 para 4 pontos violados no fluxo não linear |
 | 6.2.3 | Fase de operação, dois níveis | `MarketAgent.start_operation` | 22 intervalos tratados, todos resolvidos |
 

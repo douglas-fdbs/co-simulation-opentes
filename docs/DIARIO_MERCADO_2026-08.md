@@ -861,3 +861,128 @@ potência, não variável de decisão. Despachá-lo como serviço, dentro da cap
 do inversor, daria ao DSO uma segunda alavanca de tensão, mais barata que
 deslocar energia. Isso é controle Volt/Var, é escopo de outro time, e fica
 registrado como extensão.
+
+## 22. Revisão de cobertura contra a tese (11 de agosto de 2026)
+
+Depois de fechar a Fase 6, o capítulo 6 foi varrido subseção por subseção para
+saber o que estava coberto, o que estava implementado de outro jeito e o que
+faltava. O resultado está em `REVISAO_TESE.md`; aqui fica o que a revisão custou
+e o que ela ensinou.
+
+**A primeira coisa que ela produziu foi uma correção minha.** Eu havia
+documentado que a análise de comunicação da tese subestima o tráfego em mais de
+uma ordem de grandeza. Está errado. A análise dela é da FASE DE OPERAÇÃO, em que
+a mensagem carrega um intervalo só; medido, o CFP de operação desta implementação
+tem 1.004 bytes, dentro dos 1000 a 1500 que ela declara. Os tamanhos estão certos
+para a fase que ela mede. O descompasso é na programação do dia seguinte, cujo
+CFP carrega 96 intervalos e chega a 27.275 bytes, fase para a qual a tese não
+reporta comunicação. O achado sobrevive com o alvo corrigido.
+
+**Quatro itens foram tratados, na ordem que o orientando escolheu.**
+
+*A demanda realizada.* A tese perturba a programação em até ±10%; aqui era um dia
+inteiro diferente do reservatório, com desvio agregado de 9,4 kW de mediana sobre
+27 kW típicos. Os resultados de operação não eram comparáveis. Com o mecanismo
+dela, que é por prosumidor e independente, o desvio se cancela em 68 nós e cai
+para 0,2 kW, e a negociação passa a resolver TUDO: de 337 pontos violados para
+zero, com a mínima indo de 0,93946 para 0,97033 pu.
+
+*Os três ciclos.* A tese os posiciona nos minutos 1, 5 e 10 da janela. Ao
+implementá-los descobriu-se que **o ciclo 2 não existia**: o tratador de `REPORT`
+estava escrito no concentrador, mas ninguém enviava o CFP, e o agente de mercado
+lia `p_init` direto da memória do concentrador, por dentro do processo. O atalho
+pulava a rede inteira, e por isso o ciclo 2 nunca apareceu em medição nenhuma de
+comunicação, inclusive nas da Fase 5. Os minutos viraram ORÇAMENTO de tempo de
+rede, não espera de relógio, porque a negociação acontece dentro de um passo do
+Mosaik com o relógio parado.
+
+*As saídas de resultado.* O que faltava não eram as consultas, e sim os dados: o
+histórico e o registro da operação só existiam na memória do agente e morriam com
+o processo.
+
+*O limite térmico de condutor.* Não é lacuna. A formulação da tese tem duas
+restrições, a Eq. 6.13 de potência do transformador e a Eq. 6.14 de tensão; a
+menção a condutores está no texto que descreve o agente DSO, não no
+equacionamento. Medido, o carregamento máximo é de 41,88% e nenhum dos 6.624
+pontos passa de 100%, então a restrição nunca atuaria. Virou o módulo
+`market_opentes.loading`, para a afirmação ser repetível em vez de suposta.
+
+**Três defeitos apareceram durante a própria revisão, nenhum visível como erro.**
+
+A negociação vinha sendo **cortada antes de convergir**. O teto de 30 rodadas era
+herança de quando o `V_BACKOFF` era 1e-3; com a margem de 2e-3 da Fase 4 a região
+viável aperta e a convergência passa a exigir 34. O resultado saía com
+`converged=False` e nada avisava, porque a programação entregue continuava
+factível e a tensão continuava boa.
+
+O ciclo 2 recém-implementado **não retransmitia**. Numa execução sobre a 6TiSCH o
+DSO perdeu o relatório de um concentrador e desistiu, o que zera a flexibilidade
+de todos os prosumidores sob ele.
+
+E figuras liam **arquivos mortos**: a `operacao.png` lia um `operation_log.json`
+que os agentes tinham deixado de escrever, e seguia desenhando dados antigos sem
+erro nenhum. Cada execução passou a gravar a própria configuração, e as figuras
+saem carimbadas com ela.
+
+## 23. A adjacência da rede de comunicação era minha, não da tese
+
+Ao revisar o repositório de referência apareceram dois arquivos que mudam a Fase
+5: `bus_xy.txt`, com as coordenadas, e `adj_array.txt`, com a matriz de
+adjacência de fato usada.
+
+As coordenadas que eu havia transcrito do Apêndice B conferem exatamente, zero
+divergências em 75 nós. A adjacência não: a tese usa **578 enlaces** e a minha
+gerava **1.466**.
+
+**A causa é uma premissa que eu não tinha percebido estar tomando.** Eu regenerava
+a matriz a partir das coordenadas, aplicando o limiar de PER 0,5 que a tese
+descreve. Parece fiel, mas regenerar exige um dado que ela não publica: o
+orçamento de enlace do rádio. Adotei 0 dBm, o padrão do Simulador 6TiSCH que ela
+cita, e o alcance saiu cerca de 12 dB mais folgado que o real. A diferença é
+sistemática: em seis sementes, 0 dBm dá de 1.441 a 1.501 enlaces, e −12 dBm dá de
+594 a 644.
+
+A correção não foi calibrar a potência, foi **parar de gerar**. A matriz é dado
+publicado, então passou a ser lida do arquivo, e o modelo de propagação responde
+apenas pelo PER de cada enlace que existe. Para os enlaces que a matriz declara
+viáveis, o sorteio do Pister-Hack é condicionado a PER abaixo do limiar, que é a
+distribuição implicada por eles existirem.
+
+**O que isso muda.** Os saltos médios vão de 1,50 para 3,18 e os tempos de entrega
+dobram. Com isso caiu a afirmação de que o modelo reproduzia os 10 a 90 s da tese
+"sem ajuste": com a topologia certa e 1 cell por slotframe, os tempos vão de 6 a
+140 s. O parâmetro que reconcilia é o número de cells alocados por enlace por
+slotframe, que a tese não informa: com 2 cells os tempos ficam entre 6 e 74 s. O
+padrão passou a 2, registrado como CALIBRAÇÃO e não como previsão. A versão
+anterior acertava a faixa por compensação de dois erros, topologia otimista e
+cells de menos.
+
+**E a topologia real trouxe um achado que a minha escondia.** A regra da tese
+admite enlace sempre que o PER fica abaixo de 0,5, e a Tabela 7 tem degrau em 0,4.
+Um enlace admitido com PER 0,4 por quadro, já com as três retentativas do MAC,
+perde 2,6% dos quadros. Uma mensagem de 100 bytes é um quadro e perde 2,6%; uma
+de 1250 bytes são dez quadros, e perder qualquer um perde o datagrama: 22,8%
+previstos contra 27,5% medidos no enlace 5-36.
+
+A consequência é operacional. O concentrador `trafo_5_35` fica atrás desse
+enlace, e com três retransmissões a negociação **aborta na primeira rodada**. Com
+dez, converge em 34 rodadas, com 57 mensagens perdidas em 2.823 e 43
+retransmissões. O padrão de `MAX_RETRIES` subiu para dez.
+
+Com a rede densa demais, esses enlaces marginais nunca eram o caminho mais barato
+e nada disso aparecia.
+
+**Um ajuste operacional junto.** O `ROUND_TIMEOUT` estava em segundos de relógio
+real enquanto os atrasos entram comprimidos pelo `NET_TIME_SCALE`: com escala
+0,02, uma entrega leva 3 s reais e o timeout esperava 600. Cada perda custava dez
+minutos de espera. Agora ele é derivado da escala quando há camada de rede.
+
+## 24. Documentos de comparação e de entrada
+
+Dois documentos novos. `COMPARACAO_TESE.md` põe o trabalho lado a lado com a
+tese: ferramentas por camada, caso de estudo item a item, resultados que coincidem
+e que divergem, divergências de modelagem com o motivo de cada uma, e uma tabela
+figura por figura. `GUIA.md` explica o repositório para quem chega agora.
+
+O resultado central se reproduz: a tese relata a tensão às 17:45 indo de 0,94 para
+0,97 pu, e aqui a mínima do dia vai de 0,93946 para 0,97033 pu, no mesmo horário.

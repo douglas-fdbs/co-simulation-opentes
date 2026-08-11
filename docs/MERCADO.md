@@ -169,8 +169,19 @@ sensibilidade de −106,37 dBm, e existe enlace entre dois agentes sempre que o 
 fica abaixo de 0,5. As coordenadas dos 77 agentes são as do Apêndice B.
 
 Implementação: `comm-opentes/Tisch.cc`, configuração `-c tisch` do `omnetpp.ini`,
-coordenadas em `comm-opentes/nodes_xy.csv`, figura em
-`market_opentes/plot_tisch.py`.
+coordenadas em `comm-opentes/nodes_xy.csv`, adjacência em
+`comm-opentes/adjacency.txt`, figura em `market_opentes/plot_tisch.py`.
+
+**A adjacência é dado, não reconstrução.** Numa primeira versão ela era gerada a
+partir das coordenadas pelo limiar de PER, o que parece fiel mas exige um dado
+que a tese não publica: o orçamento de enlace do rádio. A suposição natural de
+0 dBm, que é o padrão do Simulador 6TiSCH, produziu **1.466 enlaces** contra os
+**578** da matriz publicada, ou seja, um alcance cerca de 12 dB mais folgado. A
+diferença é sistemática e não ruído de sorteio. Como a matriz existe no Apêndice C
+e no `adj_array.txt` da implementação de referência, ela passou a ser lida do
+arquivo, e o modelo de propagação responde apenas pelo PER de cada enlace que
+existe. As coordenadas transcritas do Apêndice B, essas sim, conferem exatamente
+com o `bus_xy.txt` original.
 
 **O que muda em relação à tese.** Ela roda o Simulador 6TiSCH fora do laço,
 extrai PER e atraso e alimenta o ns-3 com esses números. Aqui o caminho é
@@ -179,18 +190,37 @@ própria simulação. O roteamento é Dijkstra sobre ETX = 1/(1−PER), que mini
 número esperado de transmissões, e não o número de saltos: minimizar saltos
 escolheria enlaces longos e ruins.
 
-**Topologia obtida:** 1.466 enlaces viáveis entre 2.925 pares, PER médio de
-0,0291 nos viáveis, 1,50 salto em média e nenhum par sem rota. A dispersão
-vertical da figura é o próprio Pister-Hack: a 1 km existem enlaces com PER baixo,
-porque o desvio sorteado daquele par calhou de ser pequeno. É o comportamento que
-a tese descreve para a Figura 42.
+**Topologia:** 578 enlaces, PER médio de 0,0138 nos viáveis, **3,18 saltos** em
+média e nenhum par sem rota.
 
-**Validação contra a tese.** Com os tamanhos de mensagem que ela declara, a
-negociação sobre esta rede converge em 28 rodadas com 1 mensagem perdida em
-2.301, atraso mediano de 0,0 s e máximo de 96,4 s. A tese reporta tempos de
-recepção de 10 a 90 s para mensagens de 100 a 1500 bytes. Os números saem dos
-parâmetros dela, sem ajuste: 100 bytes cabem em um quadro e chegam em cerca de
-4 s, 1250 bytes ocupam 10 quadros e chegam em cerca de 77 s.
+**Um parâmetro é calibrado, e isso está declarado.** O número de cells alocados
+por enlace por slotframe é o que mais mexe no tempo de entrega, e a tese não o
+informa. Com 1 cell, a configuração mínima do 6TiSCH, os tempos vão de 6 a 140 s;
+com 2 cells ficam entre 6 e 74 s, dentro dos 10 a 90 s que a tese reporta. O
+padrão é 2, registrado como calibração e não como previsão do modelo.
+
+| Mensagem | Aqui, com 2 cells | Tese |
+|---|---|---|
+| 100 B | mediana 6,3 s | 10 a 90 s para 100 a 1500 B |
+| 1000 B | mediana 49,2 s | |
+| 1250 B | mediana 61,4 s | |
+| 1500 B | mediana 73,7 s, p90 88,5 s | |
+
+**O limiar de PER da tese é generoso para mensagens multi-quadro.** A regra admite
+enlace sempre que o PER fica abaixo de 0,5, e a Tabela 7 tem degrau em 0,4. Um
+enlace admitido com PER 0,4 por quadro, já com as três retentativas do MAC, perde
+0,4⁴ = 2,6% dos quadros. Uma mensagem de 100 bytes é um quadro e perde 2,6%; uma
+de 1250 bytes são dez quadros, e perder qualquer um perde o datagrama: 22,8%
+previstos, 27,5% medidos no enlace 5-36.
+
+A consequência é operacional: com três retransmissões a negociação **aborta na
+primeira rodada**, porque o concentrador `trafo_5_35` fica atrás desse enlace. O
+padrão de `MAX_RETRIES` subiu para 10, e com ele a negociação converge em 34
+rodadas com 57 mensagens perdidas em 2.823 e 43 retransmissões.
+
+Esse efeito só aparece com a topologia publicada. Com a rede densa demais da
+primeira versão, os enlaces marginais nunca eram o caminho mais barato e o
+problema não se manifestava.
 
 ## 5.1 O tamanho das mensagens no modelo de rede original
 
