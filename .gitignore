@@ -40,3 +40,7 @@ simulators/market-opentes/data/operation_log.json
 # Levantamento de enlaces que o TischServer grava no arranque, dentro do
 # volume montado. E saida de execucao, nao fonte.
 simulators/comm-opentes/tisch_links.csv
+
+# Registro bruto da execucao dos agentes: 2,8 MB de programacoes por rodada, que
+# alimentam as figuras. E saida, nao fonte.
+simulators/market-opentes/data/run/

@@ -136,13 +136,26 @@ descrição textual do agente é mais ampla que a formulação.
 
 ### 3.5 Saídas de resultado que a tese tem e nós não
 
-- Tabelas 18 e 19 do Apêndice A: tensão máxima e mínima por nó, com horário de
-  ocorrência.
-- Figuras 51 e 52: programação de demanda por nó ao longo das iterações de
-  negociação, comparando o que o AD e o AC adotam.
-- Figura 58: linha do tempo das mensagens por ciclo.
+**Corrigido**, em `market_opentes/plot_tese.py`. O que faltava antes não eram as
+consultas, e sim os dados: o histórico e o registro da operação só existiam na
+memória do agente e morriam com o processo. Agora a execução grava um
+`data/run/run.json` com a programação que cada lado adotou por rodada e por nó.
 
-Nenhuma delas é difícil; são consultas sobre dados que já existem.
+| Saída | Equivalente na tese | Arquivo |
+|---|---|---|
+| Tensão máxima e mínima por nó, com horário | Tabelas 18 e 19 do Apêndice A | `tensao_por_no.csv` |
+| Programação do AC e do AD por rodada, para um nó | Figuras 51 e 52 | `programacao_no.png` |
+| Tempo de rede por ciclo contra a fatia dele | Figura 58 | `ciclos.png` |
+
+Duas decisões de leitura que mudaram o que a figura diz. Na programação por nó,
+as rodadas são espaçadas em escala logarítmica: o movimento da negociação
+acontece quase todo nas primeiras rodadas, e quatro pontos equidistantes
+deixariam três empilhados sobre a solução final. Na figura dos ciclos, a barra
+que importa é a ACUMULADA: por execução o ciclo 3 gasta 91 s contra uma fatia de
+300 s e parece folgado, mas ele se repete 28 vezes e soma 2.556 s.
+
+O pior ponto de subtensão sai como nó 53, com 0,97033 pu às 16:30, coerente com
+o horário crítico que a tese relata.
 
 ## 4. Fora do escopo por decisão da própria tese
 

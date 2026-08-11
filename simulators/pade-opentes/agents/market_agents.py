@@ -49,6 +49,7 @@ import json
 import math
 import os
 import sys
+from pathlib import Path
 
 import numpy as np
 from pade.acl.aid import AID
@@ -1094,6 +1095,7 @@ class MarketAgent(Agent):
             self._timeout_call.cancel()
         self.replied = set()
 
+        c3 = close_cycle(2, f" (rodada {self.round})")
         residual = np.array([self.x[n] - self.y[n] for n in pros])
         d_lam = ALPHA * residual
         for i, n in enumerate(pros):
@@ -1104,8 +1106,13 @@ class MarketAgent(Agent):
             "d_lambda_max": float(np.abs(d_lam).max()),
             "residual_max": float(np.abs(residual).max()),
             "lambda_max": float(max(np.abs(v).max() for v in self.lam.values())),
+            # Programacao que cada lado adotou NESTA rodada, por no. E o dado das
+            # Figuras 51 e 52 da tese, que comparam o que o AC propoe com o que o
+            # AD aceita ao longo das iteracoes.
+            "x": {str(n): self.x[n].tolist() for n in pros if n in self.x},
+            "y": {str(n): self.y[n].tolist() for n in pros if n in self.y},
+            "cycle3_net_s": c3["max_delay"] if c3 else None,
         })
-        c3 = close_cycle(2, f" (rodada {self.round})")
         extra = f" rede={c3['max_delay']:.0f} s" if c3 else ""
         display_message(self.aid.localname,
                         f"rodada {self.round}: |dlambda|={np.abs(d_lam).max():.3e} "
@@ -1492,6 +1499,27 @@ def _install_network(agents, case=None):
     return link
 
 
+RUN_DIR = Path(os.environ.get("MARKET_RUN_DIR", "/market/data/run"))
+
+
+def _dump_run(market, link):
+    """Grava o que a execucao produziu, para as figuras e tabelas."""
+    try:
+        RUN_DIR.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "rounds": market.round,
+            "converged": market.converged,
+            "history": market.history,
+            "operation": market.operation_log,
+            "cycles": link.cycles if link is not None else [],
+            "cycle_budget_s": dict(zip(CYCLE_NAMES, CYCLE_BUDGET_S)),
+        }
+        (RUN_DIR / "run.json").write_text(json.dumps(payload))
+        print(f"[mercado] execucao gravada em {RUN_DIR / 'run.json'}", flush=True)
+    except Exception as exc:                       # nao derruba o encerramento
+        print(f"[mercado] nao consegui gravar a execucao: {exc}", flush=True)
+
+
 def start_market_loop(agents, case=None):
     """`start_loop` do PADE, mais o preenchimento do diretorio de agentes.
 
@@ -1527,6 +1555,12 @@ def start_market_loop(agents, case=None):
         reactor.addSystemEventTrigger(
             "before", "shutdown",
             lambda: (print(f"[rede] {link.summary()}", flush=True), link.close()))
+
+    # O historico e o registro da operacao so existiam na memoria do agente e
+    # morriam com o processo. Sao a fonte das Figuras 51, 52 e 58 da tese.
+    market = agents[0]
+    reactor.addSystemEventTrigger("before", "shutdown",
+                                  lambda: _dump_run(market, link))
 
     reactor.run()
 
