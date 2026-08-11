@@ -85,6 +85,44 @@ EPS = float(os.environ.get("MARKET_EPS", "1e-3"))
 MAX_ROUNDS = int(os.environ.get("MARKET_MAX_ROUNDS", "30"))
 N_SCENARIOS = int(os.environ.get("MARKET_SCENARIOS", "1"))
 ROUND_TIMEOUT = float(os.environ.get("MARKET_ROUND_TIMEOUT", "120"))
+
+# Posicao dos tres ciclos de troca de mensagens dentro da janela de 15 min
+# (subsecao 6.1.2 da tese): AC com seus AP no minuto 1, AD com os AC no minuto 5,
+# AM com AC e AD no minuto 10. Sao ORCAMENTOS, nao esperas: a negociacao inteira
+# acontece dentro de um passo do Mosaik, com o relogio da co-simulacao parado, e
+# o que interessa e se o tempo de REDE de cada ciclo cabe na fatia dele.
+WINDOW_S = float(os.environ.get("MARKET_WINDOW_S", "900"))
+CYCLE_START_S = (60.0, 300.0, 600.0)
+CYCLE_BUDGET_S = (CYCLE_START_S[1] - CYCLE_START_S[0],
+                  CYCLE_START_S[2] - CYCLE_START_S[1],
+                  WINDOW_S - CYCLE_START_S[2])
+CYCLE_NAMES = ("ciclo1_AC_AP", "ciclo2_AD_AC", "ciclo3_AM_AC_AD")
+
+# Camada de rede, quando instalada. Serve para contabilizar o tempo de rede por
+# ciclo; sem ela os ciclos continuam existindo, so nao ha o que medir.
+LINK = None
+
+
+def begin_cycle(index):
+    """Abre a contabilidade de rede do ciclo dado (0, 1 ou 2)."""
+    if LINK is not None:
+        LINK.begin_cycle(CYCLE_NAMES[index])
+
+
+def close_cycle(index, label=""):
+    """Fecha o ciclo e diz se o tempo de rede coube no orcamento dele."""
+    if LINK is None:
+        return None
+    c = LINK.end_cycle()
+    if c is None:
+        return None
+    c["budget_s"] = CYCLE_BUDGET_S[index]
+    c["fits"] = c["max_delay"] <= CYCLE_BUDGET_S[index]
+    if not c["fits"]:
+        display_message("mercado", f"{CYCLE_NAMES[index]}{label}: tempo de rede "
+                                   f"{c['max_delay']:.0f} s ESTOURA o orcamento de "
+                                   f"{CYCLE_BUDGET_S[index]:.0f} s")
+    return c
 # Retransmissoes por rodada. O FIPA nao define retransmissao: o protocolo supoe
 # que a camada de transporte entrega. Com o OMNeT++ descartando pacotes, uma
 # unica mensagem perdida em ~24 por rodada mata a rodada, entao sem isto a
@@ -459,6 +497,18 @@ class ProsumerParticipant(FipaContractNetProtocol):
         request = _parse(message.content)
         if request.get("action") != "SCHEDULE":
             return
+
+        t = request.get("t")
+        if t is not None:
+            # Ciclo 1 da fase de operacao: um intervalo so, e a programacao ja
+            # foi decidida na fase anterior, entao nao ha o que reotimizar. O
+            # prosumidor apenas informa o valor que vai executar.
+            valor = float(self.agent.dispatched[t]) if self.agent.dispatched is not None else 0.0
+            self.agent.send(_reply(message, ACLMessage.PROPOSE,
+                                   {"node": self.agent.node, "t": t,
+                                    "schedule": [valor]}))
+            return
+
         self.agent.solver.ask(
             {"kind": "prosumer", "node": self.agent.node},
             lambda result: self.agent.send(
@@ -534,9 +584,19 @@ class ConcentratorParticipant(FipaContractNetProtocol):
         action = request.get("action")
 
         if action == "REPORT":          # ciclo 2: so devolve o que os AP propuseram
-            self.agent.send(_reply(message, ACLMessage.PROPOSE, {
-                "p_init": {str(n): self.agent.p_init[n].tolist()
-                           for n in self.agent.nodes}}))
+            resposta = {"p_init": {str(n): self.agent.p_init[n].tolist()
+                                   for n in self.agent.nodes
+                                   if n in self.agent.p_init}}
+            if "t" in request:
+                resposta["t"] = request["t"]
+                # Na operacao o AC informa tambem o armazenamento de rede sob
+                # ele, que e o recurso que o AD tenta usar primeiro.
+                resposta["q_init"] = {
+                    str(n): [float(self.agent.network_dispatch[n][request["t"]])]
+                    for n in self.agent.network_storage
+                    if self.agent.network_dispatch is not None
+                    and n in self.agent.network_dispatch}
+            self.agent.send(_reply(message, ACLMessage.PROPOSE, resposta))
             return
 
         if action == "OPERATE_AUCTION":  # leilao de operacao, um periodo so
@@ -583,6 +643,7 @@ class ConcentratorAgent(Agent):
         self.behaviours.append(self.solver)
         self.behaviours.append(ConcentratorParticipant(self))
         self.cycle1 = None
+        self.op_t = None            # intervalo, quando o ciclo 1 e de operacao
         # Papel do AC na tese: acionar os dispositivos de armazenamento de rede
         # sob o seu transformador. O DSO decide, o concentrador despacha.
         self.network_storage = network_storage
@@ -616,8 +677,19 @@ class ConcentratorAgent(Agent):
         super().on_start()
         AGENTS[self.aid.localname] = self
 
-    def request_schedules(self):
-        """Ciclo 1."""
+    def request_schedules(self, t=None, on_ready=None):
+        """Ciclo 1: pede a programacao aos prosumidores.
+
+        Com `t` a solicitacao e da fase de operacao e pede so aquele intervalo,
+        que e a diferenca que a tese aponta entre as duas fases: "as programacoes
+        enviadas pelos AP e AC sao compostas apenas pelo valor programado para o
+        proximo intervalo de tempo".
+        """
+        self.op_t = t
+        if on_ready is not None:
+            self._on_ready = on_ready
+        self._reported = False
+        self.p_init = {}
         if not self.nodes:
             self.on_prosumers_ready()
             return
@@ -635,7 +707,10 @@ class ConcentratorAgent(Agent):
         message.set_protocol(ACLMessage.FIPA_CONTRACT_NET_PROTOCOL)
         for node in nodes:
             message.add_receiver(AID(name=f"prosumer{node}"))
-        _set_content(message, {"action": "SCHEDULE"})
+        payload = {"action": "SCHEDULE"}
+        if self.op_t is not None:
+            payload["t"] = self.op_t
+        _set_content(message, payload)
         if self.cycle1 is None:
             self.cycle1 = ConcentratorInitiator(self, message)
             self.behaviours.append(self.cycle1)
@@ -716,6 +791,17 @@ class DSOParticipant(FipaContractNetProtocol):
                            dict(result, round=request.get("round")))))
 
 
+class ReportInitiator(FipaContractNetProtocol):
+    """Ciclo 2: o AD pede as programacoes agregadas aos AC."""
+
+    def __init__(self, agent, message):
+        super().__init__(agent=agent, message=message, is_initiator=True)
+
+    def handle_propose(self, message):
+        super().handle_propose(message)
+        self.agent.collect_report(message)
+
+
 class DSOAgent(Agent):
     def __init__(self, aid, on_dispatch_done=None):
         super().__init__(aid=aid, debug=False)
@@ -724,6 +810,60 @@ class DSOAgent(Agent):
         self.behaviours.append(DSOParticipant(self))
         self.publisher = DispatchPublisher(self, on_dispatch_done)
         self.behaviours.append(self.publisher)
+        self.reports = {}
+        self.report_behaviour = None
+        self._report_on_ready = None
+        self._report_expected = set()
+        self._report_timeout = None
+
+    # ---- ciclo 2: o AD pede aos AC as programacoes ------------------------
+    def request_reports(self, names, on_ready, t=None):
+        """Solicita a cada concentrador a programacao que ele agregou.
+
+        Este ciclo EXISTIA so no papel: o tratador de `REPORT` estava escrito no
+        concentrador, mas ninguem enviava o CFP, e o agente de mercado lia
+        `p_init` direto da memoria do concentrador. O atalho pulava a rede
+        inteira, e com isso o ciclo 2 nao aparecia em nenhuma medicao de
+        comunicacao. A tese o descreve como ato comunicativo do AD com os AC.
+        """
+        self._report_on_ready = on_ready
+        self._report_expected = set(names)
+        self.reports = {}
+        message = ACLMessage(ACLMessage.CFP)
+        message.set_protocol(ACLMessage.FIPA_CONTRACT_NET_PROTOCOL)
+        for name in names:
+            message.add_receiver(AID(name=name))
+        _set_content(message, {"action": "REPORT"} if t is None
+                     else {"action": "REPORT", "t": t})
+        if self.report_behaviour is None:
+            self.report_behaviour = ReportInitiator(self, message)
+            self.behaviours.append(self.report_behaviour)
+        else:
+            self.report_behaviour.message = message
+        self.report_behaviour.on_start()
+        self._report_timeout = self.call_later(ROUND_TIMEOUT, self._on_report_timeout)
+
+    def collect_report(self, message):
+        sender = getattr(message.sender, "localname", "?")
+        payload = _parse(message.content)
+        self.reports[sender] = payload
+        self._report_expected.discard(sender)
+        if not self._report_expected:
+            self._finish_reports()
+
+    def _on_report_timeout(self):
+        if self._report_expected:
+            display_message(self.aid.localname,
+                            f"ciclo 2: TIMEOUT, sem relatorio de "
+                            f"{sorted(self._report_expected)}")
+        self._finish_reports()
+
+    def _finish_reports(self):
+        if self._report_timeout is not None and self._report_timeout.active():
+            self._report_timeout.cancel()
+        callback, self._report_on_ready = self._report_on_ready, None
+        if callback is not None:
+            callback(self.reports)
 
     def dispatch(self, prosumer_schedule, network_schedule):
         """Publica a programacao acordada aos concentradores."""
@@ -814,10 +954,11 @@ class MarketAgent(Agent):
         super().on_start()
         AGENTS[self.aid.localname] = self
 
-    # ---- ciclo 1 e 2: dispara os concentradores ----------------------------
+    # ---- ciclo 1: cada AC pede aos seus AP ---------------------------------
     def start_negotiation(self):
         display_message(self.aid.localname, "iniciando a fase de programacao")
         self.pending_concentrators = {c.name for c in self.case.concentrators}
+        begin_cycle(0)
         for c in self.case.concentrators:
             AGENTS[f"concentrator_{c.name}"].request_schedules()
 
@@ -826,8 +967,18 @@ class MarketAgent(Agent):
         if self.pending_concentrators or self._negotiating:
             return
         self._negotiating = True
-        for c in self.case.concentrators:
-            self.p_init.update(AGENTS[f"concentrator_{c.name}"].p_init)
+        close_cycle(0)
+        # ---- ciclo 2: o AD pede aos AC as programacoes agregadas -----------
+        begin_cycle(1)
+        AGENTS["dso"].request_reports(
+            [f"concentrator_{c.name}" for c in self.case.concentrators],
+            self._on_reports)
+
+    def _on_reports(self, reports):
+        close_cycle(1)
+        for payload in reports.values():
+            for node, series in payload.get("p_init", {}).items():
+                self.p_init[int(node)] = np.array(series)
 
         # Politica para quem nao respondeu ao CFP nem apos as retransmissoes: a
         # flexibilidade dele nao entra na negociacao (programacao nula). E uma
@@ -856,6 +1007,9 @@ class MarketAgent(Agent):
     # ---- ciclo 4: rodadas de negociacao ------------------------------------
     def next_round(self):
         self.round += 1
+        # Ciclo 3: cada rodada da descoberta do preco sombra e uma passagem
+        # completa AM -> AC/AD -> AM, e cada uma tem que caber na fatia do ciclo.
+        begin_cycle(2)
         pros = self.case.prosumer_storage_nodes
         self.replied = set()
         payload = {
@@ -951,9 +1105,11 @@ class MarketAgent(Agent):
             "residual_max": float(np.abs(residual).max()),
             "lambda_max": float(max(np.abs(v).max() for v in self.lam.values())),
         })
+        c3 = close_cycle(2, f" (rodada {self.round})")
+        extra = f" rede={c3['max_delay']:.0f} s" if c3 else ""
         display_message(self.aid.localname,
                         f"rodada {self.round}: |dlambda|={np.abs(d_lam).max():.3e} "
-                        f"|x-y|={np.abs(residual).max():.4f} kW")
+                        f"|x-y|={np.abs(residual).max():.4f} kW{extra}")
 
         if np.abs(d_lam).max() <= EPS:
             self.converged = True
@@ -994,12 +1150,42 @@ class MarketAgent(Agent):
 
     # ---- fase de operacao, a cada 15 min ----------------------------------
     def start_operation(self, t):
-        """Ciclo de operacao do intervalo t (subsecao 6.1.2, fase de operacao).
+        """Fase de operacao do intervalo t (subsecao 6.1.2).
 
-        Primeiro nivel: o DSO tenta corrigir o desvio so com o armazenamento de
-        rede. Se nao bastar, o agente de mercado abre o leilao de operacao, que e
-        a mesma decomposicao dual sobre UM periodo.
+        Os mesmos tres ciclos da programacao, com a programacao reduzida a UM
+        intervalo, e nos mesmos instantes da janela de 15 min: AC com seus AP no
+        minuto 1, AD com os AC no minuto 5, AM com AC e AD no minuto 10.
+
+        O ciclo 3 aqui tem dois niveis. Primeiro o DSO tenta corrigir o desvio so
+        com o armazenamento de rede; se nao bastar, o agente de mercado abre o
+        leilao, que e a mesma decomposicao dual sobre um periodo so.
         """
+        self.op_t = t
+        # Ciclo 1: cada AC pede aos seus AP a programacao do intervalo.
+        begin_cycle(0)
+        self.pending_op_concentrators = {c.name for c in self.case.concentrators}
+        for c in self.case.concentrators:
+            AGENTS[f"concentrator_{c.name}"].request_schedules(t=t,
+                                                               on_ready=self._op_cycle2)
+        return
+
+    def _op_cycle2(self, name):
+        """Ciclo 2 da operacao: o AD pede aos AC o que eles agregaram."""
+        self.pending_op_concentrators.discard(name)
+        if self.pending_op_concentrators:
+            return
+        close_cycle(0, f" (t={self.op_t})")
+        begin_cycle(1)
+        AGENTS["dso"].request_reports(
+            [f"concentrator_{c.name}" for c in self.case.concentrators],
+            self._op_cycle3, t=self.op_t)
+
+    def _op_cycle3(self, reports):
+        close_cycle(1, f" (t={self.op_t})")
+        begin_cycle(2)
+        self._start_operation_check(self.op_t)
+
+    def _start_operation_check(self, t):
         self.op_t = t
         self.op_round = 0
         self.op_lam = {n: np.zeros(1) for n in self.case.prosumer_storage_nodes}
@@ -1112,9 +1298,11 @@ class MarketAgent(Agent):
             self.q[int(node)][t] = float(series[0])
 
     def _finish_operation(self, motivo):
+        c3 = close_cycle(2, f" (t={self.op_t})")
         r = self.op_result or {}
         self.operation_log.append({
             "t": self.op_t, "motivo": motivo,
+            "cycle3_net_s": c3["max_delay"] if c3 else None,
             "deviation_kw": r.get("deviation", 0.0),
             "violations_before": r.get("violations_before", 0),
             "violations_after": r.get("violations_after", 0),
@@ -1334,6 +1522,7 @@ def start_market_loop(agents, case=None):
           f"{BASE_PORT}", flush=True)
 
     link = _install_network(agents, case)
+    globals()["LINK"] = link
     if link is not None:
         reactor.addSystemEventTrigger(
             "before", "shutdown",

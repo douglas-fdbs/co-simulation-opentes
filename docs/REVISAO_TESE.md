@@ -86,17 +86,45 @@ mostra que a programação do dia seguinte não cabe na rede LPWA com o conteúd
 real das mensagens. Ela **não** mostra que a análise de comunicação da tese
 subestima o tráfego.
 
-### 3.3 Os três ciclos não respeitam os minutos 1, 5 e 10
+### 3.3 Os três ciclos, e um deles que não existia
 
 A tese posiciona os três ciclos de troca de mensagens em instantes definidos
 dentro da janela de 15 minutos: AC com seus AP no minuto 1, AD com os AC no
-minuto 5, AM com AC e AD no minuto 10. Aqui os ciclos rodam em sequência, com
-`call_later` de 0,05 a 0,1 s entre eles.
+minuto 5, AM com AC e AD no minuto 10.
 
-Enquanto a entrega é instantânea isso não muda resultado. Com a rede 6TiSCH no
-laço passa a mudar, porque o orçamento de tempo de cada ciclo é justamente o que
-determina se ele fecha dentro da janela. É a condição para reproduzir a Figura 58
-da tese.
+**O ciclo 2 não existia como tráfego.** O tratador de `REPORT` estava escrito no
+concentrador, mas nenhum agente enviava o CFP correspondente: o agente de mercado
+lia `p_init` direto da memória do concentrador, por dentro do processo. O atalho
+pulava a rede inteira, e por isso o ciclo 2 não apareceu em nenhuma medição de
+comunicação, inclusive nas da Fase 5.
+
+**Corrigido.** Os três ciclos existem agora nas duas fases, com o AD iniciando o
+ciclo 2 como a tese descreve. Na operação o ciclo 1 pede apenas o intervalo
+corrente, que é a diferença que a tese aponta entre as fases: "as programações
+enviadas pelos AP e AC são compostas apenas pelo valor programado para o próximo
+intervalo de tempo".
+
+Os minutos 1, 5 e 10 entraram como **orçamento de tempo de rede**, não como espera
+de relógio. A negociação inteira acontece dentro de um passo do Mosaik, com o
+relógio da co-simulação parado, então o que tem significado é se o tempo de rede
+de cada ciclo cabe na fatia dele.
+
+Medido sobre a 6TiSCH, com os tamanhos de mensagem da tese:
+
+| Ciclo | Fatia | Tempo de rede | Cabe? |
+|---|---:|---:|---|
+| 1, AC com seus AP | 240 s | 94,9 s | sim |
+| 2, AD com os AC | 300 s | 87,6 s | sim |
+| 3, AM com AC e AD | 300 s | 92,8 s **por rodada** | ver abaixo |
+
+Nenhum ciclo estoura isoladamente. O aperto está no ciclo 3, que é iterativo: a
+descoberta do preço sombra levou 28 rodadas, e a 92,8 s cada uma isso dá 43
+minutos. Na programação do dia seguinte não é problema, porque há horas
+disponíveis. Na fase de operação, cujo ciclo 3 tem 300 s, **cabem cerca de três
+rodadas**, e é esse o limite prático do leilão de tempo real sobre esta rede.
+
+A verificação de que a reestruturação não mexeu na física: o resultado elétrico
+ficou idêntico, 337 pontos violados para zero, com mínima de 0,97033 pu.
 
 ### 3.4 Limite térmico de condutor
 
