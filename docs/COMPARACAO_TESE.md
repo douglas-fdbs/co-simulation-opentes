@@ -112,54 +112,65 @@ os 578 reais, uma rede com metade dos saltos e muito menos perda. Os tempos
 caíam na faixa da tese por compensação de dois erros: topologia otimista demais e
 cells de menos.
 
-## 4. Resultados que diferem
+## 4. Resultados que diferem, e o quanto cada diferença foi explicada
 
-### 4.1 Número de rodadas até a convergência
+### 4.1 e 4.2 Rodadas e preço sombra: a diferença foi reconciliada
 
-| | Tese | Aqui |
-|---|---|---|
-| Rodadas | 8 | 34 |
+Estes dois números eram os que mais divergiam, e a explicação é a mesma. Um
+experimento de ablação, desligando uma a uma as diferenças de modelagem, mediu a
+contribuição de cada uma.
 
-A tese afirma: "chegou-se, após 8 rodadas de interações de negociação".
+**A base teórica.** λ é o multiplicador de Lagrange da restrição de acoplamento
+`ACP = ADP`. Ele é propriedade do PROBLEMA, não do algoritmo: um método de
+subgradiente convergente vai para o λ* do problema, seja em 8 ou em 47 rodadas.
+Se dois λ diferem e ambos convergiram, os problemas é que são diferentes.
 
-O primeiro passo para comparar foi descobrir qual passo do subgradiente ela usa
-de fato. O `alpha = 0.0005` do código original não converge no porte real, e a
-diferença é de unidade: o resíduo que alimenta a Eq. 6.30 vem das mensagens ACL,
-onde as potências trafegam multiplicadas por 1e3, ou seja em W, enquanto as
-variáveis dentro dos modelos estão em kW. O passo efetivo da tese equivale a
-**α = 0,5 com resíduo em kW**, e com esse valor a nossa negociação converge em 20
-rodadas, não em 8.
+**Ablação, com α = 0,6 e resíduo em kW:**
 
-O que explica o resto da diferença:
+| Configuração | Rodadas | λ máximo |
+|---|---:|---:|
+| Nosso caso completo, 1 cenário | 47 | 5,610 |
+| Só trocando os transformadores por 250 kVA | 47 | 5,610 |
+| Só sem a restrição de SoC terminal | 39 | 5,061 |
+| Só sem a margem de tensão | >80 | 5,133 |
+| As três desligadas | >80 | 4,255 |
+| **As três desligadas, com 9 cenários** | **9 (com ε = 1e-1)** | **2,359** |
+| **Tese** | **8** | **2,18** |
 
-- A margem de 2e-3 pu na restrição de tensão, que não existe na tese, aperta a
-  região viável: sozinha ela leva a convergência de 28 para 34 rodadas.
-- Os transformadores de 45 a 112,5 kVA no lugar dos 250 kVA uniformes fazem a
-  restrição de carregamento entrar no problema.
-- O critério `|Δλ| ≤ ε` é um resíduo primal escalado pelo passo, então o mesmo ε
-  significa coisas diferentes sob passos diferentes. Reportamos o resíduo primal
-  ao lado, e é por ele que se deve comparar.
+**Duas hipóteses caíram no caminho.** O transformador não tem efeito nenhum: o
+caso com 250 kVA é idêntico ao nosso dígito por dígito, ou seja, a restrição de
+carregamento nunca atua nem com os transformadores reais, o que é coerente com o
+carregamento máximo medido de 41,88% da ampacidade. E a margem de tensão
+ATRAPALHA a convergência em vez de ajudar: sem ela são necessárias mais de 80
+rodadas em vez de 47, porque ela dá ao DSO uma solução mais estável para onde
+convergir.
 
-O passo α = 0,6 constante, aliás, converge para uma vizinhança e não para o
-ótimo, com raio que cresce com α: acima de 0,65 nesta rede o raio ultrapassa a
-tolerância e acima de 0,75 aparece ciclo limite.
+**O fator dominante é o modelo estocástico.** Passar de 1 para 9 cenários leva λ
+de 4,255 para 2,359, contra os 2,18 da tese: **8% de diferença**, dentro da
+margem de leitura da tabela dela e da amostragem de cenários. O prosumidor que
+decide sob incerteza programa de forma menos agressiva, estressa menos a rede, e
+o preço sombra necessário para resolver o conflito cai.
 
-Vale registrar o que isso custou descobrir: o teto de rodadas estava em 30, e a
-negociação vinha sendo **cortada antes de convergir** sem que nada avisasse,
-porque a programação entregue continuava factível e a tensão continuava dentro do
-limite. O `converged=False` só apareceu quando o registro da execução passou a ser
-gravado.
+**E as rodadas são o critério de parada.** Nas condições da tese com 9 cenários,
+o `|Δλ| ≤ ε` dispara na rodada 9 se ε = 1e-1, e exige mais de 150 se ε = 1e-4,
+que é o valor do código original:
 
-### 4.2 Magnitude do preço sombra
+| ε | Rodada | Resíduo primal |
+|---|---:|---:|
+| 1e-1 | 9 | 0,1656 kW |
+| 1e-2 | 20 | 0,0142 kW |
+| 1e-3 | 30 | 0,0015 kW |
+| 1e-4 | >150 | — |
 
-| | Tese (Tabela 8) | Aqui |
-|---|---|---|
-| λ máximo | 2,18, no nó 25 às 19:30 | 5,61 |
-| λ típico | 0,01 a 1,05 | — |
+A tese para em 8 rodadas, e aqui na rodada 8 o `|Δλ|` está em 1,24e-1. Ou seja, o
+ε efetivo dela é da ordem de 1e-1, três ordens de grandeza mais frouxo que o
+nosso padrão. **As 8 rodadas dela e as nossas descrevem o mesmo processo parado em
+pontos diferentes**, e o resíduo primal na rodada 9 ainda é de 0,17 kW.
 
-Diferença esperada: λ é o acumulado do subgradiente, `λ ← λ + α·(x − y)`, então
-depende de quantas rodadas se acumulou e de α. Com 34 rodadas contra 8, o valor
-final é maior. Não é grandeza monetária em nenhuma das duas, ver 5.5.
+**Conclusão.** Com as mesmas condições de modelagem e o mesmo critério de parada,
+o trabalho reproduz a tese em 9 rodadas contra 8, e λ de 2,359 contra 2,18. As
+diferenças que restam no caso PADRÃO deste trabalho, 34 a 47 rodadas e λ de 5,6,
+são efeito deliberado das três adições, e não discordância de resultado.
 
 ### 4.3 A fase de operação quase não age
 

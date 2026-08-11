@@ -398,7 +398,12 @@ def solve_dso(case, base_load, p_prosumer_init, p_network_init, lam, v0, s,
     # senao a restricao nao significa nada.
     m.loading = pyo.ConstraintList()
     for c in case.concentrators:
-        limit_kw = c.kva * 0.9      # potencia ativa maxima, com fp 0,9
+        # `MARKET_TRAFO_KVA` forca um valor unico para todos os transformadores.
+        # Existe para reproduzir a tese, que usa 250 kVA uniformes vindos do std
+        # type do pandapower: com esse valor a restricao de carregamento nunca
+        # atua. Sem a chave, valem os 45 a 112,5 kVA do force.json.
+        kva = float(os.environ["MARKET_TRAFO_KVA"]) if os.environ.get("MARKET_TRAFO_KVA") else c.kva
+        limit_kw = kva * 0.9        # potencia ativa maxima, com fp 0,9
         for t in range(periods):
             base = float(sum(base_load[n][t] for n in c.nodes if n in base_load))
             expr = base

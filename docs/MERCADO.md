@@ -99,7 +99,12 @@ de Lagrange, e o AM atualiza o preço sombra por subgradiente:
 ```
 
 Critério de parada da tese: `|λ_ω − λ_ω+1| ≤ ε`. Ele é um resíduo primal
-escalado pelo passo, e por isso **não é confiável sob passo decrescente**:
+escalado pelo passo, e por isso o mesmo ε significa coisas diferentes sob passos
+diferentes. Medido nas condições da tese com 9 cenários, ele dispara na rodada 9
+com ε = 1e-1 e exige mais de 150 rodadas com ε = 1e-4, que é o valor do código
+original; a tese reporta 8 rodadas, o que situa o ε efetivo dela na ordem de
+1e-1, com resíduo primal ainda em 0,17 kW. Ele também **não é confiável sob passo
+decrescente**:
 medido, o passo decrescente declarou convergência em 45 rodadas com resíduo
 primal de 0,0222 kW, cinco vezes pior que o passo constante em 60 rodadas
 (0,0041 kW). O teste disparou pela queda do passo, não pelo acordo entre as

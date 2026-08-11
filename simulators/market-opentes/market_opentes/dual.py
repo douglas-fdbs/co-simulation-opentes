@@ -36,8 +36,18 @@ from .optimization import solve_concentrator, solve_dso, solve_prosumer
 from .scenarios import build_scenarios
 from .settlement import settle
 
-ALPHA = 5e-4        # constante de atualizacao do subgradiente (codigo original)
-EPS = 1e-4          # precisao desejada em lambda (codigo original)
+# Passo do subgradiente. O `alpha = 0.0005` do codigo original NAO converge no
+# porte real: a diferenca e de unidade, porque o residuo que alimenta a Eq. 6.30
+# vem das mensagens ACL, onde as potencias trafegam em W, enquanto as variaveis
+# dos modelos estao em kW. O passo efetivo da tese equivale a 0,5 com residuo em
+# kW. O padrao aqui e 0,6, que foi o melhor na varredura; usar 5e-4 rende sessenta
+# rodadas de nada, com lambda parado em 0,09.
+ALPHA = float(os.environ.get("MARKET_ALPHA", "0.6"))
+# Precisao desejada em lambda (valor do codigo original). E um residuo primal
+# escalado pelo passo, entao o mesmo numero significa coisas diferentes sob
+# passos diferentes. Medido: nas condicoes da tese, este 1e-4 exige mais de 150
+# rodadas, enquanto 1e-1 converge em 9, que e o numero que ela reporta.
+EPS = float(os.environ.get("MARKET_EPS", "1e-4"))
 MAX_ROUNDS = 30
 
 

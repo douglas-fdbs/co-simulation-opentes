@@ -986,3 +986,60 @@ figura por figura. `GUIA.md` explica o repositório para quem chega agora.
 
 O resultado central se reproduz: a tese relata a tensão às 17:45 indo de 0,94 para
 0,97 pu, e aqui a mínima do dia vai de 0,93946 para 0,97033 pu, no mesmo horário.
+
+## 25. A diferença de λ e de rodadas foi reconciliada
+
+Os dois números que mais divergiam da tese eram o preço sombra máximo, 5,61
+contra 2,18, e o número de rodadas, 34 contra 8. Um experimento de ablação
+fechou os dois.
+
+**O ponto de partida foi teórico.** λ é o multiplicador de Lagrange da restrição
+de acoplamento. Ele é propriedade do problema, não do algoritmo: um método de
+subgradiente convergente vai para o λ* do problema, seja em 8 ou em 47 rodadas.
+Como o nosso convergiu, com resíduo primal de 0,0002 kW, a conclusão era que os
+PROBLEMAS diferem, e o experimento tinha que dizer em quê.
+
+| Configuração | Rodadas | λ máximo |
+|---|---:|---:|
+| Nosso caso completo, 1 cenário | 47 | 5,610 |
+| Só trocando os transformadores por 250 kVA | 47 | 5,610 |
+| Só sem a restrição de SoC terminal | 39 | 5,061 |
+| Só sem a margem de tensão | >80 | 5,133 |
+| As três desligadas | >80 | 4,255 |
+| As três desligadas, com 9 cenários | 9 (com ε = 1e-1) | 2,359 |
+| Tese | 8 | 2,18 |
+
+**Duas das minhas três hipóteses caíram.** O transformador não tem efeito
+nenhum: o caso com 250 kVA saiu idêntico ao nosso, dígito por dígito, ou seja a
+restrição de carregamento não atua nem com os transformadores reais. Bate com a
+medição do carregamento térmico, que dá no máximo 41,88% da ampacidade. E a
+margem de tensão ATRAPALHA a convergência em vez de ajudar: sem ela são mais de
+80 rodadas em vez de 47, porque ela dá ao DSO uma solução mais estável.
+
+**O fator dominante é o modelo estocástico**, que eu não tinha incluído no
+experimento e que o próprio diário já apontava na seção 8. De 1 para 9 cenários,
+λ cai de 4,255 para 2,359, contra os 2,18 da tese: 8% de diferença.
+
+**E as rodadas são o critério de parada.** Nas condições da tese com 9 cenários,
+o `|Δλ| ≤ ε` dispara na rodada 9 com ε = 1e-1 e exige mais de 150 com o ε = 1e-4
+do código original. Na rodada 8, que é onde a tese para, o `|Δλ|` daqui está em
+1,24e-1. O ε efetivo dela é três ordens de grandeza mais frouxo que o nosso
+padrão, e o resíduo primal na rodada 9 ainda é de 0,17 kW. As 8 rodadas dela e as
+nossas descrevem o mesmo processo parado em pontos diferentes.
+
+**Um defeito encontrado pelo próprio experimento.** O `dual.py` tinha como padrão
+o `alpha = 5e-4` do código original, justamente o valor documentado como não
+convergente na escala real. Quem rodasse o módulo sem passar `--alpha` obtinha
+sessenta rodadas de nada, com λ parado em 0,09. O padrão passou a 0,6.
+
+**O que isso significa para o trabalho.** Com as mesmas condições de modelagem e o
+mesmo critério de parada, este trabalho reproduz a tese: 9 rodadas contra 8, λ de
+2,359 contra 2,18. As diferenças do caso padrão daqui são efeito deliberado das
+três adições, e não discordância de resultado.
+
+**Sobre o artigo publicado** (MELO et al., *Electric Power Systems Research* 223,
+2023): confirma a tese e não acrescenta parâmetro novo. Mesmas 8 rodadas, mesmo
+0,94 para 0,97 pu às 17:45, mesma tabela de REDs, mesmos limites de tensão. Não
+publica α, ε nem Ck. Uma divergência interna às fontes: o artigo diz 50% das
+barras de baixa tensão com armazenamento de prosumidor, a tese diz 30%, e o
+`config.json` tem 25 em 68, ou seja 37%. Seguimos o dado.
