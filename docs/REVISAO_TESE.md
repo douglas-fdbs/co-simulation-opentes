@@ -109,19 +109,21 @@ de relógio. A negociação inteira acontece dentro de um passo do Mosaik, com o
 relógio da co-simulação parado, então o que tem significado é se o tempo de rede
 de cada ciclo cabe na fatia dele.
 
-Medido sobre a 6TiSCH, com os tamanhos de mensagem da tese:
+Medido sobre a 6TiSCH, com a topologia do Apêndice C e os tamanhos de mensagem
+da tese:
 
 | Ciclo | Fatia | Tempo de rede | Cabe? |
 |---|---:|---:|---|
-| 1, AC com seus AP | 240 s | 94,9 s | sim |
-| 2, AD com os AC | 300 s | 87,6 s | sim |
-| 3, AM com AC e AD | 300 s | 92,8 s **por rodada** | ver abaixo |
+| 1, AC com seus AP | 240 s | 105,7 s | sim |
+| 2, AD com os AC | 300 s | 53,4 s | sim |
+| 3, AM com AC e AD | 300 s | 61,5 s **por rodada** | ver abaixo |
 
 Nenhum ciclo estoura isoladamente. O aperto está no ciclo 3, que é iterativo: a
-descoberta do preço sombra levou 28 rodadas, e a 92,8 s cada uma isso dá 43
-minutos. Na programação do dia seguinte não é problema, porque há horas
-disponíveis. Na fase de operação, cujo ciclo 3 tem 300 s, **cabem cerca de três
-rodadas**, e é esse o limite prático do leilão de tempo real sobre esta rede.
+descoberta do preço sombra levou 34 rodadas, e a 61,5 s cada uma isso dá 35
+minutos, contra uma fatia de 5. Na programação do dia seguinte não é problema,
+porque há horas disponíveis. Na fase de operação, cujo ciclo 3 tem 300 s, **cabem
+cerca de cinco rodadas**, e é esse o limite prático do leilão de tempo real sobre
+esta rede.
 
 A verificação de que a reestruturação não mexeu na física: o resultado elétrico
 ficou idêntico, 337 pontos violados para zero, com mínima de 0,97033 pu.

@@ -262,6 +262,13 @@ informado (`NET_MESSAGE_SIZE=thesis` contra `real`):
 | rodadas até convergir | 28 | 28 |
 | mensagens perdidas | 1 em 2.301 | 1 em 2.305 |
 
+**Ressalva de procedência:** esta tabela foi medida sobre a topologia REGENERADA,
+antes de a matriz do Apêndice C passar a ser lida do arquivo. Com a topologia
+real os saltos dobram e os dois lados pioram na mesma proporção, então a razão
+entre eles se mantém e a conclusão não muda; os valores absolutos, esses, são
+otimistas. A medição sobre a topologia correta para mensagens reais leva horas de
+relógio e ainda não foi refeita.
+
 O tempo de rede é o caminho crítico: as mensagens de uma rodada viajam em
 paralelo, então a rodada custa o maior atraso dela, e as rodadas é que são
 sequenciais.
@@ -411,7 +418,8 @@ com timeout, pelo mesmo motivo dos ciclos de negociação.
 
 ### Quanto isso pesa no tráfego
 
-Medido numa negociação de 28 rodadas, com a telemetria da camada de rede:
+Medido numa negociação de 28 rodadas, com a telemetria da camada de rede, antes
+da reestruturação dos três ciclos e da troca da topologia:
 
 | Etapa | Mensagens | Bytes |
 |---|---:|---:|
@@ -419,6 +427,10 @@ Medido numa negociação de 28 rodadas, com a telemetria da camada de rede:
 | Negociação (28 rodadas) | 2127 | 79,80 MB |
 | **Despacho** | **127** | **2,04 MB** |
 | Total | 2320 | 82,16 MB |
+
+Com o ciclo 2 existindo de fato e a topologia do Apêndice C, a mesma negociação
+passou a 34 rodadas e 2.823 mensagens, das quais 57 perdidas e 43 retransmitidas.
+As proporções entre as etapas não mudam.
 
 A etapa acrescenta 8,1% das mensagens e 2,5% dos bytes. Não muda a ordem de
 grandeza, mas é o que faltava para a contagem de mensagens corresponder à

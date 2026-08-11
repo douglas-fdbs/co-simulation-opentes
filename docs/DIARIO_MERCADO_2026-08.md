@@ -767,6 +767,10 @@ arquitetural por gosto: a negociação inteira acontece dentro de um passo de 15
 minutos, com o relógio da co-simulação parado, então não existe passo do Mosaik
 onde encaixar as mensagens.
 
+> **Corrigido depois, ver seção 23.** A topologia abaixo foi REGENERADA a partir
+> das coordenadas, o que exige supor o orçamento de enlace do rádio. A matriz real
+> da tese tem 578 enlaces, não 1.466, e passou a ser lida do arquivo.
+
 **Topologia obtida:** 1.466 enlaces viáveis entre 2.925 pares, PER médio de 0,0291
 nos viáveis, 1,50 salto em média, nenhum par sem rota. A figura `tisch_per.png`
 reproduz a Figura 42 da tese, com a mesma dispersão vertical: a 1 km há enlaces de

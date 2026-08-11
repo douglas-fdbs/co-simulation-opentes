@@ -49,16 +49,28 @@ def plot(links_csv, out_png, max_distance=1000.0):
     # Pister-Hack: a 1 km ha enlaces com PER baixo, porque o desvio sorteado
     # daquele par calhou de ser pequeno.
     ax = axes[0]
-    ax.scatter(near["distance_m"], near["per"], s=4, alpha=0.25,
-               color=SERIES[0], edgecolors="none")
+    # Separar por enlace ou nao evita uma leitura errada. A adjacencia vem da
+    # matriz publicada, e o PER vem do modelo de propagacao: existem pares com
+    # PER abaixo do limiar que a matriz NAO declara como enlace, porque o
+    # orcamento de enlace real da tese e mais apertado que o do modelo. Pintar
+    # tudo de uma cor so faria esses pontos parecerem contradicao.
+    com = near[near["adjacent"] == 1]
+    sem = near[near["adjacent"] == 0]
+    ax.scatter(sem["distance_m"], sem["per"], s=4, alpha=0.18,
+               color=MUTED, edgecolors="none", label="par sem enlace na matriz")
+    ax.scatter(com["distance_m"], com["per"], s=5, alpha=0.45,
+               color=SERIES[0], edgecolors="none", label="par com enlace")
     ax.axhline(PER_THRESHOLD, color=SERIES[1], linewidth=1.2, linestyle="--",
                label=f"limiar de enlace, PER = {PER_THRESHOLD}")
-    _style(ax, "distancia (m)", "PER", "(a) PER por distancia, modelo de Pister-Hack")
+    _style(ax, "distancia (m)", "PER",
+           "(a) PER por distancia, modelo de Pister-Hack")
     ax.set_ylim(-0.05, 1.05)
-    ax.legend(frameon=False, fontsize=8, loc="center right")
+    ax.legend(frameon=False, fontsize=8, loc="upper left",
+              bbox_to_anchor=(0.02, 0.96))
 
-    # (b) Quantos enlaces sobrevivem ao limiar, por faixa de distancia. E o que
-    # decide a matriz de adjacencia, e a tese nao mostra.
+    # (b) Que fracao dos pares tem enlace, por faixa de distancia. Com a matriz
+    # vinda do Apendice C, isto mostra o alcance REAL da rede da tese, que a
+    # figura dela nao exibe.
     ax = axes[1]
     edges = np.arange(0, max_distance + 1e-9, 100.0)
     centers = (edges[:-1] + edges[1:]) / 2
@@ -66,8 +78,8 @@ def plot(links_csv, out_png, max_distance=1000.0):
     kept, _ = np.histogram(near[near["adjacent"] == 1]["distance_m"], bins=edges)
     frac = np.divide(kept, total, out=np.zeros_like(centers), where=total > 0)
     ax.bar(centers, frac, width=88, color=SERIES[2], edgecolor="none")
-    _style(ax, "distancia (m)", "fracao de pares com enlace viavel",
-           "(b) alcance efetivo apos o limiar")
+    _style(ax, "distancia (m)", "fracao de pares com enlace",
+           "(b) alcance efetivo da matriz publicada")
     ax.set_ylim(0, 1.02)
 
     fig.tight_layout()
