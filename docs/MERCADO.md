@@ -201,11 +201,18 @@ O `market-simulation` informa ao simulador de rede um tamanho de mensagem
 rodada, com o vetor de preço sombra de 25 nós por 96 intervalos mais as
 programações, é de **35.663 bytes** em JSON.
 
-Consequência: a análise de comunicação da tese, que reporta mensagens de 100 a
-1500 bytes e entrega entre 10 e 90 s numa rede LPWA de 50 kbps, subestima o
-tráfego em mais de uma ordem de grandeza. A implementação nova usa o tamanho
-serializado real (`_set_content` anota `message.message_length`), então os tempos
-de entrega medidos aqui e os da tese **não são diretamente comparáveis**.
+**Onde isso importa, e onde não importa.** A análise de comunicação da tese
+(subseção 6.2.3.1) é da FASE DE OPERAÇÃO, em que a mensagem carrega um único
+intervalo. Medido: o CFP de operação desta implementação tem 1.004 bytes, dentro
+dos 1000 a 1500 declarados. Para a fase que a tese mede, portanto, os tamanhos
+declarados estão certos e os 10 a 90 s dela se sustentam.
+
+O problema é usar os mesmos valores na programação do dia seguinte, cujo CFP
+carrega 96 intervalos: 27.275 bytes só no vetor de preço sombra e nas
+programações, e 35.663 bytes na mensagem completa. A tese não reporta comunicação
+para essa fase, então o descompasso fica latente no código e não aparece nos
+resultados dela. A implementação nova usa o tamanho serializado real
+(`_set_content` anota `message.message_length`).
 
 Com a rede 6TiSCH da seção 5.0 no laço, a diferença deixa de ser retórica. A
 mesma negociação, rodada duas vezes sobre a mesma rede, mudando apenas o tamanho
@@ -227,10 +234,13 @@ sequenciais.
 Três leituras. Primeira, o número de rodadas não muda: a rede altera o tempo, não
 o ponto de convergência, o que é o esperado e serve de verificação. Segunda, com
 os tamanhos declarados a programação do dia seguinte cabe no tempo disponível,
-que é de horas, e a tese se sustenta nos próprios termos. Terceira, com o
-conteúdo real das mensagens ela não cabe: 6,1 dias para programar um dia. Os 100
-e os 1000 a 1500 bytes não subestimam apenas o tráfego, eles escondem uma
-inviabilidade.
+que é de horas. Terceira, com o conteúdo real das mensagens ela não cabe: 6,1
+dias para programar um dia.
+
+O alvo dessa comparação é preciso: ela diz que os tamanhos declarados não valem
+para a programação do dia seguinte, e **não** que a análise de comunicação da
+tese esteja subestimada, porque aquela análise é da fase de operação, onde os
+mesmos valores estão corretos. Ver `REVISAO_TESE.md`, seção 3.2.
 
 Isso não é defeito da formulação de mercado, e sim do que ela precisa transmitir.
 O CFP carrega o preço sombra de 25 nós por 96 intervalos a cada rodada. Reduzir
