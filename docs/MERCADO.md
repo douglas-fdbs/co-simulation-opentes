@@ -74,7 +74,7 @@ código original faz o mesmo.
 ### 2.4 Sensibilidade de tensão (Eq. 6.15 a 6.17)
 
 A restrição de tensão é linearizada em torno do ponto de operação, considerando
-apenas potência ativa (ΔQ = 0):
+apenas potência ativa (ΔQ = 0; ver a seção 5.5 sobre quando essa hipótese vale):
 
 ```
 ΔU(t,l) = J⁻¹₂₁ · ( ADP_result + ADP̄_result )
@@ -380,6 +380,54 @@ grandeza, mas é o que faltava para a contagem de mensagens corresponder à
 arquitetura descrita, e é indispensável no cenário com perda: uma confirmação
 perdida agora tem consequência, e o timeout de despacho existe por isso.
 
+## 5.5 O reativo do armazenamento e a hipótese ΔQ = 0
+
+A Eq. 6.16 lineariza a tensão apenas em potência ativa. Isso é exato enquanto o
+dispositivo despachado não mexer em reativo, e a tese diz isso explicitamente. A
+pergunta que fica é o que acontece quando ele mexe, já que um inversor comum
+opera com fator de potência constante e faz o reativo acompanhar o ativo.
+
+A resposta exigiu obter também `∂V/∂Q`, pelo mesmo método de perturbação já usado
+para `∂V/∂P` (`sensitivity.py`). Na MVLV75 a razão entre as duas, na diagonal, é
+de 0,457: cada kvar move a tensão pouco menos da metade do que move um kW.
+
+Como a mesma variável de decisão move as duas potências quando o fator de
+potência é fixo, o efeito cabe numa única matriz efetiva,
+
+```
+S_efetiva = ∂V/∂P + tan(φ) · ∂V/∂Q
+```
+
+e o resto do modelo do DSO permanece idêntico. Com `MARKET_STORAGE_PF=none`, que
+é o padrão, tan(φ) é zero e a matriz é exatamente a da tese.
+
+**Medição.** Três configurações no fluxo de potência não linear completo. O par
+que importa é o segundo contra o terceiro: mesmo sistema físico, modelo cego
+contra modelo ciente. Comparar o primeiro com os outros compararia dois sistemas
+diferentes, e não diria nada sobre a hipótese.
+
+| Dispositivo | Modelo | Faixa de tensão | Abaixo de 0,97 pu |
+|---|---|---|---:|
+| sem reativo | ΔQ = 0 (a tese) | 0,96955 a 1,02718 pu | 4 |
+| fp 0,9 | ΔQ = 0 | 0,96493 a 1,03588 pu | 117 |
+| fp 0,9 | com ∂V/∂Q | 0,96956 a 1,02751 pu | 5 |
+
+Ignorar o reativo custa 117 violações em vez de 5, e leva a tensão a estourar o
+limite superior, o que não ocorre em nenhuma das outras duas configurações. Com o
+termo incluído, o desempenho volta ao do caso da tese.
+
+O reativo entra nos dois lados ao mesmo tempo: na restrição do DSO e na injeção
+que vai para o OpenDSS. Ligar só um lado seria pior que ignorar nos dois, porque
+o modelo passaria a resolver a restrição contra uma rede que se comporta de outro
+jeito. A chave `MARKET_IGNORE_DQ` desfaz esse pareamento e existe apenas para
+produzir a linha do meio da tabela; não é opção de operação.
+
+**O que isto NÃO é.** O reativo aqui é consequência do fator de potência do
+dispositivo, não variável de decisão. Despachar reativo como serviço, dentro da
+capacidade do inversor, daria ao DSO uma segunda alavanca de tensão, mais barata
+que deslocar energia. Isso é controle Volt/Var e fica registrado como extensão,
+fora do escopo desta camada.
+
 ## 6. Limitações conhecidas
 - **A restrição de estado de carga terminal é NOSSA, não da tese.** A Eq. 6.9 não
   a tem, e sem ela o modelo despeja a energia da bateria no último intervalo,
@@ -402,9 +450,12 @@ perdida agora tem consequência, e o timeout de despacho existe por isso.
   demanda dentro do `handle_request` do solver, derruba o processo com
   `std::bad_alloc`: o `py_dss_interface` não é seguro para uso concorrente e o
   `handle_request` roda no pool de threads do Twisted.
-- **A hipótese ΔQ = 0 domina o erro da restrição de tensão.** Se o dispositivo
-  mantiver fator de potência constante em vez de reativo nulo, o erro é cerca de
-  40 vezes o da própria linearização.
+- **A hipótese ΔQ = 0 da Eq. 6.16 é condicional, não geral.** Ela vale enquanto o
+  dispositivo despachado não mexer em reativo, que é a premissa da tese. Se ele
+  mantiver fator de potência constante, como faz um inversor comum, o erro da
+  previsão de tensão sobe de 2,6e-5 para 1,0e-3 pu, quarenta vezes, e o efeito no
+  fluxo não linear completo é de 5 para 117 pontos violados, com a tensão máxima
+  estourando o limite superior em 1,03588 pu. Ver seção 5.5.
 - **O critério `|Δλ| ≤ ε` é um resíduo primal escalado por α.** Com passo
   decrescente ele pode disparar pela queda do passo e não pela do resíduo.
   Compare sempre pelo resíduo primal, que é reportado ao lado.

@@ -64,7 +64,8 @@ from twisted.internet import reactor
 MARKET_PKG = os.environ.get("MARKET_OPENTES_PATH", "/market")
 sys.path.insert(0, MARKET_PKG)
 
-from market_opentes.config import PERIODS, load_case          # noqa: E402
+from market_opentes.config import (PERIODS, STORAGE_TAN_PHI,   # noqa: E402
+                                   load_case)
 from market_opentes.dual import load_profiles, load_sensitivity  # noqa: E402
 from market_opentes.optimization import (solve_concentrator, solve_dso,  # noqa: E402
                                          solve_prosumer)
@@ -1220,10 +1221,23 @@ def _node_power(self, node, t):
 
 
 def _node_reactive(self, node, t):
-    # Fator de potencia 0,9 sobre a demanda; o armazenamento nao injeta reativo
-    # (hipotese dQ = 0 da Eq. 6.16 da tese).
+    """Reativo do no: fator de potencia 0,9 sobre a demanda, mais o do armazenamento.
+
+    Com `MARKET_STORAGE_PF=none`, que e o padrao, o armazenamento nao injeta
+    reativo e sobra a hipotese dQ = 0 da Eq. 6.16 da tese. Com um fator de
+    potencia configurado, o reativo do dispositivo entra AQUI tambem, e nao so no
+    modelo do DSO: se entrasse so num lado, a restricao passaria a ser resolvida
+    contra uma rede que se comporta de outro jeito, que e pior que ignorar o
+    termo nos dois.
+    """
     fonte = self.realized if self.realized is not None else self.profiles
-    return float(fonte.get(node, np.zeros(PERIODS))[t]) * 0.4843
+    q = float(fonte.get(node, np.zeros(PERIODS))[t]) * 0.4843
+    if STORAGE_TAN_PHI:
+        if node in self.y:
+            q += float(self.y[node][t]) * STORAGE_TAN_PHI
+        if node in self.q:
+            q += float(self.q[node][t]) * STORAGE_TAN_PHI
+    return q
 
 
 MarketAgent.node_power = _node_power

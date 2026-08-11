@@ -24,12 +24,14 @@ Uso:
 
 import argparse
 import json
+import os
 import time
 from pathlib import Path
 
 import numpy as np
 
-from .config import DATA_DIR, PERIODS, V_MAX, V_MIN, V_TOL, load_case
+from .config import (DATA_DIR, PERIODS, STORAGE_TAN_PHI, V_MAX, V_MIN,
+                     V_TOL, load_case)
 from .optimization import solve_concentrator, solve_dso, solve_prosumer
 from .scenarios import build_scenarios
 from .settlement import settle
@@ -56,8 +58,39 @@ def load_profiles():
 
 
 def load_sensitivity():
+    """Nos, V0(t) e a sensibilidade EFETIVA de tensao.
+
+    A Eq. 6.16 usa so dV/dP, supondo que o dispositivo despachado nao mexe em
+    reativo. Um inversor com fator de potencia constante mexe: dQ = tan(phi) . dP.
+    Como a mesma variavel de decisao move as duas potencias, o efeito cabe numa
+    unica matriz,
+
+        S_efetiva = dV/dP + tan(phi) . dV/dQ
+
+    e todo o resto do modelo continua igual. Com `MARKET_STORAGE_PF=none`, que e
+    o padrao, tan(phi) e zero e a matriz e exatamente a da tese.
+
+    Arquivo de sensibilidade gerado antes da Fase 6 nao tem `s_q`; nesse caso o
+    termo e ignorado, com aviso, em vez de quebrar.
+    """
     data = np.load(DATA_DIR / "sensitivity_day.npz")
-    return [int(x) for x in data["nodes"]], data["v0"], data["s"]
+    s = data["s"]
+    if os.environ.get("MARKET_IGNORE_DQ"):
+        # Chave de EXPERIMENTO, nao de operacao: o dispositivo continua injetando
+        # reativo na rede, mas o modelo do DSO finge que nao. E o unico jeito de
+        # medir o custo da hipotese dQ = 0 sobre um sistema fisico fixo; comparar
+        # "sem reativo" com "com reativo" compararia dois sistemas diferentes.
+        print("[sensibilidade] EXPERIMENTO: modelo ignorando dV/dQ enquanto o "
+              "dispositivo injeta reativo.", flush=True)
+        return [int(x) for x in data["nodes"]], data["v0"], s
+    if STORAGE_TAN_PHI:
+        if "s_q" in data.files:
+            s = s + STORAGE_TAN_PHI * data["s_q"]
+        else:
+            print("[sensibilidade] AVISO: MARKET_STORAGE_PF pedido, mas o "
+                  "sensitivity_day.npz nao tem dV/dQ. Regere com "
+                  "`sensitivity.py day`. Seguindo com dQ = 0.")
+    return [int(x) for x in data["nodes"]], data["v0"], s
 
 
 def voltage_of(case, v0, s, p_prosumer, p_network):

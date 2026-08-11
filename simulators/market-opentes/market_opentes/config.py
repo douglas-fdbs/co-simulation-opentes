@@ -16,6 +16,7 @@ servico ancilar.
 """
 
 import json
+import math
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -47,7 +48,19 @@ V_TOL = 1e-9
 #
 # NAO existe na tese, que usa a mesma restricao linearizada sem recuo. Aparece
 # quando a restricao passa a atuar de fato.
-V_BACKOFF = float(__import__("os").environ.get("MARKET_V_BACKOFF", "1e-3"))
+V_BACKOFF = float(os.environ.get("MARKET_V_BACKOFF", "1e-3"))
+
+# Fator de potencia do armazenamento. A Eq. 6.16 supoe dQ = 0, o que vale para um
+# dispositivo que nao mexe em reativo. Um inversor comum, porem, opera com fator
+# de potencia constante, e ai o reativo acompanha o ativo e a hipotese passa a
+# dominar o erro da restricao: medido no `sensitivity.py`, o erro sobe de 2,6e-5
+# para 1,0e-3 pu, quarenta vezes.
+#
+# `none` (padrao) reproduz a tese exatamente, porque o termo dV/dQ zera. Um
+# numero entre 0 e 1 liga o termo com tan(acos(pf)).
+_pf = os.environ.get("MARKET_STORAGE_PF", "none")
+STORAGE_PF = None if _pf.lower() in ("none", "", "0") else float(_pf)
+STORAGE_TAN_PHI = 0.0 if STORAGE_PF is None else math.tan(math.acos(STORAGE_PF))
 
 # Pesos das funcoes objetivo.
 CK = 1.0        # concentrador, Eq. 6.25

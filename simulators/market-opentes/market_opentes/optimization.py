@@ -323,7 +323,9 @@ def solve_dso(case, base_load, p_prosumer_init, p_network_init, lam, v0, s,
         p_network_init: {no: array[96]} programacao do armazenamento de rede.
         lam: {no: array[96]} preco sombra.
         v0: array (96, n_nos) tensoes do ponto de operacao base.
-        s: array (96, n_nos, n_nos) sensibilidade dV/dP_injecao [pu/kW].
+        s: array (96, n_nos, n_nos) sensibilidade EFETIVA dV/dP_injecao [pu/kW],
+            ja com o reativo do dispositivo dobrado dentro (ver
+            `dual.load_sensitivity`).
 
     Returns:
         (p_prosumer, p_network): cada um {no: array[96]}.
@@ -377,6 +379,11 @@ def solve_dso(case, base_load, p_prosumer_init, p_network_init, lam, v0, s,
 
     # Eq. 6.29: limites de tensao. dV = -S . (p + q), porque S e dV/dP_injecao e
     # o armazenamento carregando e carga.
+    #
+    # Se o dispositivo tiver fator de potencia constante, o reativo acompanha o
+    # ativo e o efeito ja vem somado em `s`: a mesma variavel de decisao move as
+    # duas potencias, entao a sensibilidade efetiva basta. Ver
+    # `dual.load_sensitivity`.
     m.voltage = pyo.ConstraintList()
     for t in range(periods):
         s_t = s[t]

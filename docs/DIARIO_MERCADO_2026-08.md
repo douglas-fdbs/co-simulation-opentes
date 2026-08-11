@@ -816,3 +816,48 @@ reais. Passou para nanossegundos, com teto de 9,2e9 s.
 O terceiro: o `close()` do cliente mandava `stop` ao servidor, que encerrava a
 simulação OMNeT++. Sendo o servidor compartilhado, uma corrida derrubava a
 seguinte. Quem controla o ciclo de vida do container é o compose.
+
+## 21. Fase 6 das pendências: o reativo na restrição de tensão
+
+A Eq. 6.16 lineariza a tensão só em potência ativa. A pendência não era corrigir
+um erro, e sim descobrir a que a hipótese está condicionada, porque um inversor
+comum opera com fator de potência constante e faz o reativo acompanhar o ativo.
+
+**O que foi feito.** O `sensitivity.py` passou a calcular também `dV/dQ`, pelo
+mesmo método de perturbação, com o cuidado simétrico ao que já existia: ao
+perturbar o reativo, o ativo fica preso no ponto base, senão a matriz medida
+seria a da direção combinada. Na MVLV75 a razão entre as duas sensibilidades, na
+diagonal, é de 0,457.
+
+Como a mesma variável de decisão move as duas potências quando o fator de
+potência é fixo, o efeito cabe numa matriz efetiva `S + tan(φ)·SQ`, dobrada no
+`load_sensitivity`. Isso evitou passar uma segunda matriz por cinco pontos de
+chamada, e com `MARKET_STORAGE_PF=none`, que é o padrão, a matriz é exatamente a
+da tese.
+
+**O desenho da medição foi o que deu sentido ao resultado.** Comparar "sem
+reativo" com "com reativo" compararia dois sistemas físicos diferentes e não
+diria nada sobre a hipótese. O par que mede é: dispositivo com reativo e modelo
+cego, contra o mesmo dispositivo e modelo ciente. Para produzir a linha cega foi
+preciso separar duas coisas que andavam juntas, e daí a chave de experimento
+`MARKET_IGNORE_DQ`, que não é opção de operação.
+
+| Dispositivo | Modelo | Faixa de tensão | Abaixo de 0,97 pu |
+|---|---|---|---:|
+| sem reativo | ΔQ = 0 (a tese) | 0,96955 a 1,02718 pu | 4 |
+| fp 0,9 | ΔQ = 0 | 0,96493 a 1,03588 pu | 117 |
+| fp 0,9 | com ∂V/∂Q | 0,96956 a 1,02751 pu | 5 |
+
+Ignorar o reativo custa 117 violações em vez de 5, e leva a tensão a estourar o
+limite superior em 1,03588 pu, coisa que não acontece nas outras duas
+configurações. Com o termo incluído, o desempenho volta ao do caso da tese.
+
+O reativo entra nos dois lados: na restrição do DSO e na injeção que vai para o
+OpenDSS. Ligar só um seria pior que ignorar nos dois, porque o modelo passaria a
+resolver a restrição contra uma rede que se comporta de outro jeito.
+
+**O que não foi feito, de propósito.** O reativo aqui é consequência do fator de
+potência, não variável de decisão. Despachá-lo como serviço, dentro da capacidade
+do inversor, daria ao DSO uma segunda alavanca de tensão, mais barata que
+deslocar energia. Isso é controle Volt/Var, é escopo de outro time, e fica
+registrado como extensão.
