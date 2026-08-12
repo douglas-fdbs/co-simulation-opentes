@@ -1047,3 +1047,40 @@ três adições, e não discordância de resultado.
 publica α, ε nem Ck. Uma divergência interna às fontes: o artigo diz 50% das
 barras de baixa tensão com armazenamento de prosumidor, a tese diz 30%, e o
 `config.json` tem 25 em 68, ou seja 37%. Seguimos o dado.
+
+## 26. Mensagens reais sobre a topologia da tese: a negociação não completa
+
+Ficara pendente medir o tráfego com o conteúdo real das mensagens sobre a
+topologia publicada. A medição foi feita e o resultado não é um número maior, é
+uma mudança de natureza.
+
+**A previsão veio antes do experimento.** O CFP real tem 35.663 bytes, ou 281
+quadros. Num enlace admitido com PER 0,4, cada quadro perde 2,56% mesmo após as
+retentativas do MAC, e perder qualquer fragmento perde o datagrama: a perda
+prevista era de 99,93%. A sonda confirmou 100% de perda para o nó 5.
+
+**A causa é estrutural na rede da tese.** O agente de mercado tem um único
+vizinho, o nó 0, que é a subestação. O nó 0 alcança o nó 5 por um enlace de
+PER 0,400, o pior dos oito que ele tem, e os dois não compartilham vizinho
+nenhum, então não existe desvio de dois saltos. O concentrador `trafo_5_35` está
+preso à espinha dorsal por esse único enlace marginal.
+
+**Um erro meu apareceu no caminho, e foi corrigido.** O roteamento usava ETX
+clássico, `1/(1−PER)`, que vale para UM quadro. Aplicado a um datagrama de 281,
+ele escolhia caminhos incapazes de entregar a mensagem que estava roteando. O
+custo passou a ser calculado para o número de quadros em trânsito. Isso não salva
+o nó 5, que não tem alternativa, mas elimina a classe de erro.
+
+**O limite de projeto que sai disso.** Para o enlace 0-5, com perda de datagrama
+de no máximo 10%, cabem 516 bytes. O CFP precisaria encolher de 35,7 kB para
+cerca de 500 bytes, um fator de 70. É o argumento quantitativo para a redução de
+mensagem que vinha registrada como extensão: enviar só o que mudou, ou só a
+parcela do nó destinatário, em vez do preço sombra de 25 nós por 96 intervalos a
+cada rodada.
+
+Antes de abortar, a execução mediu 598 mensagens e 3,46 MB, com 18 perdas, das
+quais 11 são as onze tentativas para o concentrador 5. Uma única rodada do
+ciclo 3 gastou 54,5 minutos de tempo de rede contra uma fatia de 5 minutos.
+
+A estimativa anterior, de 6,1 dias, era otimista por dois motivos hoje
+conhecidos: topologia densa demais e ausência do ciclo 2.

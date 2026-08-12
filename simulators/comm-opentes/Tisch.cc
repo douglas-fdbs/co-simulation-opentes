@@ -79,6 +79,7 @@ class TischServer : public cSimpleModule {
     std::vector<std::vector<double>> per;      // PER por enlace, ja com Pister-Hack
     std::vector<std::vector<bool>> adjacent;   // PER < limiar
     std::vector<std::vector<int>> nextHop;     // roteamento por menor custo ETX
+    int routedFrames = -1;                     // tamanho para o qual nextHop vale
 
     // Pacote em transito.
     struct InFlight {
@@ -98,9 +99,9 @@ class TischServer : public cSimpleModule {
     void loadPositions(const std::string& path);
     bool loadAdjacency(const std::string& path);
     void buildLinks(const std::string& csvPath);
-    void buildRoutes();
+    void buildRoutes(int frames);
     double perFromRssi(double rssi) const;
-    std::vector<int> route(int src, int dst) const;
+    std::vector<int> route(int src, int dst, int frames);
     void serve();                       // recebe e trata pedidos ate um virar pacote
     void startPacket(const json& j);
     double hopDelay(int i, int j, int frames, bool& lost);
@@ -250,10 +251,21 @@ void TischServer::buildLinks(const std::string& csvPath) {
     std::fflush(stdout);
 }
 
-void TischServer::buildRoutes() {
-    // Dijkstra por origem, com custo ETX = 1/(1-PER): minimiza o numero esperado
-    // de transmissoes ate o destino, que e o que gasta cell de TSCH. Minimizar
-    // saltos escolheria enlaces longos e ruins.
+void TischServer::buildRoutes(int frames) {
+    // Dijkstra por origem, com custo em numero esperado de transmissoes ate o
+    // destino, que e o que gasta cell de TSCH. Minimizar saltos escolheria
+    // enlaces longos e ruins.
+    //
+    // O custo depende do TAMANHO da mensagem, e ignorar isso e um erro grave. O
+    // ETX classico, 1/(1-PER), vale para UM quadro. Um enlace admitido com PER
+    // 0,4 perde 2,56% dos quadros mesmo apos as retentativas do MAC, o que e
+    // tolеravel para uma mensagem de um quadro e fatal para uma de 281: a perda
+    // do datagrama vai a 99,93%, porque perder qualquer fragmento perde o todo.
+    // Roteando por quadro, o servidor escolhia caminhos incapazes de entregar a
+    // mensagem que ele estava roteando.
+    if (frames == routedFrames) return;        // rota ja montada para este tamanho
+    routedFrames = frames;
+
     size_t n = names.size();
     nextHop.assign(n, std::vector<int>(n, -1));
     const double INF = std::numeric_limits<double>::infinity();
@@ -272,7 +284,11 @@ void TischServer::buildRoutes() {
             if (d > dist[u] + 1e-12) continue;
             for (size_t v = 0; v < n; ++v) {
                 if (!adjacent[u][v]) continue;
-                double etx = 1.0 / std::max(1e-6, 1.0 - per[u][v]);
+                // Perda do datagrama neste enlace, ja com as retentativas do MAC,
+                // e custo esperado de transmissoes para entrega-lo.
+                double pQuadro = std::pow(per[u][v], maxRetries + 1);
+                double pDatagrama = 1.0 - std::pow(1.0 - pQuadro, frames);
+                double etx = frames / std::max(1e-9, 1.0 - pDatagrama);
                 if (dist[u] + etx < dist[v] - 1e-12) {
                     dist[v] = dist[u] + etx;
                     prev[v] = u;
@@ -285,7 +301,8 @@ void TischServer::buildRoutes() {
     }
 }
 
-std::vector<int> TischServer::route(int src, int dst) const {
+std::vector<int> TischServer::route(int src, int dst, int frames) {
+    buildRoutes(frames);
     std::vector<int> path;
     if (src == dst) return {src};
     // `nextHop[src]` guarda o predecessor na arvore de menor custo com raiz em
@@ -347,8 +364,8 @@ void TischServer::startPacket(const json& j) {
         return;
     }
 
-    flight.path = route(itS->second, itD->second);
     flight.frames = (int)std::max(1L, (bytes + frameBytes - 1) / frameBytes);
+    flight.path = route(itS->second, itD->second, flight.frames);
     flight.hop = 0;
 
     if (flight.path.empty()) {
@@ -417,7 +434,7 @@ void TischServer::serve() {
             for (size_t i = 0; i < n; ++i)
                 for (size_t k = 0; k < n; ++k) {
                     if (i == k) continue;
-                    auto p = route(i, k);
+                    auto p = route(i, k, 1);
                     if (p.empty()) unreachable++;
                     else { hopSum += (int)p.size() - 1; pairs++; }
                 }
@@ -461,7 +478,7 @@ void TischServer::initialize() {
 
     loadPositions(par("positions_file").stdstringValue());
     buildLinks(par("links_csv").stdstringValue());
-    buildRoutes();
+    buildRoutes(1);
 
     std::string endpoint = "tcp://*:" + std::to_string(par("port").intValue());
     socket.bind(endpoint);

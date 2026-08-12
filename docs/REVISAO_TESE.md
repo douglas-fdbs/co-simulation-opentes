@@ -194,4 +194,5 @@ para que procedência divergente fique visível em vez de silenciosa.
 - Reconciliar a documentação do cenário `integrated` com o comportamento atual.
 - Decidir sobre a restrição de estado de carga terminal com o orientador.
 - Rodar o `./run.sh market` completo sobre a rede 6TiSCH, e não só o teste
-  isolado de negociação.
+  isolado de negociação. Com mensagens reais isso hoje aborta por construção, ver
+  a seção 5.1 do `MERCADO.md`; com os tamanhos da tese, completa.

@@ -263,11 +263,39 @@ informado (`NET_MESSAGE_SIZE=thesis` contra `real`):
 | mensagens perdidas | 1 em 2.301 | 1 em 2.305 |
 
 **Ressalva de procedência:** esta tabela foi medida sobre a topologia REGENERADA,
-antes de a matriz do Apêndice C passar a ser lida do arquivo. Com a topologia
-real os saltos dobram e os dois lados pioram na mesma proporção, então a razão
-entre eles se mantém e a conclusão não muda; os valores absolutos, esses, são
-otimistas. A medição sobre a topologia correta para mensagens reais leva horas de
-relógio e ainda não foi refeita.
+antes de a matriz do Apêndice C passar a ser lida do arquivo. Os valores
+absolutos são otimistas.
+
+**Refeita sobre a topologia publicada, a conclusão muda de natureza.** Não é que
+a negociação demore mais: ela **não completa**. O agente de mercado tem um único
+vizinho, o nó 0, e o nó 0 alcança o nó 5 por um enlace de PER 0,400, o pior dos
+oito que ele tem. Os dois não compartilham vizinho nenhum, então não há desvio. O
+concentrador `trafo_5_35` fica preso à espinha dorsal por esse único enlace
+marginal, e com o conteúdo real das mensagens ele se torna incomunicável:
+
+| Mensagem | Quadros | Perda no enlace 0-5 |
+|---|---:|---:|
+| CFP da tese, 100 B | 1 | 2,56% |
+| Proposta da tese, 1250 B | 10 | 22,84% |
+| Proposta real, 27.275 B | 215 | 99,62% |
+| CFP real, 35.663 B | 281 | 99,93% |
+
+O limite de projeto que sai disso, para esse enlace:
+
+| Perda de datagrama tolerada | Tamanho máximo da mensagem |
+|---|---:|
+| 5% | 251 bytes |
+| 10% | 516 bytes |
+| 25% | 1.409 bytes |
+| 50% | 3.394 bytes |
+
+O CFP precisaria encolher de 35,7 kB para cerca de 500 bytes, um fator de 70,
+para trafegar com confiabilidade. É o argumento quantitativo para a redução de
+mensagem registrada abaixo como extensão.
+
+Antes de abortar, a execução mediu 598 mensagens e 3,46 MB, com 18 perdas, das
+quais 11 são as onze tentativas para o concentrador 5. Uma única rodada do ciclo 3
+gastou **54,5 minutos de tempo de rede**, contra uma fatia de 5 minutos.
 
 O tempo de rede é o caminho crítico: as mensagens de uma rodada viajam em
 paralelo, então a rodada custa o maior atraso dela, e as rodadas é que são
@@ -518,6 +546,12 @@ fora do escopo desta camada.
   Compare sempre pelo resíduo primal, que é reportado ao lado.
 - **O passo constante não converge ao ótimo**, e sim a uma vizinhança cujo raio
   cresce com α. Acima de α = 0,6 nesta rede o raio ultrapassa a tolerância.
+- **O roteamento depende do TAMANHO da mensagem.** O ETX clássico, `1/(1−PER)`,
+  vale para um quadro; um datagrama de N quadros perde `1−(1−p)^N`, porque perder
+  qualquer fragmento perde o todo. Roteando por quadro, o servidor escolhia
+  caminhos incapazes de entregar a mensagem que estava roteando. O custo agora é
+  calculado para o número de quadros da mensagem em trânsito. Na MVLV75 isso não
+  salva o nó 5, que não tem caminho alternativo, mas evita a classe de erro.
 - **O 6TiSCH avança o relógio de simulação e nunca o zera.** Cada consulta de
   rota empurra o relógio do OMNeT++ pelo atraso da própria mensagem, então uma
   negociação inteira soma milhões de segundos simulados. Com o `simtime-scale`

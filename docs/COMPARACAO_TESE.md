@@ -221,11 +221,16 @@ correspondem ao conteúdo:
 O número de rodadas é o mesmo nos dois casos, o que serve de verificação: a rede
 altera o tempo, não o ponto de convergência.
 
-Ressalva: esses dois números foram medidos sobre a topologia regenerada, mais
-densa que a real. Com a topologia publicada os dois pioram na mesma proporção,
-porque os saltos dobram, então a razão entre eles se mantém e a conclusão não
-muda. A medição sobre a topologia correta ainda não foi refeita para o caso de
-mensagens reais, que leva horas de relógio.
+Esses dois números foram medidos sobre a topologia regenerada. **Refeita a
+medição sobre a topologia publicada, a conclusão muda de natureza:** a negociação
+não demora mais, ela **não completa**. O agente de mercado tem um único vizinho,
+o nó 0, que alcança o nó 5 por um enlace de PER 0,400 sem desvio possível. Com o
+conteúdo real das mensagens, esse enlace perde 99,93% dos datagramas e o
+concentrador `trafo_5_35` fica incomunicável.
+
+O CFP precisaria encolher de 35,7 kB para cerca de 500 bytes, um fator de 70,
+para trafegar com confiabilidade nesse enlace. Detalhamento na seção 5.1 do
+`MERCADO.md`.
 
 ### 4.6 Adjacência da rede de comunicação
 
