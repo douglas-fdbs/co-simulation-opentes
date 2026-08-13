@@ -20,8 +20,8 @@ cd "$(dirname "$0")"
 # ============================================================================
 # Configuracao comum
 # ============================================================================
-INI="simulators_teams/comm-opentes/omnetpp.ini"
-ALL_PROFILES=(--profile ieee13 --profile integrated)
+INI="simulators/comm-opentes/omnetpp.ini"
+ALL_PROFILES=(--profile ieee13 --profile integrated --profile market)
 # simuladores que precisam estar de pe antes do mosaik conectar
 DEPS=(comm pade-integrated opendss pv-panel csv-data-1 csv-data-2 elec-collector)
 RESULT=""   # preenchido por cada comando; exibido no final
@@ -37,6 +37,11 @@ Cenarios:
                           Roda 2 passadas: baseline (sem controle) e Volt/Var.
   ieee13                  Rede eletrica isolada (OpenDSS + Smart PV).
   star                    Comunicacao isolada (PADE + OMNeT++).
+  market                  Mercado transativo na rede MVLV75: negociacao
+                          multiagente (PADE) + OpenDSS. Roda 2 passadas:
+                          baseline (sem negociacao) e negociado.
+                          EXIGE um solver: export CPLEX_HOME=... (ver
+                          simulators/market-opentes/README.md).
 
 Experimentos:
   48h                     Cenario integrado em horizonte de 48h (2 dias com a
@@ -106,11 +111,13 @@ _wait_remote_sims() {
 # --- omnetpp.ini: leitura, escrita e restauracao ---------------------------
 _set_drop()   { sed -i -E "s/(node_0\.drop_probability = ).*/\1${1}/" "$INI"; }
 _set_seed()   { sed -i -E "s/^(seed-0-mt = ).*/\1${1}/" "$INI"; }
-_set_simlim() { sed -i -E "s/^(sim-time-limit = ).*/\1${1}/" "$INI"; }
+# So a PRIMEIRA ocorrencia, que e a da secao [General]. O omnetpp.ini tem outra
+# em [Config tisch], com valor proprio, que nao pode ser sobrescrita.
+_set_simlim() { sed -i -E "0,/^sim-time-limit = /s//sim-time-limit = ${1}/" "$INI"; }
 
 ORIG_DROP="$(grep -E 'node_0\.drop_probability' "$INI" | sed -E 's/.*=[[:space:]]*//')"
 ORIG_SEED="$(grep -E '^seed-0-mt'               "$INI" | sed -E 's/.*=[[:space:]]*//')"
-ORIG_SIMLIM="$(grep -E '^sim-time-limit'        "$INI" | sed -E 's/.*=[[:space:]]*//')"
+ORIG_SIMLIM="$(grep -m1 -E '^sim-time-limit'    "$INI" | sed -E 's/.*=[[:space:]]*//')"
 
 # Restaura o ini mesmo se o script for interrompido no meio (Ctrl-C, erro).
 _ini_restore() {
@@ -135,6 +142,46 @@ _run_pass() {
     CONTROL_ENABLED="$control" RESULT_TAG="$tag" \
         docker compose --profile integrated up --abort-on-container-exit \
             --exit-code-from mosaik-integrated mosaik-integrated
+}
+
+# Espera o processo PADE do mercado subir os 33 agentes.
+# A prontidao e detectada pela linha "[market-mas] pronto", emitida DEPOIS do
+# listenTCP de todos os agentes. Esperar pela linha que anuncia a criacao dos
+# agentes nao serve: ela sai antes das portas abrirem, e o mosaik conecta cedo
+# demais e morre com "Could not connect to pade-market:5678".
+_wait_pade_market() {
+    local i
+    echo ">> aguardando os agentes PADE do mercado..."
+    for i in $(seq 1 60); do
+        if docker compose --profile market logs pade-market 2>/dev/null \
+                | grep -q "market-mas. pronto"; then
+            sleep 2
+            return 0
+        fi
+        sleep 1
+    done
+    echo "!! timeout aguardando o pade-market" >&2
+    return 1
+}
+
+# Uma passada do cenario de mercado.
+#   $1 = tag (nome do arquivo de saida) | $2 = MARKET_NEGOTIATE (0/1)
+_run_market_pass() {
+    local tag="$1" negotiate="$2"
+    local operation="${MARKET_OPERATION:-1}"
+    # A rede ve a demanda realizada nas DUAS passadas; o que muda e se os
+    # agentes reagem a ela.
+    _cleanup
+    # As MESMAS variaveis nas duas chamadas do compose. Passar MARKET_NEGOTIATE
+    # so na segunda faz o compose ver a configuracao do pade-market mudar e
+    # RECRIAR o container bem na hora em que o mosaik conecta, o que aparece
+    # como "Could not connect to pade-market:5678".
+    RESULT_TAG="$tag" MARKET_NEGOTIATE="$negotiate" MARKET_OPERATION="$operation" \
+        docker compose --profile market up -d opendss elec-collector pade-market
+    _wait_pade_market
+    RESULT_TAG="$tag" MARKET_NEGOTIATE="$negotiate" MARKET_OPERATION="$operation" \
+        docker compose --profile market up --abort-on-container-exit \
+            --exit-code-from mosaik-market mosaik-market
 }
 
 # Gera uma figura a partir dos resultados frescos.
@@ -177,6 +224,28 @@ cmd_integrated() {
     echo ">> gerando dashboard a partir dos resultados frescos..."
     _plot /app/output/integrated plot_integrated.py
     RESULT="output/integrated/  (result_baseline.csv, result_volt_var.csv + comm_trace_*.csv + dashboard_integrated.png)"
+}
+
+cmd_market() {
+    # O solver nao esta no repositorio nem na imagem (licenca). Ver
+    # simulators/market-opentes/README.md.
+    if [ ! -x "${CPLEX_HOME:-/nao-definido}/bin/x86-64_linux/cplex" ]; then
+        echo "!! CPLEX nao encontrado." >&2
+        echo "   Defina CPLEX_HOME apontando para a sua instalacao, por exemplo:" >&2
+        echo "     export CPLEX_HOME=\$HOME/IBM/CPLEX_Studio2211/cplex" >&2
+        echo "   Detalhes e alternativas em simulators/market-opentes/README.md" >&2
+        exit 1
+    fi
+    export CPLEX_HOME
+    # duas passadas: sem negociacao (linha de base) e com negociacao
+    # A linha de base nao tem mecanismo de mercado nenhum: nem negociacao do dia
+    # seguinte, nem correcao na operacao. A rede ve a mesma demanda realizada nas
+    # duas passadas, entao a comparacao isola o efeito do mecanismo.
+    echo ">> [market] passada 'baseline' (programacao dos prosumidores, sem mecanismo)"
+    MARKET_OPERATION=0 _run_market_pass baseline 0
+    echo ">> [market] passada 'negociado' (com a negociacao multiagente)"
+    _run_market_pass negociado 1
+    RESULT="output/market/  (result_baseline.csv, result_negociado.csv)"
 }
 
 cmd_48h() {
@@ -269,6 +338,7 @@ case "$COMMAND" in
     star)              ;;
     ieee13)            ;;
     integrated)        ;;
+    market)            ;;
     48h)               ;;
     loss-sweep)        ;;
     loss-multiseed)    ;;
@@ -287,6 +357,7 @@ case "$COMMAND" in
     star)           cmd_star ;;
     ieee13)         cmd_ieee13 ;;
     integrated)     cmd_integrated ;;
+    market)         cmd_market ;;
     48h)            cmd_48h ;;
     loss-sweep)     cmd_loss_sweep "$@" ;;
     loss-multiseed) cmd_loss_multiseed ;;

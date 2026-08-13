@@ -183,3 +183,44 @@ output/ e ignorada pelo git (sao produtos de simulacao).
     compilar a engine).
   - Portas internas dos PADE publicadas deslocadas no host (ex.: 15678) para
     evitar conflito com simuladores do grid.
+
+
+10. Camada de mercado transativo (SiMTES)
+-----------------------------------------
+  Porte do mercado transativo da tese de Lucas S. Melo (2022) e do repositorio
+  market-simulation para este stack. Formulacao, correspondencia com as equacoes
+  da tese, desvios e limitacoes conhecidas: docs/MERCADO.md.
+
+  Novos:
+    simulators/market-opentes/          pacote com os modelos de otimizacao
+                                              (prosumidor, concentrador, DSO), a
+                                              decomposicao dual, a fase de
+                                              operacao e as figuras
+    grid-opentes/src/simulators/
+      gen_market_grid.py                      converte o force.json da tese para
+                                              OpenDSS (rede MVLV75)
+      sensitivity.py                          matriz dV/dP por perturbacao, em
+                                              lugar do Jacobiano do pandapower
+      data/MVLV75/                            circuito gerado
+    pade-opentes/agents/market_agents.py      os 4 agentes FIPA + solver
+    pade-opentes/agents/network_link.py       camada de rede (sucessor do
+                                              pade.simul do ns-3)
+    mosaik-opentes/scenarios/market.py        cenario da co-simulacao
+    docs/MERCADO.md                           formulacao e desvios
+
+  Alterados:
+    grid-opentes/src/simulators/api_opendss.py
+      - o modelo Load passa a aceitar P_kw/Q_kvar como ENTRADA. Antes a carga so
+        obedecia a LoadShape interna do circuito e nenhum agente conseguia
+        injetar demanda na rede.
+      - get_data de Load corrigido para carga trifasica: get_power devolve tupla
+        por fase, e o codigo dividia a tupla por 1000. O IEEE 13 nunca exercitou
+        esse caminho porque suas cargas sao monofasicas.
+    pade-opentes/Dockerfile
+      - numpy, pandas e pyomo na imagem. O CPLEX NAO entra: licenca academica e
+        pessoal, montado do host por volume (${CPLEX_HOME} -> /opt/cplex).
+    docker-compose.yaml
+      - servicos pade-market e mosaik-market, no profile 'market'.
+
+  Regressao: os cenarios star, ieee13 e integrated continuam funcionando. O
+  ieee13 reproduz os mesmos P_dc/P_ac/P_meas de referencia do TSRE.

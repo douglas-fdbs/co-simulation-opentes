@@ -21,10 +21,10 @@ payloads com semântica elétrica e de controle.
 A integração é organizada em **4 containers funcionais** (nomes refletem a
 função, não o time de origem):
 
-- `simulators_teams/comm-opentes`: rede de comunicação (OMNeT++ + bridge ZMQ).
-- `simulators_teams/pade-opentes`: runtime PADE (Python 3.12) + agentes.
-- `simulators_teams/mosaik-opentes`: engine Mosaik + `scenarios/` + `collectors/`.
-- `simulators_teams/grid-opentes`: rede elétrica IEEE 13 (OpenDSS + DERs).
+- `simulators/comm-opentes`: rede de comunicação (OMNeT++ + bridge ZMQ).
+- `simulators/pade-opentes`: runtime PADE (Python 3.12) + agentes.
+- `simulators/mosaik-opentes`: engine Mosaik + `scenarios/` + `collectors/`.
+- `simulators/grid-opentes`: rede elétrica IEEE 13 (OpenDSS + DERs).
 
 Proveniência: o conteúdo vem dos repos dos times — TSCC (comunicação) foi
 fragmentado em `comm-opentes` (OMNeT++) + agentes em `pade-opentes` + cenário e
@@ -232,5 +232,5 @@ Tensões do IEEE 13 coerentes: barra 650 (fonte) = 1,000 pu; barras trifásicas
 ```
 
 Para estudar o impacto da **perda de pacotes** no controle, aumente
-`**.node_0.drop_probability` no `simulators_teams/comm-opentes/omnetpp.ini`
+`**.node_0.drop_probability` no `simulators/comm-opentes/omnetpp.ini`
 (ex.: `0.15` = 15%) e compare as tensões resultantes.
