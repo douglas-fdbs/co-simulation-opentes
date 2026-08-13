@@ -27,3 +27,17 @@ Identidade visual do manual de marca do GREI: verde `#2F5E4B`, creme `#F4FFEB`,
 tipografia Exo 2 nos títulos e Poppins no texto de apoio. As duas fontes são
 nomeadas primeiro na pilha e entram automaticamente para quem as tiver
 instaladas; sem elas, cai numa alternativa geométrica próxima.
+
+## Figuras de arquitetura
+
+`arquitetura_simsg.png` e `fluxo_cosimulacao.png` são geradas por
+`market_opentes/plot_arquitetura.py`, e não desenhadas à mão, para poderem ser
+refeitas quando a arquitetura mudar:
+
+```bash
+docker run --rm -v "$PWD/simulators/market-opentes:/market" -w /market \
+  opentes/mosaik:local python -m market_opentes.plot_arquitetura
+```
+
+`rede_teste.png`, `agentes_kok.png` e `agentes_rede.png` vêm da tese de
+referência (MELO, 2022) e são reproduzidas com citação nos slides.

@@ -221,30 +221,49 @@ def main():
         textos = [(n, k) for k, n in blocos if k in ("p", "lista")]
         cartoes = [n for k, n in blocos if k == "cartao"]
         stats = [n for k, n in blocos if k == "stat"]
-        figura = next((n for k, n in blocos if k == "figura"), None)
+        figuras = [n for k, n in blocos if k == "figura"]
+        figura = figuras[0] if figuras else None
         tabela = next((n for k, n in blocos if k == "tabela"), None)
         heroi = next((n for k, n in blocos if k == "heroi"), None)
 
-        # --- figura ocupa o slide inteiro -------------------------------
-        if figura:
-            dados = img_bytes(figura.select_one("img")["src"])
-            im = Image.open(io.BytesIO(dados))
-            legenda = figura.select_one("figcaption")
+        # --- figuras ocupam o slide -------------------------------------
+        if figuras:
             notas = [n for n, k in textos if k == "p"]
-            alt_texto = Inches(0.34) * (1 + len(notas)) + Inches(0.5)
-            disp_h = prs.slide_height - corpo_y - alt_texto - Inches(0.5)
-            larg_fig = min(LARG, Emu(int(disp_h * im.width / im.height)))
-            alt_fig = Emu(int(larg_fig * im.height / im.width))
-            s.shapes.add_picture(io.BytesIO(dados),
-                                 L + (LARG - larg_fig) // 2, corpo_y,
-                                 width=larg_fig, height=alt_fig)
-            tf = add_caixa(s, L, corpo_y + alt_fig + Inches(0.14), LARG, Inches(0.5))
-            primeiro = True
-            for no in ([legenda] if legenda else []) + notas:
-                p = tf.paragraphs[0] if primeiro else tf.add_paragraph()
-                primeiro = False
-                p.space_after = Pt(3); p.line_spacing = 1.2
-                escreve(p, no, 10, CINZA)
+            n_fig = len(figuras)
+            larg_col = LARG if n_fig == 1 else (LARG / n_fig - Inches(0.2))
+            alt_texto = Inches(0.32) * (n_fig + len(notas)) + Inches(0.55)
+            disp_h = prs.slide_height - corpo_y - alt_texto - Inches(0.4)
+            base_y = corpo_y
+            alt_max = 0
+            for j, f in enumerate(figuras):
+                dados = img_bytes(f.select_one("img")["src"])
+                im = Image.open(io.BytesIO(dados))
+                lf = min(larg_col, Emu(int(disp_h * im.width / im.height)))
+                af = Emu(int(lf * im.height / im.width))
+                alt_max = max(alt_max, af)
+                cx = L + j * (LARG / n_fig) + (larg_col - lf) // 2
+                s.shapes.add_picture(io.BytesIO(dados), cx, base_y,
+                                     width=lf, height=af)
+            # As legendas ficam sob cada figura quando ha mais de uma.
+            if n_fig > 1:
+                for j, f in enumerate(figuras):
+                    leg = f.select_one("figcaption")
+                    if leg is None:
+                        continue
+                    tf = add_caixa(s, L + j * (LARG / n_fig),
+                                   base_y + alt_max + Inches(0.12),
+                                   larg_col, Inches(0.6))
+                    escreve(tf.paragraphs[0], leg, 9, CINZA)
+                y_txt = base_y + alt_max + Inches(0.75)
+            else:
+                leg = figuras[0].select_one("figcaption")
+                tf = add_caixa(s, L, base_y + alt_max + Inches(0.14), LARG, Inches(0.5))
+                if leg is not None:
+                    escreve(tf.paragraphs[0], leg, 10, CINZA)
+                y_txt = base_y + alt_max + Inches(0.5)
+            if notas:
+                bloco_texto(s, L, y_txt, LARG, [(n, None) for n in notas],
+                            tam=10, cor=CINZA, espaco=2)
             continue
 
         def desenha_cartoes(y0):

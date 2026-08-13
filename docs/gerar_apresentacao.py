@@ -273,8 +273,12 @@ figure img {
   width: 100%; height: auto; display: block; border-radius: 8px;
   border: 1px solid var(--line); background: #fff;
 }
-figcaption { font-size: .85rem; color: var(--slate); margin-top: .6rem; max-width: 78ch; }
-.fig-slide .inner { max-width: 1240px; }
+figcaption { font-size: .85rem; color: var(--slate); margin-top: .6rem; max-width: 88ch; }
+.fig-slide .inner { max-width: 1280px; }
+/* A figura nao pode empurrar titulo e legenda para fora da tela: o limite e a
+   altura da janela menos o espaco que o resto do slide ocupa. */
+.fig-slide figure img { max-height: 58vh; width: auto; max-width: 100%; margin: 0 auto; }
+.fig-slide figcaption { text-align: center; margin-left: auto; margin-right: auto; }
 
 /* ---- diagrama ---------------------------------------------------------- */
 .arch { display: grid; gap: .8rem; }
@@ -344,17 +348,11 @@ slide("""
 <span class="logo big" role="img" aria-label="GREI, Grupo de Redes Eletricas Inteligentes"></span>
 <p class="eyebrow"><span class="dot"></span>OpenTES &middot; Time TTESO</p>
 <h1>O mercado transativo entrando na rede</h1>
-<p class="lead">Como a plataforma de co-simulação passou de um teste de controle
-em 13 barras para uma negociação entre 33 agentes numa rede de 75 barras, e o que
-isso mudou na tensão, no preço e no tráfego de mensagens.</p>
-<div class="cols" style="margin-top:2.2rem;max-width:820px">
-  <div class="stat"><span class="n green">337 &rarr; 0</span>
-    <span class="l">pontos de subtensão eliminados no fluxo de potência não linear</span></div>
-  <div class="stat"><span class="n blue">34</span>
-    <span class="l">rodadas de negociação até o acordo entre concentradores e DSO</span></div>
-  <div class="stat"><span class="n">75</span>
-    <span class="l">barras, contra as 13 do cenário anterior</span></div>
-</div>
+<p class="lead">A camada de mercado transativo sobre a plataforma de
+co-simulação: 33 agentes negociando a programação de armazenamento numa rede de
+distribuição, com a rede de comunicação no laço.</p>
+<p class="small" style="margin-top:2.4rem;opacity:.8">Douglas Barros &middot;
+Time TTESO &middot; agosto de 2026</p>
 """, "cover")
 
 # ---------------------------------------------------------------------------
@@ -566,39 +564,46 @@ slide("""
 # 4 e 5. Antes e depois
 # ---------------------------------------------------------------------------
 slide("""
-<p class="eyebrow"><span class="dot"></span>O salto</p>
-<h2>De um teste de controle para um mercado</h2>
+<p class="eyebrow"><span class="dot"></span>De onde viemos</p>
+<h2>O que a plataforma já fazia, e o que o mercado acrescenta</h2>
 <div class="ba">
-  <div class="panel before">
-    <h3><span class="pill">antes</span> IEEE 13 barras</h3>
-    <ul class="clean small" style="margin-top:.8rem">
+  <div class="panel" style="background:var(--surface)">
+    <h3>Cenário IEEE 13 barras</h3>
+    <p class="small" style="margin:.5rem 0 .7rem">Validou a plataforma de
+    co-simulação de ponta a ponta, e continua sendo o cenário de referência para
+    o controle local.</p>
+    <ul class="clean small">
       <li>13 barras, 5 inversores fotovoltaicos</li>
-      <li>Controle <strong>Volt/Var</strong>: cada inversor reage localmente à
-      própria tensão</li>
-      <li>Agentes trocam medição e comando, sem negociar nada</li>
-      <li>Sem modelo econômico, sem preço</li>
-      <li>Resultado: desvio-padrão da tensão &minus;10%, a barra crítica 652 indo
-      de 0,920 para 0,938 pu</li>
+      <li>Controle <strong>Volt/Var</strong>: o inversor reage à tensão que ele
+      mesmo mede</li>
+      <li>Os agentes trocam medição e comando pela rede de comunicação</li>
+      <li>Mostrou que a cadeia elétrica, de comunicação e de agentes fecha</li>
     </ul>
   </div>
   <div class="sep"></div>
-  <div class="panel after">
-    <h3><span class="pill">agora</span> MVLV75 com mercado</h3>
-    <ul class="clean small" style="margin-top:.8rem">
-      <li>75 barras, 7 em média e 68 em baixa tensão, 5 transformadores</li>
-      <li><strong>33 agentes</strong> negociando: 25 prosumidores, 5
-      concentradores, DSO e mercado</li>
+  <div class="panel" style="background:var(--accent-dim);border-color:var(--accent)">
+    <h3>Cenário de mercado transativo</h3>
+    <p class="small" style="margin:.5rem 0 .7rem">Acrescenta uma camada de
+    decisão econômica sobre a mesma plataforma.</p>
+    <ul class="clean small">
+      <li>75 barras, 34 com geração e 48 com armazenamento</li>
+      <li><strong>33 agentes negociando</strong>: prosumidores, concentradores,
+      DSO e mercado</li>
       <li>Cada agente resolve o próprio problema de otimização</li>
-      <li>Preço sombra descoberto por iteração, não imposto</li>
-      <li>Resultado: <strong>337 pontos de subtensão vão a zero</strong>, mínima
-      de 0,93946 para 0,97033 pu</li>
+      <li>O despacho sai de um <strong>preço</strong>, e não de uma curva de
+      resposta</li>
     </ul>
   </div>
 </div>
-<p class="small muted" style="margin-top:1.2rem">A diferença não é só de porte. No
-Volt/Var o inversor obedece a uma curva; aqui o prosumidor <strong>propõe</strong>,
-o DSO <strong>contesta</strong> quando a rede não aguenta, e o preço é o que
-concilia os dois.</p>
+<div class="card" style="margin-top:1.3rem">
+  <span class="tag">uma ressalva honesta</span>
+  <p class="small" style="margin:0">As duas redes são diferentes, com portes e
+  perfis de carga diferentes, então <strong>comparar os números de tensão entre
+  elas seria injusto</strong> e não é o que se propõe aqui. O que muda de fato é
+  a <em>natureza</em> da decisão: no Volt/Var o inversor segue uma curva
+  pré-definida; no mercado, o prosumidor propõe, o DSO contesta quando a rede não
+  aguenta, e o preço concilia os dois.</p>
+</div>
 """)
 
 # ---------------------------------------------------------------------------
@@ -636,70 +641,63 @@ despacho. Mais um agente de solução, que roda os modelos de otimização fora 
 laço de eventos.</p>
 """)
 
+slide(f"""
+<p class="eyebrow"><span class="dot"></span>Arquitetura de agentes &middot; o conceito</p>
+<h2>A hierarquia que estrutura a negociação</h2>
+<div class="cols-2" style="align-items:center">
+  <figure><img src="{FIGS['agentes_kok']}" alt="Hierarquia de agentes: dispositivos, concentradores e leiloeiro">
+  <figcaption>Dispositivos, concentradores e o agente leiloeiro trocando lance e
+  preço. Conceito de KOK (2013), reproduzido em MELO (2022).</figcaption></figure>
+  <figure><img src="{FIGS['agentes_rede']}" alt="Os quatro papeis de agente sobre a rede eletrica">
+  <figcaption>Os quatro papéis posicionados sobre a rede: prosumidor na unidade
+  consumidora, concentrador no transformador, DSO e mercado na subestação.
+  MELO (2022).</figcaption></figure>
+</div>
+<p class="small muted" style="margin-top:.8rem">É essa hierarquia que a
+implementação reproduz, com os 33 agentes rodando sobre PADE 3.0 e conversando
+por protocolos FIPA.</p>
+""", "fig-slide")
+
 # ---------------------------------------------------------------------------
 # 8. Referências
 # ---------------------------------------------------------------------------
-slide("""
-<p class="eyebrow"><span class="dot"></span>Base de referência</p>
-<h2>De onde vem cada peça</h2>
-<div class="tw">
-<table>
-  <thead><tr><th>Fonte</th><th>O que tiramos dela</th></tr></thead>
-  <tbody>
-    <tr><td><strong>MELO, L. S.</strong> Tese de doutorado, UFC, 2022 &mdash;
-        capítulo 6 e apêndices A&ndash;C</td>
-        <td>Formulação completa do mercado, a rede de 75 barras, os parâmetros dos
-        dispositivos, as coordenadas dos agentes e a matriz de adjacência da rede
-        de comunicação</td></tr>
-    <tr><td><strong>MELO et al.</strong> <em>Co-simulation platform for the
-        assessment of transactive energy systems</em>, EPSR 223, 2023</td>
-        <td>Confirmação dos resultados e da arquitetura; não publica os
-        parâmetros do algoritmo</td></tr>
-    <tr><td><strong>MELO et al.</strong> Integração PADE/Mosaik, 2020</td>
-        <td>O padrão de integração por API de baixo nível, que usamos</td></tr>
-    <tr><td><strong>KOK, K.</strong> 2013</td>
-        <td>A hierarquia de agentes prosumidor, concentrador, DSO e mercado</td></tr>
-    <tr><td><strong>LE et al.</strong> 2009 &middot; <strong>MUNICIO et al.</strong> 2019
-        &middot; <strong>PRANDO et al.</strong> 2019</td>
-        <td>Modelo de propagação Pister-Hack, o simulador 6TiSCH e a conversão de
-        RSSI para taxa de erro de pacote</td></tr>
-    <tr><td><strong>SimBench</strong> &middot; <strong>Nordpool</strong></td>
-        <td>Curvas de carga e geração, e a série de preço spot</td></tr>
-    <tr><td><strong>Repositório <code>market-simulation</code></strong> (GREI-UFC)</td>
-        <td>Implementação de referência da tese, usada para conferir cada decisão</td></tr>
-  </tbody>
-</table>
-</div>
-""")
-
 # ---------------------------------------------------------------------------
 # 9. Arquitetura de co-simulação
 # ---------------------------------------------------------------------------
-slide("""
+slide(f"""
 <p class="eyebrow"><span class="dot"></span>A plataforma</p>
 <h2>Quatro simuladores, um maestro</h2>
-<div class="arch">
-  <div class="arch-row">
-    <div class="node"><div class="nm">PADE 3.0</div><div class="rl">agentes e negociação</div></div>
-    <div class="node"><div class="nm">OMNeT++</div><div class="rl">rede de comunicação</div></div>
-    <div class="node"><div class="nm">OpenDSS</div><div class="rl">fluxo de potência</div></div>
-    <div class="node"><div class="nm">Pyomo + CPLEX</div><div class="rl">otimização</div></div>
-  </div>
-  <div class="arch-row" style="grid-template-columns:1fr">
-    <div class="node hub"><div class="nm">Mosaik 3.5</div>
-      <div class="rl">orquestra o tempo e transporta os dados entre eles</div></div>
-  </div>
-</div>
-<div class="cols-2" style="margin-top:1.6rem">
+{fig("arquitetura_simsg",
+     "Blocos da co-simulação e como se ligam. O Mosaik decide quem executa em "
+     "cada instante e transporta os dados; nenhum simulador conhece os demais. "
+     "Releitura da arquitetura de referência (MELO, 2022, Fig. 33) com as "
+     "ferramentas adotadas aqui.")}
+""", "fig-slide")
+
+slide("""
+<p class="eyebrow"><span class="dot"></span>A plataforma &middot; execução</p>
+<h2>Um contêiner por simulador</h2>
+<div class="cols-2">
   <div>
-    <h3>O que o Mosaik faz</h3>
-    <p class="small">Decide quem executa em cada instante e leva o resultado de um
-    simulador à entrada do outro. Nenhum simulador conhece os demais.</p>
+    <ul class="clean">
+      <li><strong>PADE 3.0</strong> hospeda os 33 agentes num processo, com os
+      protocolos FIPA</li>
+      <li><strong>OMNeT++</strong> responde consultas de rota da rede 6TiSCH por
+      ZMQ, fora do passo do Mosaik</li>
+      <li><strong>OpenDSS</strong>, via <code>py-dss-interface</code>, resolve o
+      fluxo de potência não linear</li>
+      <li><strong>Pyomo com CPLEX</strong> resolve os modelos de cada agente,
+      fora do laço de eventos</li>
+    </ul>
   </div>
-  <div>
-    <h3>Como roda</h3>
-    <p class="small">Um contêiner Docker por simulador, com um comando único:
-    <code>./run.sh market</code>. A execução é reprodutível e isolada.</p>
+  <div class="card">
+    <span class="tag">reprodutibilidade</span>
+    <h3>Um comando</h3>
+    <p class="small" style="margin:0 0 .7rem"><code>./run.sh market</code> sobe
+    tudo, roda as duas passadas e grava os resultados.</p>
+    <p class="small" style="margin:0">Cada figura sai carimbada com a
+    configuração que a produziu, para que duas execuções diferentes não sejam
+    confundidas.</p>
   </div>
 </div>
 """)
@@ -729,6 +727,16 @@ slide("""
     feita no dia anterior; a operação corrige a cada 15 minutos.</p></div>
 </div>
 """)
+
+slide(f"""
+<p class="eyebrow"><span class="dot"></span>O caso de estudo &middot; topologia</p>
+<h2>Onde estão a geração e o armazenamento</h2>
+{fig("rede_teste",
+     "Diagrama unifilar da rede de teste: 5 transformadores de 13,8 para 0,38 kV, "
+     "os módulos fotovoltaicos, o armazenamento de prosumidor (azul) e o "
+     "armazenamento de rede despachado pelo DSO (vermelho). Topologia da tese de "
+     "referência (MELO, 2022).")}
+""", "fig-slide")
 
 # ---------------------------------------------------------------------------
 # 11. Os três modelos
@@ -846,7 +854,7 @@ slide("""
     <p class="small" style="margin:0">Se houve violação, abre-se a descoberta de
     preço, que itera até o acordo.</p></div>
 </div>
-<div class="card" style="margin-top:1.6rem">
+<div class="card" style="margin-top:1.5rem">
   <span class="tag">achado</span>
   <p class="small" style="margin:0">O ciclo 2 <strong>não existia como
   tráfego</strong>: o agente de mercado lia a programação direto da memória do
@@ -855,6 +863,16 @@ slide("""
   troca de mensagens de verdade, iniciada pelo DSO, como a arquitetura descreve.</p>
 </div>
 """)
+
+slide(f"""
+<p class="eyebrow"><span class="dot"></span>O mercado em operação &middot; o fluxo completo</p>
+<h2>As duas fases, do início ao acordo</h2>
+{fig("fluxo_cosimulacao",
+     "Diagrama de atividades das duas fases. À esquerda, a programação do dia "
+     "seguinte, que itera até o preço convergir. À direita, a operação, que a "
+     "cada 15 minutos confere o desvio e corrige. Releitura do diagrama da "
+     "referência (MELO, 2022) com as mudanças deste trabalho.")}
+""", "fig-slide")
 
 # ---------------------------------------------------------------------------
 # 15. Resultado principal
@@ -1123,19 +1141,22 @@ slide("""
 slide("""
 <p class="eyebrow"><span class="dot"></span>Próximos passos</p>
 <h2>O que vem agora</h2>
-<ul class="steps" style="max-width:75ch">
-  <li><strong>Reduzir o tamanho das mensagens.</strong> Deixou de ser refinamento:
-  a medição mostra que a chamada precisa cair de 35,7 kB para cerca de 500 bytes
-  para a rede da referência conseguir carregá-la. É a pendência que muda uma
-  conclusão do trabalho.</li>
-  <li><strong>Montar o IEEE European LV Test Feeder</strong> como caso principal
-  citável. A MVLV75 é o caso de regressão, que serve para comparar com a
-  referência; um caso público padrão serve para publicar.</li>
-  <li><strong>Decidir a restrição de estado de carga terminal</strong> com o
-  orientador. Ela é nossa, não da referência, e sem ela o modelo esvazia a bateria
-  no último intervalo, porque a energia guardada não vale nada na função objetivo.</li>
-  <li><strong>Reconciliar a documentação do cenário integrado</strong>, que é
-  anterior ao mercado e está desatualizada.</li>
+<ul class="steps" style="max-width:78ch">
+  <li><strong>Melhorar a comunicação pelo OMNeT++.</strong> A medição mostrou que
+  a mensagem real não trafega: a chamada precisa cair de 35,7 kB para cerca de
+  500 bytes. Enviar só o que mudou, ou só a parcela do nó destinatário, deixa de
+  ser refinamento e vira requisito.</li>
+  <li><strong>Testar sem o modelo estocástico.</strong> Rodar o prosumidor como
+  <strong>MILP determinístico no CPLEX</strong>, em vez da forma extensiva com
+  cenários. Custa menos tempo de solver e isola quanto da folga vem da incerteza:
+  a ablação já indicou que é o fator dominante no preço sombra.</li>
+  <li><strong>Montar uma rede menor para teste.</strong> Cada execução completa
+  leva dezenas de minutos, o que trava o ciclo de tentativa e erro. Uma rede
+  reduzida permite iterar rápido e ainda assim exercitar o mecanismo.</li>
+  <li><strong>Verificar o coordenador de preço nos dois sentidos.</strong> Até
+  aqui a restrição que aperta é a de <em>subtensão</em>. Falta construir um caso
+  em que a <em>sobretensão</em> seja o vínculo ativo, para confirmar que o preço
+  atua nos dois extremos da faixa e não só num deles.</li>
 </ul>
 """)
 
@@ -1157,6 +1178,78 @@ uma rede de comunicação sem fio que atrasa, perde pacote e às vezes não entr
 <p class="small muted" style="margin-top:2rem">Documentação completa no repositório:
 <code>MERCADO.md</code> para a formulação, <code>COMPARACAO_TESE.md</code> para o
 confronto com a referência, <code>GUIA.md</code> para quem chega agora.</p>
+""")
+
+slide("""
+<p class="eyebrow"><span class="dot"></span>Referências</p>
+<h2>Referências</h2>
+<div class="cols-2">
+  <div>
+    <h3 style="margin-bottom:.7rem">Fonte principal</h3>
+    <ul class="clean small">
+      <li>MELO, L. S. <strong>Modelo de simulação computacional multidomínio para
+      análise de redes elétricas inteligentes com aplicação em transações
+      econômicas de energia.</strong> Tese de doutorado, Universidade Federal do
+      Ceará, Fortaleza, 2022.</li>
+      <li>MELO, L. S.; TOFOLI, F. L.; ISSICABA, D.; MONTEIRO, M. E. P.; BARROSO,
+      G. C.; SAMPAIO, R. F.; LEÃO, R. P. S. <strong>Co-simulation platform for
+      the assessment of transactive energy systems.</strong> Electric Power
+      Systems Research, v. 223, 109693, 2023.</li>
+      <li>MELO, L. S. et al. <strong>Integração PADE/Mosaik para simulação de
+      sistemas multiagentes em redes elétricas inteligentes.</strong> 2020.</li>
+    </ul>
+    <h3 style="margin:1.2rem 0 .7rem">Arquitetura de agentes</h3>
+    <ul class="clean small">
+      <li>KOK, K. <strong>The PowerMatcher: smart coordination for the smart
+      electricity grid.</strong> Tese de doutorado, Vrije Universiteit Amsterdam,
+      2013.</li>
+      <li>HU, J. et al. <strong>Application of network-constrained transactive
+      control to electric vehicle charging for secure grid operation.</strong>
+      IEEE Transactions on Sustainable Energy, 2017.</li>
+      <li>ABRISHAMBAF, O. et al. <strong>Towards transactive energy systems: an
+      analysis on current trends.</strong> Energy Strategy Reviews, 2019.</li>
+    </ul>
+  </div>
+</div>
+""")
+
+slide("""
+<p class="eyebrow"><span class="dot"></span>Referências</p>
+<h2>Referências <span style="font-weight:400;color:var(--slate)">(continuação)</span></h2>
+<div class="cols-2">
+  <div>
+    <h3 style="margin-bottom:.7rem">Rede de comunicação</h3>
+    <ul class="clean small">
+      <li>LE, T. N. et al. <strong>Modelo de propagação Pister-Hack.</strong>
+      2009.</li>
+      <li>MUNICIO, E. et al. <strong>Simulating 6TiSCH networks.</strong>
+      Transactions on Emerging Telecommunications Technologies, 2019.</li>
+      <li>PRANDO, L. R. et al. <strong>Experimental performance comparison of
+      emerging low power wide area networking technologies.</strong> 2019.</li>
+      <li>PETAJAJARVI, J. et al. <strong>On the coverage of LPWANs: range
+      evaluation and channel attenuation model.</strong> 2015.</li>
+    </ul>
+    <h3 style="margin:1.2rem 0 .7rem">Dados e ferramentas</h3>
+    <ul class="clean small">
+      <li>SPALTHOFF, C. et al. <strong>SimBench: open source dataset for
+      comparable benchmarking.</strong> 2019.</li>
+      <li>DUGAN, R. C.; McDERMOTT, T. E. <strong>An open source platform for
+      collaborating on smart grid research.</strong> IEEE PES General Meeting,
+      2011. (OpenDSS)</li>
+      <li>RADATZ, P. <strong>py-dss-interface</strong>, interface Python para o
+      OpenDSS.</li>
+      <li>SCHÜTTE, S.; SCHERFKE, S.; TRÖSCHEL, M. <strong>Mosaik: a framework for
+      modular simulation of active components in smart grids.</strong> 2011.</li>
+      <li>VARGA, A.; HORNIG, R. <strong>An overview of the OMNeT++ simulation
+      environment.</strong> Simutools, 2008.</li>
+      <li>MELO, L. S.; SAMPAIO, R. F.; LEÃO, R. P. S. et al. <strong>PADE: Python
+      Agent DEvelopment framework.</strong> GREI-UFC.</li>
+      <li>HART, W. E. et al. <strong>Pyomo: optimization modeling in
+      Python.</strong> Springer, 2017.</li>
+      <li>Nordpool. <strong>Série histórica de preço spot.</strong></li>
+    </ul>
+  </div>
+</div>
 """)
 
 BODY = "\n".join(SLIDES)
