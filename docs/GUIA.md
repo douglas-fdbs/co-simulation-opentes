@@ -50,8 +50,8 @@ Barras. Documentado em `INTEGRACAO.md` e `RESULTADOS.md`.
 
 **A segunda metade é o mercado transativo.** O porte da camada de mercado da tese
 de doutorado do prof. Lucas Silveira Melo para esta plataforma, sobre uma rede de
-75 barras. É o TCC. O código está descrito no `INTEGRACAO.md`; a formulação e o
-confronto com a tese ficam em `Docs_Externo/`, fora deste repositório.
+75 barras. É o TCC. A formulação está em `MERCADO.md`; o código, no
+`INTEGRACAO.md`; o confronto com a tese, em `Docs_Externo/`.
 
 As duas convivem: os cenários da primeira continuam rodando, e o mercado é mais
 um cenário.
@@ -196,17 +196,18 @@ No repositório:
 | `GUIA.md` | este, o mapa geral |
 | `INTEGRACAO.md` | o que foi mudado em cada componente para integrá-los, e por quê |
 | `RESULTADOS.md` | o que há em `output/` e como se lê |
+| `MERCADO.md` | a formulação do mercado, equação por equação, e os desvios |
 
 Fora do repositório, em `Docs_Externo/`, ficam os documentos de pesquisa que não
-descrevem o código: a formulação do mercado equação por equação (`MERCADO.md`), o
-confronto com a tese de referência (`COMPARACAO_TESE.md`), a cobertura do
+descrevem o código: o confronto com a tese de referência (`COMPARACAO_TESE.md`),
+a cobertura do
 capítulo 6 (`REVISAO_TESE.md`), o registro cronológico com o porquê de cada
 decisão (`DIARIO_MERCADO_2026-08.md`), o experimento de perda de pacotes e a
 apresentação.
 
-Para entender **o código**, comece pelo `INTEGRACAO.md`. Para entender **o
-modelo matemático** ou **a fidelidade à tese**, os documentos estão em
-`Docs_Externo/`.
+Para entender **o código**, comece pelo `INTEGRACAO.md`. Para **o modelo
+matemático**, o `MERCADO.md`. Para **a fidelidade à tese**, o
+`Docs_Externo/COMPARACAO_TESE.md`.
 
 ## 7. Onde estão as armadilhas
 

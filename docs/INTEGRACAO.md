@@ -5,8 +5,8 @@ agregador `co-simulation-opentes`, **o que foi alterado em cada componente para
 que funcionassem juntos, e por quê**.
 
 Descreve o estado ATUAL do código, não o histórico de tentativas. Para a leitura
-das saídas, ver [`RESULTADOS.md`](RESULTADOS.md); para o mapa geral do
-repositório, [`GUIA.md`](GUIA.md).
+das saídas, ver [`RESULTADOS.md`](RESULTADOS.md); para a formulação do mercado,
+[`MERCADO.md`](MERCADO.md); para o mapa geral, [`GUIA.md`](GUIA.md).
 
 Premissa que guiou as escolhas: manter os simuladores fiéis aos repositórios de
 origem. As mudanças servem para permitir a execução integrada, padronizar
