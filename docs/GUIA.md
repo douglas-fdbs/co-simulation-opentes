@@ -50,8 +50,8 @@ Barras. Documentado em `INTEGRACAO.md` e `RESULTADOS.md`.
 
 **A segunda metade é o mercado transativo.** O porte da camada de mercado da tese
 de doutorado do prof. Lucas Silveira Melo para esta plataforma, sobre uma rede de
-75 barras. É o TCC. Documentado em `MERCADO.md`, `COMPARACAO_TESE.md` e
-`REVISAO_TESE.md`.
+75 barras. É o TCC. O código está descrito no `INTEGRACAO.md`; a formulação e o
+confronto com a tese ficam em `Docs_Externo/`, fora deste repositório.
 
 As duas convivem: os cenários da primeira continuam rodando, e o mercado é mais
 um cenário.
@@ -180,27 +180,33 @@ não define retransmissão, o que numa rodada de 24 mensagens a 5% de perda dá 
 de chance de perder ao menos uma.
 
 **O conteúdo real das mensagens não cabe na rede da tese.** Com os tamanhos que
-ela declara, a programação do dia seguinte gasta 3,7 h de rede; com o conteúdo
-serializado real, 6,1 dias.
+ela declara, a programação do dia seguinte gasta 3,7 h de tempo de rede. Com o
+conteúdo serializado real, ela **não completa**: a mensagem de 35.663 bytes ocupa
+281 quadros, e num enlace que a regra da tese admite isso dá 99,93% de perda de
+datagrama, o que deixa um dos cinco concentradores incomunicável. Para trafegar
+com confiabilidade, a chamada precisaria encolher para cerca de 500 bytes.
 
 ## 6. O que ler, e em que ordem
+
+No repositório:
 
 | Documento | Para quê |
 |---|---|
 | `README.md` | instalar e rodar |
 | `GUIA.md` | este, o mapa geral |
-| `INTEGRACAO.md` | como os quatro simuladores foram integrados |
-| `RESULTADOS.md` | os resultados da plataforma, antes do mercado |
-| `MERCADO.md` | a formulação do mercado, equação por equação, e os desvios |
-| `COMPARACAO_TESE.md` | lado a lado com a tese: ferramentas, resultados, figuras |
-| `REVISAO_TESE.md` | o que do capítulo 6 está coberto e o que falta |
-| `DIARIO_MERCADO_2026-08.md` | o registro cronológico, com o porquê de cada decisão |
-| `EXPERIMENTO_PERDA.md` | o experimento de perda de pacotes |
+| `INTEGRACAO.md` | o que foi mudado em cada componente para integrá-los, e por quê |
+| `RESULTADOS.md` | o que há em `output/` e como se lê |
 
-Para entender **o modelo**, leia `MERCADO.md`. Para entender **a fidelidade à
-tese**, leia `COMPARACAO_TESE.md`. Para entender **por que o código está assim**,
-leia o diário: ele registra os erros cometidos e o que cada um ensinou, que é a
-informação que costuma se perder.
+Fora do repositório, em `Docs_Externo/`, ficam os documentos de pesquisa que não
+descrevem o código: a formulação do mercado equação por equação (`MERCADO.md`), o
+confronto com a tese de referência (`COMPARACAO_TESE.md`), a cobertura do
+capítulo 6 (`REVISAO_TESE.md`), o registro cronológico com o porquê de cada
+decisão (`DIARIO_MERCADO_2026-08.md`), o experimento de perda de pacotes e a
+apresentação.
+
+Para entender **o código**, comece pelo `INTEGRACAO.md`. Para entender **o
+modelo matemático** ou **a fidelidade à tese**, os documentos estão em
+`Docs_Externo/`.
 
 ## 7. Onde estão as armadilhas
 
