@@ -122,10 +122,14 @@ def solve_prosumer(scenarios, storage=None, bilateral_price=BILATERAL_PRICE,
         armazenamento, o prosumidor ainda contrata: o modelo e resolvido do mesmo
         jeito, so sem as variaveis de bateria.
     """
-    if storage is None:
-        return {"storage": np.zeros(PERIODS),
-                "bilateral": np.zeros(PERIODS),
-                "spot": np.asarray(scenarios[0][1], dtype=float).clip(min=0.0)}
+    # Sem armazenamento o prosumidor CONTINUA contratando: o `start_pade_agents.py`
+    # do trabalho original cria um agente por no de baixa tensao, todos pedem a
+    # otimizacao ao solver, e `bilateral_contract_purchase` volta sempre; o
+    # `has_storage` la so decide se a programacao da bateria e real ou zeros
+    # (`solver_agent.py`, linha 107). Este modulo devolvia um esqueleto com o
+    # bilateral zerado, o que contradizia a propria docstring acima e tirava do
+    # mercado os 43 nos sem bateria da MVLV75.
+    tem_arm = storage is not None
 
     probs = np.array([s[0] for s in scenarios], dtype=float)
     if not np.isclose(probs.sum(), 1.0):
@@ -137,12 +141,13 @@ def solve_prosumer(scenarios, storage=None, bilateral_price=BILATERAL_PRICE,
 
     # --- primeiro estagio: contrato bilateral e programacao do armazenamento ---
     m.p_bilateral = pyo.Var(m.T, domain=pyo.NonNegativeReals, bounds=(0.0, bilateral_max))
-    m.p_charge = pyo.Var(m.T, domain=pyo.NonNegativeReals)
-    m.p_discharge = pyo.Var(m.T, domain=pyo.NonNegativeReals)
-    m.soc = pyo.Var(m.T, domain=pyo.NonNegativeReals,
-                    bounds=(storage.min_soc_kwh, storage.max_soc_kwh))
-    m.b_charge = pyo.Var(m.T, domain=pyo.Binary)
-    m.b_discharge = pyo.Var(m.T, domain=pyo.Binary)
+    if tem_arm:
+        m.p_charge = pyo.Var(m.T, domain=pyo.NonNegativeReals)
+        m.p_discharge = pyo.Var(m.T, domain=pyo.NonNegativeReals)
+        m.soc = pyo.Var(m.T, domain=pyo.NonNegativeReals,
+                        bounds=(storage.min_soc_kwh, storage.max_soc_kwh))
+        m.b_charge = pyo.Var(m.T, domain=pyo.Binary)
+        m.b_discharge = pyo.Var(m.T, domain=pyo.Binary)
 
     # --- segundo estagio: lance no mercado de tempo real, por cenario ---
     m.p_spot = pyo.Var(m.Z, m.T, domain=pyo.Reals)
@@ -158,22 +163,24 @@ def solve_prosumer(scenarios, storage=None, bilateral_price=BILATERAL_PRICE,
             == m.dev_pos[z, t] - m.dev_neg[z, t])
 
     # Eq. 6.6 a 6.9: operacao do armazenamento
-    m.excl = pyo.Constraint(m.T, rule=lambda m, t: m.b_charge[t] + m.b_discharge[t] <= 1)
-    m.lim_charge = pyo.Constraint(
-        m.T, rule=lambda m, t: m.p_charge[t] <= m.b_charge[t] * storage.max_flow_kw)
-    m.lim_discharge = pyo.Constraint(
-        m.T, rule=lambda m, t: m.p_discharge[t] <= m.b_discharge[t] * storage.max_flow_kw)
-    m.soc_init = pyo.Constraint(
-        expr=m.soc[0] == INIT_SOC_FRACTION * storage.max_soc_kwh)
-    m.soc_memory = pyo.ConstraintList()
-    for t in range(PERIODS - 1):
-        m.soc_memory.add(
-            m.soc[t + 1] == m.soc[t] + (m.p_charge[t] - m.p_discharge[t]) * DT_H)
-    if TERMINAL_SOC:
-        last = PERIODS - 1
-        m.soc_terminal = pyo.Constraint(
-            expr=m.soc[last] + (m.p_charge[last] - m.p_discharge[last]) * DT_H
-            >= INIT_SOC_FRACTION * storage.max_soc_kwh)
+    if tem_arm:
+        m.excl = pyo.Constraint(m.T,
+                                rule=lambda m, t: m.b_charge[t] + m.b_discharge[t] <= 1)
+        m.lim_charge = pyo.Constraint(
+            m.T, rule=lambda m, t: m.p_charge[t] <= m.b_charge[t] * storage.max_flow_kw)
+        m.lim_discharge = pyo.Constraint(
+            m.T, rule=lambda m, t: m.p_discharge[t] <= m.b_discharge[t] * storage.max_flow_kw)
+        m.soc_init = pyo.Constraint(
+            expr=m.soc[0] == INIT_SOC_FRACTION * storage.max_soc_kwh)
+        m.soc_memory = pyo.ConstraintList()
+        for t in range(PERIODS - 1):
+            m.soc_memory.add(
+                m.soc[t + 1] == m.soc[t] + (m.p_charge[t] - m.p_discharge[t]) * DT_H)
+        if TERMINAL_SOC:
+            last = PERIODS - 1
+            m.soc_terminal = pyo.Constraint(
+                expr=m.soc[last] + (m.p_charge[last] - m.p_discharge[last]) * DT_H
+                >= INIT_SOC_FRACTION * storage.max_soc_kwh)
 
     # Eq. 6.3 a 6.5: balanco energetico e regra do mercado de tempo real.
     #
@@ -187,7 +194,8 @@ def solve_prosumer(scenarios, storage=None, bilateral_price=BILATERAL_PRICE,
     m.spot_rule = pyo.ConstraintList()
     for z, (_, demand, _) in enumerate(scenarios):
         for t in range(PERIODS):
-            net = demand[t] + (m.p_charge[t] - m.p_discharge[t])
+            net = demand[t] + ((m.p_charge[t] - m.p_discharge[t])
+                               if tem_arm else 0.0)
             if demand[t] >= 0.0:      # consumo maior que producao
                 m.balance.add(m.p_bilateral[t] + m.p_spot[z, t] >= net)
                 m.spot_rule.add(m.p_spot[z, t] >= 0.0)
@@ -232,8 +240,9 @@ def solve_prosumer(scenarios, storage=None, bilateral_price=BILATERAL_PRICE,
     # de maior probabilidade, que e o que o prosumidor levaria ao mercado.
     z_ref = int(np.argmax(probs))
     return {
-        "storage": np.array([pyo.value(m.p_charge[t]) - pyo.value(m.p_discharge[t])
-                             for t in range(PERIODS)]),
+        "storage": (np.array([pyo.value(m.p_charge[t]) - pyo.value(m.p_discharge[t])
+                              for t in range(PERIODS)])
+                    if tem_arm else np.zeros(PERIODS)),
         "bilateral": np.array([pyo.value(m.p_bilateral[t]) for t in range(PERIODS)]),
         "spot": np.array([pyo.value(m.p_spot[z_ref, t]) for t in range(PERIODS)]),
     }

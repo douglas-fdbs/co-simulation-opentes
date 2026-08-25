@@ -37,11 +37,13 @@ Cenarios:
                           Roda 2 passadas: baseline (sem controle) e Volt/Var.
   ieee13                  Rede eletrica isolada (OpenDSS + Smart PV).
   star                    Comunicacao isolada (PADE + OMNeT++).
-  market                  Mercado transativo na rede MVLV75: negociacao
+  market                  Mercado transativo: negociacao
                           multiagente (PADE) + OpenDSS. Roda 2 passadas:
                           baseline (sem negociacao) e negociado.
                           EXIGE um solver: export CPLEX_HOME=... (ver
                           simulators/market-opentes/README.md).
+                          A rede vem de MARKET_NETWORK: MVLV75 (padrao, a da
+                          tese), BT16 (bancada) ou BT38 (rede final).
 
 Experimentos:
   48h                     Cenario integrado em horizonte de 48h (2 dias com a
@@ -113,7 +115,12 @@ _set_drop()   { sed -i -E "s/(node_0\.drop_probability = ).*/\1${1}/" "$INI"; }
 _set_seed()   { sed -i -E "s/^(seed-0-mt = ).*/\1${1}/" "$INI"; }
 # So a PRIMEIRA ocorrencia, que e a da secao [General]. O omnetpp.ini tem outra
 # em [Config tisch], com valor proprio, que nao pode ser sobrescrita.
-_set_simlim() { sed -i -E "0,/^sim-time-limit = /s//sim-time-limit = ${1}/" "$INI"; }
+# A substituicao precisa consumir o VALOR antigo, e nao so o rotulo: com
+# `s//sim-time-limit = X/` o sed troca apenas o trecho casado, `sim-time-limit = `,
+# e o valor anterior fica no fim da linha. A cada restauracao a linha dobrava, e
+# depois de algumas dezenas de corridas ela tinha 163 mil caracteres e o sed
+# passou a falhar com "lista de argumentos muito longa".
+_set_simlim() { sed -i -E "0,/^sim-time-limit = .*/s//sim-time-limit = ${1}/" "$INI"; }
 
 ORIG_DROP="$(grep -E 'node_0\.drop_probability' "$INI" | sed -E 's/.*=[[:space:]]*//')"
 ORIG_SEED="$(grep -E '^seed-0-mt'               "$INI" | sed -E 's/.*=[[:space:]]*//')"
@@ -166,6 +173,23 @@ _wait_pade_market() {
 
 # Uma passada do cenario de mercado.
 #   $1 = tag (nome do arquivo de saida) | $2 = MARKET_NEGOTIATE (0/1)
+# Espera o servidor de rotas 6TiSCH compilar e abrir a porta ZMQ. A primeira
+# execucao compila o OMNeT++ inteiro e leva minutos; as seguintes reaproveitam o
+# `out/` do volume montado e sobem em segundos.
+_wait_comm_tisch() {
+    local i
+    echo ">> aguardando o servidor 6TiSCH (a 1a vez compila o OMNeT++)..."
+    for i in $(seq 1 600); do
+        if docker compose --profile market logs comm-tisch 2>/dev/null \
+                | grep -q "6TiSCH. pronto"; then
+            return 0
+        fi
+        sleep 1
+    done
+    echo "!! timeout aguardando o comm-tisch" >&2
+    return 1
+}
+
 _run_market_pass() {
     local tag="$1" negotiate="$2"
     local operation="${MARKET_OPERATION:-1}"
@@ -176,6 +200,10 @@ _run_market_pass() {
     # so na segunda faz o compose ver a configuracao do pade-market mudar e
     # RECRIAR o container bem na hora em que o mosaik conecta, o que aparece
     # como "Could not connect to pade-market:5678".
+    if [ "${NET_BACKEND:-ideal}" = "omnet" ]; then
+        docker compose --profile market up -d comm-tisch
+        _wait_comm_tisch
+    fi
     RESULT_TAG="$tag" MARKET_NEGOTIATE="$negotiate" MARKET_OPERATION="$operation" \
         docker compose --profile market up -d opendss elec-collector pade-market
     _wait_pade_market
@@ -237,6 +265,40 @@ cmd_market() {
         exit 1
     fi
     export CPLEX_HOME
+
+    # Qual rede. A da tese guarda config e perfis no pacote do mercado; as redes
+    # geradas por gen_test_grid.py guardam tudo ao lado do circuito, para serem
+    # autocontidas. E a unica diferenca entre os dois casos.
+    local net="${MARKET_NETWORK:-MVLV75}"
+    local dir_local="simulators/grid-opentes/src/data/$net"
+    if [ ! -f "$dir_local/Master.dss" ]; then
+        echo "!! rede '$net' nao encontrada em $dir_local" >&2
+        echo "   redes disponiveis: $(ls simulators/grid-opentes/src/data | tr '\n' ' ')" >&2
+        exit 1
+    fi
+    export MARKET_NETWORK="$net"
+    if [ "$net" = "MVLV75" ]; then
+        export MARKET_CONFIG=/market/data/config.json
+        export MARKET_DATA_DIR=/market/data
+        : "${MOSAIK_OUTPUT_DIR:=/app/output/market}"
+    else
+        export MARKET_CONFIG="/grid-data/$net/config.json"
+        export MARKET_DATA_DIR="/grid-data/$net"
+        : "${MOSAIK_OUTPUT_DIR:=/app/output/market_$net}"
+        # A sensibilidade dV/dP e dV/dQ e do circuito, e nao do mecanismo: sem
+        # ela o DSO nao tem restricao de tensao. Uma vez por rede.
+        if [ ! -f "$dir_local/sensitivity_day.npz" ]; then
+            echo ">> [market] gerando a sensibilidade de $net (uma vez por rede)"
+            docker compose run --rm --no-deps -e GRID_DIR="/app/src/data/$net" \
+                opendss python src/simulators/sensitivity.py day \
+                --load-csv "/app/src/data/$net/load_kw.csv" \
+                --pv-csv "/app/src/data/$net/pv_kw.csv" \
+                --out "/app/src/data/$net/sensitivity_day.npz"
+        fi
+    fi
+    export MOSAIK_OUTPUT_DIR
+    echo ">> [market] rede $net, resultados em ${MOSAIK_OUTPUT_DIR#/app/}"
+
     # duas passadas: sem negociacao (linha de base) e com negociacao
     # A linha de base nao tem mecanismo de mercado nenhum: nem negociacao do dia
     # seguinte, nem correcao na operacao. A rede ve a mesma demanda realizada nas
@@ -245,7 +307,7 @@ cmd_market() {
     MARKET_OPERATION=0 _run_market_pass baseline 0
     echo ">> [market] passada 'negociado' (com a negociacao multiagente)"
     _run_market_pass negociado 1
-    RESULT="output/market/  (result_baseline.csv, result_negociado.csv)"
+    RESULT="${MOSAIK_OUTPUT_DIR#/app/}/  (result_baseline.csv, result_negociado.csv)"
 }
 
 cmd_48h() {

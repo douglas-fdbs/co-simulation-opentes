@@ -222,7 +222,9 @@ execução, não comparamos as duas):
 ## 2. `output/market/` — o mercado transativo
 
 Roda a negociação multiagente sobre a rede de **75 barras**, em **96 intervalos
-de 15 minutos**. Como o `integrated`, roda **duas vezes** e grava dois arquivos:
+de 15 minutos**. Com `MARKET_NETWORK=BT16` ou `BT38` a mesma execução usa uma das
+redes próprias e grava em `output/market_BT16/` e `output/market_BT38/`; a
+estrutura dos arquivos é idêntica, muda o número de barras. Como o `integrated`, roda **duas vezes** e grava dois arquivos:
 
 - **`result_baseline.csv`** — execução **sem mecanismo nenhum**: nem negociação
   do dia seguinte, nem correção na operação. É a linha de base.

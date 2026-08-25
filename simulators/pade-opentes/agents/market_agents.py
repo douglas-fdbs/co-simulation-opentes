@@ -121,10 +121,15 @@ CYCLE_NAMES = ("ciclo1_AC_AP", "ciclo2_AD_AC", "ciclo3_AM_AC_AD")
 LINK = None
 
 
-def begin_cycle(index):
-    """Abre a contabilidade de rede do ciclo dado (0, 1 ou 2)."""
+def begin_cycle(index, t=None):
+    """Abre a contabilidade de rede do ciclo dado (0, 1 ou 2).
+
+    `t` e o intervalo de 15 min, quando a fase de operacao esta rodando. Sem ele
+    o traco de mensagens nao tem tempo de co-simulacao e nao da para reproduzir
+    a Figura 58 da tese, que e um grafico contra esse tempo.
+    """
     if LINK is not None:
-        LINK.begin_cycle(CYCLE_NAMES[index])
+        LINK.begin_cycle(CYCLE_NAMES[index], t)
 
 
 def close_cycle(index, label=""):
@@ -175,6 +180,9 @@ MARKET_CIRCUIT = os.environ.get("MARKET_CIRCUIT",
 # negociado, e a comparacao deixaria de isolar o efeito do mecanismo.
 USE_REALIZED = os.environ.get("MARKET_REALIZED", "1") == "1"
 OP_MAX_ROUNDS = int(os.environ.get("MARKET_OP_MAX_ROUNDS", "30"))
+# O leilao de tempo real liquida em TODA janela, como no original, e nao apenas
+# quando o armazenamento de rede nao basta. Ver `collect_operation`.
+OP_AUCTION_ALWAYS = os.environ.get("MARKET_OP_AUCTION_ALWAYS", "1") not in ("0", "")
 
 AGENTS = {}          # localname -> instancia, para o simulador Mosaik alcancar
 
@@ -199,6 +207,16 @@ def _parse(content):
     return json.loads(content)
 
 
+def _curto(serie, casas=6):
+    """Serie com precisao limitada, para nao gastar rede com digito de ruido.
+
+    Um float de dupla precisao serializa em ate 17 algarismos; a negociacao
+    converge com tolerancia 1e-4. Os digitos alem do sexto sao bytes que
+    trafegam sem carregar informacao usada.
+    """
+    return [round(float(x), casas) for x in serie]
+
+
 def _set_content(message, payload):
     """Define o conteudo e ANOTA o tamanho serializado da mensagem.
 
@@ -215,8 +233,14 @@ def _set_content(message, payload):
 
 
 def _violations(v):
-    from market_opentes.config import V_MAX, V_MIN, V_TOL
-    return int((v < V_MIN - V_TOL).sum() + (v > V_MAX + V_TOL).sum())
+    """Quantos pares (no, intervalo) exigem ACAO da fase de operacao.
+
+    Usa `V_ACAO_MIN`/`V_ACAO_MAX`, que por padrao sao o proprio limite. Com um
+    limiar mais rigoroso o DSO passa a intervir antes de violar; a contagem do
+    RESULTADO, que sai dos CSV contra 0,97 e 1,03, nao muda.
+    """
+    from market_opentes.config import V_ACAO_MAX, V_ACAO_MIN, V_TOL
+    return int((v < V_ACAO_MIN - V_TOL).sum() + (v > V_ACAO_MAX + V_TOL).sum())
 
 
 def _reply(message, performative, payload):
@@ -326,7 +350,11 @@ class SolverAgent(Agent):
                 node, n_reduced=N_SCENARIOS,
                 deterministic_demand=self.profiles[node],
                 deterministic_price=self.price)
-            decision = solve_prosumer(scenarios, self.case.prosumer_storage[node])
+            # `.get`, e nao `[]`: todo no de baixa tensao e prosumidor e
+            # contrata nos dois mercados; so alguns tem bateria. E o que o
+            # `ReferenceModel.py` do trabalho original faz, com `p_bilateral`
+            # fora do `if has_storage`.
+            decision = solve_prosumer(scenarios, self.case.prosumer_storage.get(node))
             return {"node": node,
                     "schedule": decision["storage"].tolist(),
                     "bilateral": decision["bilateral"].tolist(),
@@ -376,6 +404,15 @@ class SolverAgent(Agent):
         p_t = {n: np.array(request["p_init"][str(n)]) for n in pros}
         q_t = {n: np.array(request["q_init"][str(n)]) for n in net}
         lam_t = {n: np.array(request["lam"][str(n)]) for n in pros}
+        # Estado de carga do armazenamento de REDE, acumulado ao longo do dia.
+        # Sem isto cada janela resolvia com a bateria de volta a 50%, o que a
+        # tornava uma fonte de energia infinita: 8 kW disponiveis nas 95 janelas
+        # dao 190 kWh de um dispositivo de 20 kWh. Era por isso que o
+        # armazenamento de rede SEMPRE bastava e o leilao nunca abria.
+        # Vem no pedido: quem sabe o que foi de fato APLICADO nos intervalos
+        # anteriores e o agente de mercado, nao o solver.
+        soc_rede = {int(k): float(v)
+                    for k, v in request.get("soc_rede", {}).items()} or None
 
         if kind == "operation_level1":
             antes = voltage_at(self.case, v0_t, self.s[t], p_t, q_t)
@@ -390,7 +427,7 @@ class SolverAgent(Agent):
             try:
                 p, q = solve_dso(self.case, base_kw, p_t, q_t, lam_t,
                                  v0_t[None, :], self.s[t:t + 1], periods=1,
-                                 fix_prosumer=True)
+                                 fix_prosumer=True, soc0=soc_rede)
                 depois = voltage_at(self.case, v0_t, self.s[t], p, q)
             except RuntimeError:
                 p, q, depois = p_t, q_t, antes
@@ -403,7 +440,8 @@ class SolverAgent(Agent):
 
         # operation_dso: o leilao de operacao, sem fixar o prosumidor
         p, q = solve_dso(self.case, base_kw, p_t, q_t, lam_t,
-                         v0_t[None, :], self.s[t:t + 1], periods=1)
+                         v0_t[None, :], self.s[t:t + 1], periods=1,
+                         soc0=soc_rede)
         depois = voltage_at(self.case, v0_t, self.s[t], p, q)
         return {"t": t, "violations_after": _violations(depois),
                 "v_min_after": float(depois.min()),
@@ -614,7 +652,7 @@ class ConcentratorParticipant(FipaContractNetProtocol):
 
         if action == "REPORT":          # ciclo 2: so devolve o que os AP propuseram
             resposta = {"p_init": {str(n): self.agent.p_init[n].tolist()
-                                   for n in self.agent.nodes
+                                   for n in self.agent.storage_nodes
                                    if n in self.agent.p_init}}
             if "t" in request:
                 resposta["t"] = request["t"]
@@ -629,7 +667,7 @@ class ConcentratorParticipant(FipaContractNetProtocol):
             return
 
         if action == "OPERATE_AUCTION":  # leilao de operacao, um periodo so
-            nodes = self.agent.nodes
+            nodes = self.agent.storage_nodes
             self.agent.solver.ask(
                 {"kind": "operation_concentrator", "t": request["t"],
                  "nodes": nodes,
@@ -638,7 +676,8 @@ class ConcentratorParticipant(FipaContractNetProtocol):
                 lambda result: self.agent.send(
                     _reply(message, ACLMessage.PROPOSE,
                            {"round": request.get("round"),
-                            "schedule": result["schedule"]})))
+                            "schedule": {k: _curto(v)
+                                         for k, v in result["schedule"].items()}})))
             return
 
         if action == "REOPTIMIZE":       # ciclo 4: reotimiza com o preco sombra
@@ -646,7 +685,7 @@ class ConcentratorParticipant(FipaContractNetProtocol):
             # erro silencioso: cada concentrador cuida de um subconjunto dos nos
             # e receberia o lambda de outro prosumidor, o que ainda converge,
             # mas mais devagar e para outro ponto.
-            nodes = self.agent.nodes
+            nodes = self.agent.storage_nodes
             self.agent.solver.ask(
                 {"kind": "concentrator", "nodes": nodes,
                  "p_init": {str(n): self.agent.p_init[n].tolist() for n in nodes},
@@ -654,19 +693,30 @@ class ConcentratorParticipant(FipaContractNetProtocol):
                 lambda result: self.agent.send(
                     _reply(message, ACLMessage.PROPOSE,
                            {"round": request.get("round"),
-                            "schedule": result["schedule"]})))
+                            "schedule": {k: _curto(v)
+                                         for k, v in result["schedule"].items()}})))
 
 
 class ConcentratorAgent(Agent):
-    def __init__(self, aid, name, nodes, on_ready, network_storage=()):
+    def __init__(self, aid, name, nodes, storage_nodes, on_ready,
+                 network_storage=()):
         super().__init__(aid=aid, debug=False)
         self.name = name
+        # `nodes` sao TODOS os prosumidores sob este transformador, que e com
+        # quem o ciclo 1 fala. `storage_nodes` sao os que tem bateria, que sao
+        # os unicos com variavel a acoplar na negociacao de lambda. Confundir os
+        # dois tirava 43 dos 68 nos da MVLV75 do mercado e do trafego.
         self.nodes = nodes
+        self.storage_nodes = storage_nodes
         self.p_init = {}
         self._on_ready = on_ready
         self._reported = False
         self._retries = 0
         self.retransmissions = 0
+        # Quantas programacoes se perderam de vez. Precisa ser contado: com a
+        # politica de entrar com zero, a perda deixa de derrubar a execucao e
+        # passaria a ser invisivel no resultado.
+        self.sem_resposta = 0
         self._timeout_call = None
         self.solver = SolverClient(self)
         self.behaviours.append(self.solver)
@@ -763,8 +813,24 @@ class ConcentratorAgent(Agent):
                             f"(tentativa {self._retries}/{MAX_RETRIES})")
             self._send_cfp(faltando)
             return
+        # Mesma politica que o DSO ja aplica no ciclo 2: quem nao respondeu nem
+        # apos as retransmissoes entra com programacao NULA. Sem preencher, o
+        # buraco em `p_init` so aparece dois ciclos depois, como um KeyError
+        # dentro do `handle_cfp` do ciclo 4, que derruba o processo do agente e
+        # trava a co-simulacao inteira. Foi o que aconteceu na primeira corrida
+        # sobre a rede 6TiSCH da tese: o no 36 perdeu a proposta e a falha
+        # apareceu num ponto sem relacao com a causa.
+        #
+        # A escolha nao e neutra e por isso fica registrada: o prosumidor
+        # silencioso perde a chance de ser remunerado pelo ajuste, e a rede
+        # perde o recurso dele.
         display_message(self.aid.localname,
-                        f"ciclo 1: TIMEOUT definitivo, sem programacao de {faltando}")
+                        f"ciclo 1: TIMEOUT definitivo, sem programacao de "
+                        f"{faltando}: entram com zero")
+        n_periodos = 1 if self.op_t is not None else PERIODS
+        for n in faltando:
+            self.p_init[n] = np.zeros(n_periodos)
+        self.sem_resposta += len(faltando)
         self.on_prosumers_ready()
 
     def on_prosumers_ready(self):
@@ -794,15 +860,27 @@ class DSOParticipant(FipaContractNetProtocol):
         action = request.get("action")
 
         if action == "REOPTIMIZE":
+            # `p_init` e `q_init` chegam so na primeira rodada e ficam guardados:
+            # sao constantes na negociacao. Ver `_cfp_payload` do agente de
+            # mercado.
+            if "p_init" in request:
+                self.agent.cache_p_init = request["p_init"]
+                self.agent.cache_q_init = request["q_init"]
+            if self.agent.cache_p_init is None:
+                display_message(self.agent.aid.localname,
+                                "REOPTIMIZE sem p_init e sem cache: a primeira "
+                                "rodada nao chegou")
+                return
             self.agent.solver.ask(
                 {"kind": "dso",
-                 "p_init": request["p_init"],
-                 "q_init": request["q_init"],
+                 "p_init": self.agent.cache_p_init,
+                 "q_init": self.agent.cache_q_init,
                  "lam": request["lam"]},
                 lambda result: self.agent.send(
                     _reply(message, ACLMessage.PROPOSE,
                            {"round": request.get("round"),
-                            "p": result["p"], "q": result["q"]})))
+                            "p": {k: _curto(v) for k, v in result["p"].items()},
+                            "q": {k: _curto(v) for k, v in result["q"].items()}})))
             return
 
         if action in ("OPERATE", "OPERATE_AUCTION"):
@@ -840,6 +918,10 @@ class DSOAgent(Agent):
         self.publisher = DispatchPublisher(self, on_dispatch_done)
         self.behaviours.append(self.publisher)
         self.reports = {}
+        # `p_init` e `q_init` do ciclo 4 chegam so na primeira rodada; ver
+        # `MarketAgent._cfp_payload`.
+        self.cache_p_init = None
+        self.cache_q_init = None
         self.report_behaviour = None
         self._report_on_ready = None
         self._report_expected = set()
@@ -980,6 +1062,10 @@ class MarketAgent(Agent):
         self.p_init = {}
         self.q_init = {n: np.zeros(PERIODS) for n in case.network_storage_nodes}
         self.lam = {n: np.zeros(PERIODS) for n in case.prosumer_storage_nodes}
+        # De quais nos cada concentrador cuida. Serve para enderecar o CFP do
+        # ciclo 4: cada um recebe so o preco sombra dos seus.
+        self._nos_do_concentrador = {f"concentrator_{c.name}": list(c.prosumer_storage)
+                                     for c in case.concentrators}
         self.x = {}
         self.y = {}
         self.q = {}
@@ -1067,27 +1153,62 @@ class MarketAgent(Agent):
         # Ciclo 3: cada rodada da descoberta do preco sombra e uma passagem
         # completa AM -> AC/AD -> AM, e cada uma tem que caber na fatia do ciclo.
         begin_cycle(2)
-        pros = self.case.prosumer_storage_nodes
         self.replied = set()
-        payload = {
-            "action": "REOPTIMIZE",
-            "round": self.round,
-            "lam": {str(n): self.lam[n].tolist() for n in pros},
-            "p_init": {str(n): self.p_init[n].tolist() for n in pros},
-            "q_init": {str(n): self.q_init[n].tolist()
-                       for n in self.case.network_storage_nodes},
-        }
-        self._payload = payload
         self.retries = 0
         self._send_cfp(sorted(self.expected))
 
+    def _cfp_payload(self, receiver):
+        """Conteudo do CFP da rodada, ENDERECADO ao destinatario.
+
+        Quem consome o que, lido dos dois `handle_cfp`: o concentrador usa
+        apenas o `lam` DOS NOS DELE, e tira o `p_init` da propria memoria; o DSO
+        usa `lam`, `p_init` e `q_init` de todos, porque a restricao de tensao e
+        global. Mandar o pacote inteiro para todos era desperdicio puro, e era o
+        que fazia o CFP nao trafegar na rede da tese: 35.663 bytes em 281
+        quadros, com 99,93% de perda no pior enlace.
+
+        As series vao com 6 casas decimais. A tolerancia da negociacao e 1e-4 no
+        criterio de parada, quatro ordens de grandeza acima do que se descarta.
+        """
+        base = {"action": "REOPTIMIZE", "round": self.round}
+        if receiver != "dso":
+            nos = self._nos_do_concentrador.get(receiver, [])
+            base["lam"] = {str(n): _curto(self.lam[n]) for n in nos}
+            return base
+        pros = self.case.prosumer_storage_nodes
+        base["lam"] = {str(n): _curto(self.lam[n]) for n in pros}
+        # `p_init` e `q_init` so vao na PRIMEIRA rodada. O primeiro e constante
+        # ao longo da negociacao (e a programacao que os prosumidores
+        # propuseram no ciclo 1) e o segundo e saida do proprio DSO. Reenviar os
+        # dois a cada rodada era mandar de volta o que o destinatario ja tem.
+        if self.round <= 1:
+            base["p_init"] = {str(n): _curto(self.p_init[n]) for n in pros}
+            base["q_init"] = {str(n): _curto(self.q_init[n])
+                              for n in self.case.network_storage_nodes}
+        return base
+
     def _send_cfp(self, receivers):
-        """Envia (ou reenvia) o CFP da rodada corrente aos destinatarios dados."""
+        """Envia (ou reenvia) o CFP da rodada corrente aos destinatarios dados.
+
+        Uma mensagem POR destinatario, e nao uma com varios: o conteudo agora
+        depende de quem recebe. A contabilidade da rodada e propria, por
+        remetente (`collect_propose`), entao dividir a mensagem nao afeta o
+        fecho do ciclo, e o reenvio a um subconjunto ja era feito assim.
+        """
+        for name in receivers:
+            self._enviar_cfp_a(name)
+        # Timeout proprio, UM por rodada e nao um por destinatario: o
+        # `FipaContractNetProtocol` do PADE tem o dele comentado, entao uma
+        # proposta perdida travaria a rodada e o Mosaik.
+        if self._timeout_call is not None and self._timeout_call.active():
+            self._timeout_call.cancel()
+        self._timeout_call = self.call_later(ROUND_TIMEOUT, self._on_timeout)
+
+    def _enviar_cfp_a(self, name):
         message = ACLMessage(ACLMessage.CFP)
         message.set_protocol(ACLMessage.FIPA_CONTRACT_NET_PROTOCOL)
-        for name in receivers:
-            message.add_receiver(AID(name=name))
-        _set_content(message, self._payload)
+        message.add_receiver(AID(name=name))
+        _set_content(message, self._cfp_payload(name))
 
         if self.round_behaviour is None:
             self.round_behaviour = MarketInitiator(self, message)
@@ -1095,10 +1216,6 @@ class MarketAgent(Agent):
         else:
             self.round_behaviour.message = message
         self.round_behaviour.on_start()
-
-        # Timeout proprio: o FipaContractNetProtocol do PADE tem o dele
-        # comentado, entao uma proposta perdida travaria a rodada e o Mosaik.
-        self._timeout_call = self.call_later(ROUND_TIMEOUT, self._on_timeout)
 
     def _on_timeout(self):
         faltando = sorted(self.expected - self.replied)
@@ -1185,15 +1302,25 @@ class MarketAgent(Agent):
             self.call_later(0.05, self.next_round)
 
     def _decision(self, performative):
+        """Fecha a rodada com ACCEPT ou REJECT para todos os participantes.
+
+        A mensagem carrega apenas o numero da rodada. Ela levava tambem o preco
+        sombra dos 25 nos por 96 intervalos, em precisao total, e NINGUEM lia:
+        nao ha `handle_reject_propose` nem `handle_accept_propose` em lugar
+        nenhum, e o preco da rodada seguinte ja vai no proximo CFP.
+
+        Medido, isso custava 51.898 bytes por destinatario POR RODADA, ou 409
+        quadros. No enlace de PER 0,400 da rede da tese a entrega de um
+        datagrama desse tamanho e 0,00%, e sem receber o fecho da rodada o
+        participante nao aceitava o CFP seguinte. Era a maior mensagem da
+        negociacao inteira, maior que o proprio CFP.
+        """
         answer = ACLMessage(performative)
         answer.set_protocol(ACLMessage.FIPA_CONTRACT_NET_PROTOCOL)
         for c in self.case.concentrators:
             answer.add_receiver(AID(name=f"concentrator_{c.name}"))
         answer.add_receiver(AID(name="dso"))
-        payload = {"round": self.round,
-                   "lam": {str(n): self.lam[n].tolist()
-                           for n in self.case.prosumer_storage_nodes}}
-        _set_content(answer, payload)
+        _set_content(answer, {"round": self.round})
         self.send(answer)
 
     def _reject(self):
@@ -1225,7 +1352,7 @@ class MarketAgent(Agent):
         """
         self.op_t = t
         # Ciclo 1: cada AC pede aos seus AP a programacao do intervalo.
-        begin_cycle(0)
+        begin_cycle(0, t)
         self.pending_op_concentrators = {c.name for c in self.case.concentrators}
         for c in self.case.concentrators:
             AGENTS[f"concentrator_{c.name}"].request_schedules(t=t,
@@ -1238,20 +1365,22 @@ class MarketAgent(Agent):
         if self.pending_op_concentrators:
             return
         close_cycle(0, f" (t={self.op_t})")
-        begin_cycle(1)
+        begin_cycle(1, self.op_t)
         AGENTS["dso"].request_reports(
             [f"concentrator_{c.name}" for c in self.case.concentrators],
             self._op_cycle3, t=self.op_t)
 
     def _op_cycle3(self, reports):
         close_cycle(1, f" (t={self.op_t})")
-        begin_cycle(2)
+        begin_cycle(2, self.op_t)
         self._start_operation_check(self.op_t)
 
     def _start_operation_check(self, t):
         self.op_t = t
         self.op_round = 0
         self.op_lam = {n: np.zeros(1) for n in self.case.prosumer_storage_nodes}
+        self.op_retries = 0
+        self.op_violations_before = 0
         self.replied = set()
         payload = {
             "action": "OPERATE", "t": t, "round": 0,
@@ -1260,6 +1389,7 @@ class MarketAgent(Agent):
                        for n in self.case.prosumer_storage_nodes},
             "q_init": {str(n): [float(self.q[n][t])]
                        for n in self.case.network_storage_nodes},
+            "soc_rede": self.soc_rede(t),
         }
         self._payload = payload
         message = ACLMessage(ACLMessage.CFP)
@@ -1275,36 +1405,89 @@ class MarketAgent(Agent):
         self._timeout_call = self.call_later(ROUND_TIMEOUT, self._on_op_timeout)
 
     def _on_op_timeout(self):
+        """Retransmite ao que falta, como os ciclos 1 e 4 ja faziam.
+
+        Sem isto, uma resposta perdida no leilao encerrava o intervalo sem
+        correcao nenhuma, ou, antes da correcao do cancelamento acima, travava a
+        co-simulacao.
+        """
+        faltando = sorted(self.expected - self.replied) if self.op_round else []
+        if faltando and self.op_retries < MAX_RETRIES:
+            self.op_retries += 1
+            display_message(self.aid.localname,
+                            f"t={self.op_t}: timeout no leilao, retransmitindo "
+                            f"para {faltando} ({self.op_retries}/{MAX_RETRIES})")
+            self._enviar_cfp_operacao(faltando)
+            return
         display_message(self.aid.localname,
-                        f"t={self.op_t}: TIMEOUT na operacao")
+                        f"t={self.op_t}: TIMEOUT na operacao"
+                        + (f", sem resposta de {faltando}" if faltando else ""))
         self.mosaik_sim.release_step()
+
+    def soc_rede(self, t):
+        """Estado de carga de cada armazenamento de REDE no inicio do intervalo.
+
+        Integra o despacho JA APLICADO nos intervalos anteriores, a partir da
+        fracao inicial. Sem isto cada janela resolvia com a bateria de volta ao
+        estado inicial, o que a tornava fonte de energia infinita: 8 kW nas 95
+        janelas dao 190 kWh de um dispositivo de 20 kWh. Era por isso que o
+        armazenamento de rede sempre bastava e o leilao nunca abria.
+        """
+        from market_opentes.config import DT_H
+        from market_opentes.optimization import INIT_SOC_FRACTION
+        out = {}
+        for n, st in self.case.network_storage.items():
+            soc = INIT_SOC_FRACTION * st.max_soc_kwh
+            soc += float(np.sum(self.q[n][:t])) * DT_H
+            out[str(n)] = float(np.clip(soc, st.min_soc_kwh, st.max_soc_kwh))
+        return out
+
+    def _cancela_timeout_op(self):
+        if self._timeout_call is not None and self._timeout_call.active():
+            self._timeout_call.cancel()
 
     def collect_operation(self, message):
         payload = _parse(message.content)
-        if self._timeout_call is not None and self._timeout_call.active():
-            self._timeout_call.cancel()
         t = self.op_t
 
         if self.op_round == 0:
+            # Nivel 1: um destinatario so, o DSO. Chegou a resposta, acabou.
+            self._cancela_timeout_op()
             # Resposta do primeiro nivel. A tensao ANTES da intervencao so e
             # medida aqui; se o leilao abrir, o payload dele substitui
             # `op_result` e o valor se perderia.
             self.op_v_min_before = payload.get("v_min_before")
+            self.op_violations_before = payload.get("violations_before", 0)
             self.op_result = payload
-            if payload["violations_before"] == 0:
-                self._finish_operation("sem violacao")
-                return
             if payload["violations_after"] == 0:
                 self._apply_operation(payload)
-                self._finish_operation("resolvido pelo armazenamento de rede")
+            # O leilao de tempo real abre SEMPRE, e nao so quando o
+            # armazenamento de rede nao basta.
+            #
+            # O desenho anterior, de dois niveis com o leilao como contingencia,
+            # era invencao nossa. Medido, ele nunca abria: a correcao de tensao
+            # necessaria e de 0,51 mpu em media e o desvio maximo e de 0,871 kW,
+            # contra 184 kW de capacidade de armazenamento de rede. Ele sobra por
+            # duas ordens de grandeza, entao a contingencia jamais dispara.
+            #
+            # No `market_agent.py` do trabalho original o `MARKET_AUCTION` e
+            # disparado por tempo, uma vez por janela, para todos os
+            # concentradores e o DSO, sem teste de violacao nenhum. Um mercado
+            # spot de tempo real liquida sempre, inclusive quando nao ha o que
+            # corrigir; e o que da conteudo ao ciclo 3 e as Figuras 56 e 57.
+            if OP_AUCTION_ALWAYS or payload["violations_after"]:
+                self._op_next_round()
                 return
-            display_message(self.aid.localname,
-                            f"t={t}: armazenamento de rede nao basta, "
-                            "abrindo o leilao de operacao")
-            self._op_next_round()
+            self._finish_operation("resolvido pelo armazenamento de rede"
+                                   if payload["violations_before"]
+                                   else "sem violacao")
             return
 
-        # Rodada do leilao: junta concentradores e DSO.
+        # Rodada do leilao: junta concentradores e DSO. O timeout NAO pode ser
+        # cancelado aqui: sao seis destinatarios, e cancelar na primeira
+        # resposta deixava o agente esperando para sempre pelas que faltavam.
+        # Como o leilao so abre quando o armazenamento de rede nao basta, o
+        # defeito ficou latente ate a fase de operacao passar a agir.
         sender = getattr(message.sender, "localname", "?")
         self.replied.add(sender)
         if "schedule" in payload:
@@ -1314,6 +1497,7 @@ class MarketAgent(Agent):
             self.op_result = payload
         if self.replied != self.expected or not self.op_result:
             return
+        self._cancela_timeout_op()
 
         pros = self.case.prosumer_storage_nodes
         y_op = {n: np.array(self.op_result["p"][str(n)]) for n in pros}
@@ -1325,7 +1509,12 @@ class MarketAgent(Agent):
                 or self.op_round >= OP_MAX_ROUNDS
                 or self.op_result["violations_after"] == 0):
             self._apply_operation(self.op_result)
-            self._finish_operation(f"leilao em {self.op_round} rodadas")
+            # Com o leilao liquidando em toda janela, o motivo precisa dizer se
+            # havia o que corrigir; senao as 95 janelas ficam indistinguiveis.
+            houve = self.op_violations_before
+            self._finish_operation(
+                f"leilao em {self.op_round} rodadas"
+                + ("" if houve else " (sem violacao)"))
         else:
             self._op_next_round()
 
@@ -1343,16 +1532,22 @@ class MarketAgent(Agent):
                        for n in self.case.prosumer_storage_nodes},
             "q_init": {str(n): [float(self.q[n][t])]
                        for n in self.case.network_storage_nodes},
+            "soc_rede": self.soc_rede(t),
         }
         self._payload = payload
+        self.op_retries = 0
+        self._enviar_cfp_operacao(sorted(self.expected))
+
+    def _enviar_cfp_operacao(self, receivers):
+        """Envia (ou reenvia) o CFP do leilao de operacao aos destinatarios dados."""
         message = ACLMessage(ACLMessage.CFP)
         message.set_protocol(ACLMessage.FIPA_CONTRACT_NET_PROTOCOL)
-        for c in self.case.concentrators:
-            message.add_receiver(AID(name=f"concentrator_{c.name}"))
-        message.add_receiver(AID(name="dso"))
-        _set_content(message, payload)
+        for name in receivers:
+            message.add_receiver(AID(name=name))
+        _set_content(message, self._payload)
         self.op_behaviour.message = message
         self.op_behaviour.on_start()
+        self._cancela_timeout_op()
         self._timeout_call = self.call_later(ROUND_TIMEOUT, self._on_op_timeout)
 
     def _apply_operation(self, payload):
@@ -1372,7 +1567,13 @@ class MarketAgent(Agent):
             "deviation_kw": r.get("deviation", 0.0),
             "v_min_before": r.get("v_min_before", self.op_v_min_before),
             "v_min_after": r.get("v_min_after"),
-            "violations_before": r.get("violations_before", 0),
+            # Mesma preservacao que `v_min_before`: quando o leilao abre, o
+            # payload dele substitui `op_result` e a contagem de violacoes ANTES
+            # da intervencao se perderia. Sem isto, uma janela que exigiu leilao
+            # era registrada como se nao tivesse tido violacao nenhuma, o que
+            # falseia a estatistica da fase de operacao.
+            "violations_before": r.get("violations_before",
+                                       self.op_violations_before),
             "violations_after": r.get("violations_after", 0),
             "rounds": self.op_round,
         })
@@ -1525,14 +1726,14 @@ def build_agents():
     concentrador_do_no = {}
     for c in case.concentrators:
         agents.append(ConcentratorAgent(AID(name=f"concentrator_{c.name}@{HOST}:{port}"),
-                                        c.name, c.prosumer_storage,
+                                        c.name, c.nodes, c.prosumer_storage,
                                         market.concentrator_ready,
                                         network_storage=c.network_storage))
-        for node in c.prosumer_storage:
+        for node in c.nodes:
             concentrador_do_no[node] = f"concentrator_{c.name}"
         port += 1
 
-    for node in case.prosumer_storage_nodes:
+    for node in case.prosumer_nodes:
         agents.append(ProsumerAgent(AID(name=f"prosumer{node}@{HOST}:{port}"), node,
                                     concentrador_do_no[node]))
         port += 1
@@ -1587,6 +1788,11 @@ def _dump_run(market, link):
             "operation": market.operation_log,
             "cycles": link.cycles if link is not None else [],
             "cycle_budget_s": dict(zip(CYCLE_NAMES, CYCLE_BUDGET_S)),
+            # Programacoes que se perderam de vez no ciclo 1 e entraram com
+            # zero. Sem este numero a perda fica invisivel no resultado.
+            "schedules_lost": sum(
+                getattr(a, "sem_resposta", 0) for a in AGENTS.values()),
+            "retransmissions": market.retransmissions,
         }
         (RUN_DIR / "run.json").write_text(json.dumps(payload))
         print(f"[mercado] execucao gravada em {RUN_DIR / 'run.json'}", flush=True)

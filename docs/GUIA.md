@@ -105,11 +105,17 @@ simulador alimenta qual entrada de qual outro.
 
 ### `grid-opentes`, a rede elétrica
 
-Circuitos OpenDSS em `src/data/` (IEEE 13 Barras, IEEE 34, IEEE 123, e a MVLV75
-do mercado) e os simuladores Mosaik que os acionam. Dois utilitários importam:
+Circuitos OpenDSS em `src/data/` (IEEE 13 Barras, IEEE 34, IEEE 123, a MVLV75 do
+mercado, e as duas redes próprias BT16 e BT38) e os simuladores Mosaik que os
+acionam. Quatro utilitários importam:
 
 - `gen_market_grid.py` converte o grafo da tese (`force.json`) num circuito
   OpenDSS completo.
+- `gen_test_grid.py` faz o contrário: PROJETA uma rede a partir de parâmetros e
+  emite circuito, topologia, alocação de dispositivos e perfis. É de onde saem a
+  BT16 e a BT38.
+- `plot_grid.py` desenha o unifilar de uma rede a partir do `force.json` e do
+  `config.json`.
 - `sensitivity.py` obtém as matrizes `∂V/∂P` e `∂V/∂Q` por perturbação, o que
   substitui o Jacobiano que a tese extraía de um segundo simulador.
 
@@ -148,8 +154,35 @@ execução, pela variável `CPLEX_HOME`. Sem ele, dá para usar um solver livre
 prosumidor. Os detalhes estão no `simulators/market-opentes/README.md`.
 
 O `market` roda duas passadas, uma sem mecanismo nenhum e outra com a negociação,
-e grava `output/market/result_baseline.csv` e `result_negociado.csv`. É a
-comparação entre as duas que mede o efeito do mercado.
+e grava `result_baseline.csv` e `result_negociado.csv`. É a comparação entre as
+duas que mede o efeito do mercado.
+
+### Três redes
+
+A rede vem de `MARKET_NETWORK`, e cada uma responde a uma pergunta diferente.
+
+| Rede | Barras BT | Para quê |
+|---|---|---|
+| `MVLV75` | 75 | a da tese de referência; é onde a comparação é feita |
+| `BT16` | 16 | bancada: 0,3 s por rodada, para iterar sobre o mecanismo |
+| `BT38` | 38 | a rede final do trabalho, com quatro alimentadores |
+
+```bash
+MARKET_NETWORK=BT38 ./run.sh market      # -> output/market_BT38/
+```
+
+A MVLV75 não exibe sobretensão: alimentadores de 60 a 180 m e PV sobre carga de
+0,37 dão cerca de 0,006 pu de elevação ao meio-dia, e a restrição superior nunca
+fica ativa. A BT16 e a BT38 foram projetadas para que os DOIS extremos da faixa
+ocorram, e sem forçar nada: a sobretensão vem da penetração fotovoltaica sobre
+alimentador longo, que é o caso real que motiva o controle transativo. Na BT38 os
+dois extremos ocorrem em alimentadores DIFERENTES, ao mesmo tempo, porque a
+penetração é desigual entre eles. É a condição em que o preço locacional deixa de
+degenerar num preço único.
+
+Os alimentadores das duas são ramificados, tronco em 70 mm² e ramais em 35 mm²,
+e não cadeias de barras em linha. Detalhes e números medidos no `INTEGRACAO.md`,
+item 12; o unifilar de cada uma sai do `plot_grid.py`.
 
 ### Chaves que mudam o resultado
 
@@ -163,6 +196,7 @@ Todas com valor padrão no `docker-compose.yaml`. As que mais importam:
 | `MARKET_REALIZED_MODE` | `perturb` | como a demanda realizada difere da programada |
 | `MARKET_STORAGE_PF` | `none` | fator de potência do armazenamento; `none` reproduz a tese |
 | `NET_BACKEND` | `ideal` | camada de rede entre os agentes |
+| `MARKET_NETWORK` | `MVLV75` | qual rede de teste; ver a seção acima |
 
 ## 5. O que já foi medido
 

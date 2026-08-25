@@ -380,6 +380,138 @@ NET_MESSAGE_SIZE       `real` ou `thesis`
 
 Regressão: `star`, `ieee13` e `integrated` continuam funcionando.
 
+### 12. Redes de teste próprias: BT16 e BT38
+
+**Por que existem.** A rede da tese não exibe sobretensão. Os alimentadores têm
+de 60 a 180 m com cabo de 15 mm², e o fotovoltaico instalado é 0,37 do carregado:
+ao meio-dia há exportação líquida, mas espalhada por cinco alimentadores curtos,
+o que dá cerca de 0,006 pu de elevação. A restrição superior nunca fica ativa, e
+metade do mecanismo de mercado fica sem ser exercitada. Estudar o preço nos dois
+extremos da faixa exige uma rede em que os dois extremos ocorram.
+
+`src/simulators/gen_test_grid.py` projeta a rede a partir de parâmetros e emite
+tudo o que a camada de mercado consome, para que a rede seja autocontida:
+
+```text
+<REDE>/Master.dss + _LineCodes/_Lines/_Transformers/_Loads.dss   circuito
+<REDE>/force.json            topologia, no formato que config.load_case lê
+<REDE>/config.json           alocação de dispositivos por barra
+<REDE>/load_kw.csv, pv_kw.csv, spot_price.csv, scenario_pool.npz   perfis
+```
+
+As FORMAS das curvas vêm do SimBench, reaproveitadas dos perfis já no projeto e
+normalizadas pelo próprio máximo; o DIMENSIONAMENTO por barra é deste trabalho.
+Condutor: cabo multiplexado de alumínio, 70 mm² no tronco e 35 mm² no ramal, com
+valores de tabela de concessionária. Transformadores pela NBR 5440.
+
+**Os alimentadores são ramificados, e não cadeias.** Cada um é uma árvore: um
+tronco em 70 mm² saindo do transformador e ramais em 35 mm² pendurados nele, com
+sub-ramais onde a rede é mais densa. A primeira versão deste gerador produzia uma
+cadeia única, e isso não é só um desenho pobre. Numa cadeia, a impedância até a
+barra k é a soma de k vãos iguais e a tensão cai de forma monótona; numa árvore,
+duas barras à mesma distância elétrica ficam em ramos distintos e só sentem a
+injeção uma da outra pelo trecho comum do caminho. É o que dá sentido a `∂V/∂P`
+ser uma MATRIZ cheia, e não uma diagonal dominante, e portanto ao preço ter de
+ser resolvido por barra. O nível de ramificação de cada trecho vai gravado no
+`force.json`, porque é ele que decide o calibre do cabo.
+
+A geração vai nas barras mais distantes do transformador, medidas pelo
+comprimento do CAMINHO. Numa árvore isso deixa de coincidir com a ordem de
+criação das barras, e é a distância que importa: quanto maior a impedância
+acumulada, maior a elevação que a mesma injeção provoca.
+
+**BT16, rede de bancada.** Dois alimentadores iguais, tronco de 4 barras com três
+ramais, 8 barras de carga e 480 m de rede secundária cada, em 45 kVA. Serve para
+iterar sobre o mecanismo: cada rodada da decomposição leva 0,3 s, contra 2,3 s na
+MVLV75. Cada barra representa um AGRUPAMENTO de unidades consumidoras, e não uma
+casa, que é como a rede secundária costuma ser modelada. A sobretensão e a
+subtensão ocorrem no MESMO alimentador, em horários diferentes.
+
+**BT38, rede final.** Quatro transformadores num tronco de média tensão, com
+caráter distinto entre eles:
+
+```text
+                     kVA  tronco/ramais  rede    PV/carga  papel
+T1 urbano denso       75      3 + 3       270 m    0,12    carga alta, nao exporta
+T2 suburbano          45      5 + 4       495 m    0,44    o alimentador neutro
+T3 condominio solar   45      6 + 5       660 m    0,72    a sobretensao
+T4 ponta rural        30      8 + 4       900 m    0,24    a subtensao
+```
+
+A penetração DESIGUAL entre alimentadores é o ponto do projeto. Com ela, a
+restrição ativa em T3 é o limite superior e a de T4 é o inferior, ao mesmo tempo,
+e o multiplicador de cada uma tem sinal oposto. É o caso em que o preço locacional
+significa alguma coisa; numa rede homogênea ele degenera para um preço único. A
+razão global de PV sobre carga fica em 0,39, praticamente a mesma da rede da tese
+(0,37). O que produz a sobretensão não é a razão global, é como ela se distribui,
+e a coluna PV/carga acima mostra a diferença. T3 gera em TODAS as onze barras, e
+as mais distantes ficam a 420 m do transformador pelo caminho, que é onde a mesma
+injeção provoca a maior elevação. A tese tem 0,37 espalhado por igual, e por isso
+não vê sobretensão nenhuma.
+
+Medido em duas condições. Primeiro na decomposição dual centralizada
+(`market_opentes.dual`), sobre o modelo linearizado e a demanda prevista:
+
+```text
+rede    V base            violacoes base   V negociado       rodadas   s/rodada
+BT16    0,9538 a 1,0489   (57, 87)         0,9720 a 1,0280      41       0,3
+BT38    0,9391 a 1,0527   (414, 124)       0,9720 a 1,0280      69       0,9
+```
+
+Depois na co-simulação completa (`./run.sh market`), com os agentes reais, o
+fluxo de potência não linear do OpenDSS e a demanda REALIZADA, que difere da
+programada. As contagens são de pares (barra, intervalo):
+
+```text
+rede    barras BT  pontos   V baseline        viol.      V negociado       viol.
+BT16       18       1.728   0,9359 a 1,0562   (37, 137)  0,9707 a 1,0291   (0, 0)
+BT38       42       4.032   0,9216 a 1,0649   (406, 128) 0,9701 a 1,0292   (0, 0)
+```
+
+Os dois tipos de violação vão a zero nas duas redes, no fluxo completo e não só
+no modelo linearizado.
+
+Na BT38, o efeito por alimentador mostra que os dois extremos são corrigidos na
+MESMA execução, e em alimentadores diferentes:
+
+```text
+alimentador   caso        V min    V max    <0,97   >1,03
+T1 urbano     baseline    0,9655   1,0012       4       0
+              negociado   0,9716   1,0010       0       0
+T2 suburbano  baseline    0,9375   1,0312      38       2
+              negociado   0,9704   1,0292       0       0
+T3 solar      baseline    0,9438   1,0649     132     126
+              negociado   0,9708   1,0290       0       0
+T4 rural      baseline    0,9216   1,0157     232       0
+              negociado   0,9701   1,0093       0       0
+```
+
+A BT38 precisa de mais rodadas que a BT16 porque o preço tem de separar duas
+restrições ativas de sinal contrário, em alimentadores distintos, e não apenas
+uma.
+
+**Como rodar.** A rede vem de `MARKET_NETWORK`, resolvida pelo `run.sh`:
+
+```bash
+MARKET_NETWORK=BT38 ./run.sh market
+```
+
+Diferença entre os casos: a MVLV75 guarda `config.json` e perfis no pacote do
+mercado, e as redes geradas guardam tudo ao lado do circuito. O `run.sh` aponta
+`MARKET_CONFIG` e `MARKET_DATA_DIR` conforme a escolha, e gera a sensibilidade
+`dV/dP` e `dV/dQ` da rede na primeira execução. Os resultados vão para
+`output/market_<REDE>/`, para não sobrescreverem os da rede da tese.
+
+**Diagrama.** `src/simulators/plot_grid.py` desenha o unifilar a partir do
+`force.json` e do `config.json`, com a mesma convenção da figura de referência:
+azul para o armazenamento do prosumidor, vermelho para o da rede. É gerado por
+código, e não à mão, para acompanhar a rede quando ela for redimensionada.
+
+```bash
+python src/simulators/plot_grid.py src/data/BT38     # -> src/data/BT38/diagrama.png
+```
+
+
 
 ## Ambiente Python
 
