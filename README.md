@@ -98,8 +98,8 @@ de teste isoladas de cada bloco.
 ```
 
 Os experimentos editam o `omnetpp.ini` (perda/semente) e **o restauram ao final**,
-mesmo se interrompidos. Detalhes e leitura dos resultados em
-[`docs/EXPERIMENTO_PERDA.md`](docs/EXPERIMENTO_PERDA.md).
+mesmo se interrompidos. A leitura detalhada dos resultados é mantida fora do
+repositório, em `Docs_Externo/EXPERIMENTO_PERDA.md`.
 
 ### O cenário integrado (`integrated`) — acoplamento causal Volt/Var
 
@@ -217,7 +217,7 @@ O IEEE 13 reproduz **exatamente** os valores do cenário de referência do TSRE
 IEEE 13 desbalanceado (barra 650/fonte em 1,0 pu; barras trifásicas 0,91–1,05 pu;
 fases inexistentes de trechos monofásicos em 0,0).
 
-Documentação: [`docs/INTEGRACAO.md`](docs/INTEGRACAO.md) (visão geral, decisões e
-resultados), [`docs/RESULTADOS.md`](docs/RESULTADOS.md) (guia da pasta `output/`)
-e [`docs/ALTERACOES_INTEGRACAO.txt`](docs/ALTERACOES_INTEGRACAO.txt) (changelog
-técnico das alterações e seus motivos).
+Documentação: [`docs/GUIA.md`](docs/GUIA.md) (o mapa do repositório, para quem
+chega agora), [`docs/INTEGRACAO.md`](docs/INTEGRACAO.md) (o que foi alterado em
+cada componente para integrá-los, e por quê) e
+[`docs/RESULTADOS.md`](docs/RESULTADOS.md) (guia da pasta `output/`).

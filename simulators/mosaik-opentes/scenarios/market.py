@@ -71,6 +71,10 @@ def create_scenario(world):
         node = eid.split("_")[-1]
         agent = pade_sim.MarketMAS(node=int(node))
         world.connect(agent, load, ("P_kw", "P_kw"), ("Q_kvar", "Q_kvar"))
+        # A demanda liquida REALIZADA por no tambem vai para o coletor: e a
+        # grandeza da Figura 55 e das Tabelas 20 e 21 do Apendice A da tese, e
+        # sem grava-la nao ha como confrontar no a no com elas. So a tensao ia.
+        world.connect(agent, monitor, "P_kw")
         n_ligados += 1
 
     for bus in buses:

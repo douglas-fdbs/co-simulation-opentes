@@ -157,11 +157,18 @@ def run(config_json, alpha=ALPHA, eps=EPS, max_rounds=MAX_ROUNDS, n_scenarios=1,
     t0 = time.time()
     p_init = {}
     contracts = {}
-    for node in case.prosumer_storage_nodes:
+    # TODOS os prosumidores programam e contratam; so os que tem bateria entram
+    # na negociacao de lambda, porque so eles tem variavel a acoplar. Restringir
+    # o ciclo 1 aos que tem bateria tirava 43 dos 68 nos da MVLV75 do mercado, e
+    # com eles quase todo o mercado bilateral.
+    for node in case.prosumer_nodes:
+        if node not in net_demand:
+            continue
         scenarios = _scenarios(node, net_demand[node], price, n_scenarios)
-        decision = solve_prosumer(scenarios, case.prosumer_storage[node])
-        p_init[node] = decision["storage"]
+        decision = solve_prosumer(scenarios, case.prosumer_storage.get(node))
         contracts[node] = decision
+        if node in case.prosumer_storage:
+            p_init[node] = decision["storage"]
     t_pros = time.time() - t0
 
     q_init = {n: np.zeros(PERIODS) for n in case.network_storage_nodes}
@@ -170,8 +177,9 @@ def run(config_json, alpha=ALPHA, eps=EPS, max_rounds=MAX_ROUNDS, n_scenarios=1,
     v_base = voltage_of(case, v0, s, {n: np.zeros(PERIODS) for n in p_init}, q_init)
     v_prop = voltage_of(case, v0, s, p_init, q_init)
     if verbose:
-        print(f"{len(p_init)} prosumidores com armazenamento programados em "
-              f"{t_pros:.1f} s ({len(scenarios)} cenario(s) por prosumidor)")
+        print(f"{len(contracts)} prosumidores programados, {len(p_init)} com "
+              f"armazenamento, em {t_pros:.1f} s "
+              f"({len(scenarios)} cenario(s) por prosumidor)")
         print(f"  carga base           : V {v_base.min():.4f} a {v_base.max():.4f} pu, "
               f"violacoes {violations(v_base)}")
         print(f"  + program. proposta  : V {v_prop.min():.4f} a {v_prop.max():.4f} pu, "
@@ -180,6 +188,10 @@ def run(config_json, alpha=ALPHA, eps=EPS, max_rounds=MAX_ROUNDS, n_scenarios=1,
               f"{'lambda max':>11} {'V min':>8} {'V max':>8} {'viol':>10} {'s':>6}")
 
     history = []
+    # Programacao de cada rodada, por no: e o que as Figuras 51, 52 e 53 da tese
+    # mostram, e o historico agregado nao guarda. Sao 25 nos x 96 intervalos por
+    # rodada, ou seja alguns megabytes no pior caso.
+    trilha_ac, trilha_ad = [], []
     for round_ in range(1, max_rounds + 1):
         t_round = time.time()
 
@@ -200,6 +212,9 @@ def run(config_json, alpha=ALPHA, eps=EPS, max_rounds=MAX_ROUNDS, n_scenarios=1,
         d_lam = step_size(alpha, round_, step_rule) * residual
         for i, n in enumerate(case.prosumer_storage_nodes):
             lam[n] = lam[n] + d_lam[i]
+
+        trilha_ac.append({n: np.array(x[n]) for n in case.prosumer_storage_nodes})
+        trilha_ad.append({n: np.array(y[n]) for n in case.prosumer_storage_nodes})
 
         v_now = voltage_of(case, v0, s, y, q)
         dt = time.time() - t_round
@@ -233,7 +248,10 @@ def run(config_json, alpha=ALPHA, eps=EPS, max_rounds=MAX_ROUNDS, n_scenarios=1,
 
     return {"case": case, "p_init": p_init, "contracts": contracts,
             "x": x, "y": y, "q": q, "lambda": lam, "history": history,
-            "price": price}
+            "price": price, "net_demand": net_demand,
+            "v_base": v_base, "v_prop": v_prop, "v_final": v_now,
+            "trilha_ac": trilha_ac, "trilha_ad": trilha_ad,
+            "nodes": case.all_nodes}
 
 
 def _scenarios(node, demand, price, n):

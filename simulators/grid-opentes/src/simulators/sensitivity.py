@@ -58,7 +58,12 @@ from pathlib import Path
 
 import numpy as np
 
-DATA_DIR = Path(__file__).resolve().parents[1] / "data" / "MVLV75"
+# Qual rede. `GRID_DIR` aponta para a pasta do circuito; sem a variavel, vale a
+# rede da tese. Sem isso o modulo compilava a MVLV75 mesmo quando recebia os
+# perfis de outra rede, e devolvia uma matriz que nao correspondia a nenhuma das
+# duas.
+DATA_DIR = Path(os.environ.get(
+    "GRID_DIR", Path(__file__).resolve().parents[1] / "data" / "MVLV75"))
 MASTER = DATA_DIR / "Master.dss"
 FORCE_JSON = DATA_DIR / "force.json"
 

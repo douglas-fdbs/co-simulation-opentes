@@ -22,7 +22,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 PKG_DIR = Path(__file__).resolve().parent
-DATA_DIR = PKG_DIR.parent / "data"
+# Onde ficam os perfis, o preco e o reservatorio de cenarios. Cada rede de teste
+# leva os seus junto do circuito, para ser autocontida; `MARKET_DATA_DIR` aponta
+# para essa pasta. Sem a variavel, vale a pasta do proprio pacote, que e a da
+# rede da tese.
+DATA_DIR = Path(os.environ.get("MARKET_DATA_DIR", PKG_DIR.parent / "data"))
 # Dentro do container o pacote e montado fora da arvore do repositorio, entao o
 # caminho da rede e parametrizavel.
 GRID_DIR = Path(os.environ.get(
@@ -49,6 +53,15 @@ V_TOL = 1e-9
 # NAO existe na tese, que usa a mesma restricao linearizada sem recuo. Aparece
 # quando a restricao passa a atuar de fato.
 V_BACKOFF = float(os.environ.get("MARKET_V_BACKOFF", "1e-3"))
+
+# Limiar de ACAO da fase de operacao, que pode ser mais rigoroso que o limite.
+# O limite regulatorio continua sendo V_MIN e V_MAX: e contra eles que o
+# resultado final e contado. Este limiar decide apenas QUANDO o DSO intervem.
+# Operar com uma banda mais estreita que a norma e pratica de concessionaria,
+# agir antes de violar, e aqui serve para exercitar o mecanismo de operacao sem
+# afrouxar a margem da restricao. Padrao igual a V_MIN, isto e, sem rigor extra.
+V_ACAO_MIN = float(os.environ.get("MARKET_V_ACAO_MIN", str(V_MIN)))
+V_ACAO_MAX = float(os.environ.get("MARKET_V_ACAO_MAX", str(V_MAX)))
 
 # Fator de potencia do armazenamento. A Eq. 6.16 supoe dQ = 0, o que vale para um
 # dispositivo que nao mexe em reativo. Um inversor comum, porem, opera com fator
@@ -104,6 +117,18 @@ class Case:
     @property
     def network_storage_nodes(self):
         return sorted(self.network_storage)
+
+    @property
+    def prosumer_nodes(self):
+        """TODOS os nos de baixa tensao sob algum concentrador.
+
+        E quem negocia no mercado, com ou sem bateria: o
+        `start_pade_agents.py` do trabalho original cria um `ProsumerAgent` por
+        no de baixa tensao. Nao confundir com `prosumer_storage_nodes`, que sao
+        os que entram na negociacao de lambda, porque so eles tem programacao de
+        armazenamento a acoplar.
+        """
+        return sorted({n for c in self.concentrators for n in c.nodes})
 
 
 def _storage(node, params):

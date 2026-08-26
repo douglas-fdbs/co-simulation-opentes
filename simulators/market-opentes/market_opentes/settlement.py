@@ -48,7 +48,7 @@ from pathlib import Path
 
 import numpy as np
 
-from .config import DT_H
+from .config import DT_H, PERIODS
 
 BILATERAL_PRICE = 38.0     # EUR/MWh, do stochastic_model/config.json
 # Calibracao do peso da funcao objetivo em moeda. None = usar o Ck = 1 da tese,
@@ -159,6 +159,21 @@ def settle(result, out_dir, ck_eur=None):
     write_csv(transactions(result["contracts"], spot_price),
               out_dir / "transactions.csv")
 
+    # Serie por intervalo, que e o que a Figura 56 da tese mostra. O
+    # `transactions.csv` so tem o total do dia por no, e com ele nao da para
+    # reproduzir a figura nem ver em que horario cada mercado e usado.
+    serie = []
+    for node, decision in sorted(result["contracts"].items()):
+        bil = np.asarray(decision["bilateral"], dtype=float)
+        spo = np.asarray(decision["spot"], dtype=float)
+        for t in range(len(spo)):
+            serie.append({"node": node, "t": t,
+                          "bilateral_kw": float(bil[t]),
+                          "spot_kw": float(spo[t]),
+                          "spot_eur_mwh": float(spot_price[t]),
+                          "bilateral_eur_mwh": BILATERAL_PRICE})
+    write_csv(serie, out_dir / "market_series.csv")
+
     u = "eur_mwh" if calibrado else "signal"
     dlmp_rows = []
     for node, series in sorted(prices.items()):
@@ -172,4 +187,40 @@ def settle(result, out_dir, ck_eur=None):
     write_csv(flexibility(result["p_init"], result["y"], prices, calibrado),
               out_dir / "flexibility.csv")
 
+    _dump_figuras(result, out_dir)
     return {"dlmp": prices, "calibrado": calibrado}
+
+
+def _dump_figuras(result, out_dir):
+    """Grava, num npz, tudo o que as figuras da tese consomem.
+
+    Sem isto cada figura teria de reexecutar a negociacao inteira. O arquivo tem
+    as tres tensoes (base, proposta e negociada), a demanda liquida, as
+    programacoes dos dois armazenamentos, o preco sombra e a trilha de cada
+    rodada por no, que e o que as Figuras 51 a 53 mostram.
+    """
+    case = result["case"]
+    nos = list(result["nodes"])
+    def matriz(d, chaves=None):
+        chaves = nos if chaves is None else chaves
+        return np.array([np.asarray(d.get(n, np.zeros(PERIODS)), dtype=float)
+                         for n in chaves])
+    pros = case.prosumer_storage_nodes
+    rede = case.network_storage_nodes
+    np.savez_compressed(
+        Path(out_dir) / "figuras.npz",
+        nodes=np.array(nos),
+        prosumer_nodes=np.array(pros),
+        network_nodes=np.array(rede),
+        demanda=matriz(result["net_demand"]),
+        v_base=np.asarray(result["v_base"]),
+        v_prop=np.asarray(result["v_prop"]),
+        v_final=np.asarray(result["v_final"]),
+        y=matriz(result["y"], pros),
+        q=matriz(result["q"], rede),
+        lam=matriz(result["lambda"], pros),
+        preco=np.asarray(result["price"]),
+        trilha_ac=np.array([[r[n] for n in pros] for r in result["trilha_ac"]]),
+        trilha_ad=np.array([[r[n] for n in pros] for r in result["trilha_ad"]]),
+    )
+    print(f"gravado {Path(out_dir) / 'figuras.npz'}")

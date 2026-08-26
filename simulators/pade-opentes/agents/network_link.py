@@ -62,13 +62,42 @@ TIME_SCALE = float(os.environ.get("NET_TIME_SCALE", "1.0"))
 SEED = int(os.environ.get("NET_SEED", "0"))
 
 # Tamanho da mensagem informado a rede. `real` usa o conteudo serializado, que e
-# o que de fato trafega. `thesis` reproduz os valores declarados no
-# `market_agent.py` original (100 bytes para o CFP, uniforme entre 1000 e 1500
-# para a proposta), que sao arbitrarios e nao tem relacao com o conteudo. A
-# opcao existe para tornar a diferenca mensuravel, nao para escolher a mentira.
+# o que de fato trafega. `thesis` reproduz os valores DECLARADOS pelo trabalho
+# original, que sao arbitrarios e nao tem relacao com o conteudo. A opcao existe
+# para tornar a diferenca mensuravel, nao para escolher a mentira.
+#
+# O original usa TRES classes, e nao duas. Varrendo os 42 `set_message_length`
+# de `market_agent.py`, `bess_agent.py`, `dso_agent.py` e `prosumer_agent.py`:
+#
+#   100 bytes fixos        CFP, AGREE, SUBSCRIBE e INFORM de confirmacao ('OK',
+#                          confirmacao de assinatura). E a classe MAIS FREQUENTE,
+#                          porque um CFP enderecado a N destinatarios conta N
+#                          vezes.
+#   uniforme 100 a 500     um caso so: a PROPOSE do prosumidor no leilao de tempo
+#                          real, ou seja, na fase de OPERACAO
+#                          (`prosumer_agent.py`, linha 310).
+#   uniforme 1000 a 1500   PROPOSE, REQUEST e INFORM que carregam conteudo
+#                          serializado, e ACCEPT/REJECT_PROPOSAL que carregam o
+#                          multiplicador de Lagrange.
+#
+# Uma versao anterior deste arquivo lia so o `market_agent.py` e mapeava CFP para
+# 100 e TODO o resto para 1000 a 1500. Isso inverte a distribuicao da Figura 59
+# da tese, em que cerca de 94% das mensagens ficam abaixo de 500 bytes: passavam
+# a ser a minoria. E como o tempo de entrega no 6TiSCH cresce com o numero de
+# quadros, e 100 bytes cabem em um quadro contra 8 a 12 para 1000 a 1500, o erro
+# multiplicava por quase dez o tempo de rede da maioria das mensagens.
 MESSAGE_SIZE = os.environ.get("NET_MESSAGE_SIZE", "real")
-THESIS_CFP_BYTES = 100
-THESIS_PROPOSE_RANGE = (1000, 1500)
+THESIS_CONTROL_BYTES = 100
+THESIS_BID_RANGE = (100, 500)
+THESIS_PAYLOAD_RANGE = (1000, 1500)
+# Abaixo disto um INFORM e confirmacao, e nao carga util. O original separa os
+# dois casos por construcao ('OK' contra `pickle.dumps(config)`); aqui a
+# separacao vem do conteudo real, que e a mesma distincao medida.
+THESIS_CONTROL_MAX_BYTES = 64
+# Performativas que o original sempre manda com 100 bytes.
+CONTROLE = frozenset(x for x in (
+    getattr(ACLMessage, n, None)
+    for n in ("CFP", "AGREE", "SUBSCRIBE", "REFUSE", "FAILURE")) if x is not None)
 
 
 class IdealBackend:
@@ -196,6 +225,11 @@ class NetworkLink:
         # MAIOR atraso dele, nao a soma.
         self.cycle = None
         self.cycles = []
+        # Intervalo de 15 min em curso, quando a fase de operacao esta rodando.
+        # Serve para duas coisas: separar a PROPOSE do leilao de tempo real, que
+        # o original manda menor, e dar ao traco o tempo de CO-SIMULACAO, sem o
+        # qual nao da para reproduzir a Figura 58 da tese.
+        self.ctx_t = None
         self.sent = 0
         self.dropped = 0
         self.delays = []
@@ -204,13 +238,14 @@ class NetworkLink:
         if trace_path:
             self._trace = open(trace_path, "w", newline="")
             self._writer = csv.writer(self._trace)
-            self._writer.writerow(["wall_time", "sender", "receiver", "performative",
-                                   "bytes", "delay_s", "dropped"])
+            self._writer.writerow(["wall_time", "t", "ciclo", "sender", "receiver",
+                                   "performative", "bytes", "delay_s", "dropped"])
 
-    def begin_cycle(self, name):
+    def begin_cycle(self, name, t=None):
         """Abre um balde de contabilidade para o ciclo dado."""
+        self.ctx_t = t
         self.cycle = {"name": name, "messages": 0, "dropped": 0, "max_delay": 0.0,
-                      "bytes": 0}
+                      "bytes": 0, "t": t}
         self.cycles.append(self.cycle)
         return self.cycle
 
@@ -218,21 +253,79 @@ class NetworkLink:
         c, self.cycle = self.cycle, None
         return c
 
-    def _size(self, message):
-        if MESSAGE_SIZE == "thesis":
-            # `market_agent.py` do original, linhas 66, 79, 256 e 269.
-            if message.performative == ACLMessage.CFP:
-                return THESIS_CFP_BYTES
-            return self._rng.randint(*THESIS_PROPOSE_RANGE)
+    def _conteudo(self, message):
+        """Tamanho do conteudo serializado, em bytes."""
         size = getattr(message, "message_length", None)
         if size:
             return int(size)
         content = message.content or ""
         return len(content.encode("utf-8")) if isinstance(content, str) else len(content)
 
+    def _size(self, message):
+        real = self._conteudo(message)
+        if MESSAGE_SIZE != "thesis":
+            return real
+        perf = message.performative
+        if perf in CONTROLE:
+            return THESIS_CONTROL_BYTES
+        if perf == ACLMessage.INFORM and real <= THESIS_CONTROL_MAX_BYTES:
+            return THESIS_CONTROL_BYTES
+        # A unica PROPOSE de faixa curta do original e a do PROSUMIDOR no leilao
+        # de tempo real: `prosumer_agent.py` linha 310, e so ela. As propostas do
+        # concentrador ao DSO e ao agente de mercado carregam programacao e ficam
+        # na faixa alta, que e o que a Figura 58(a) mostra em azul e verde. Duas
+        # condicoes, portanto: fase de operacao (ha intervalo corrente) e
+        # remetente prosumidor.
+        if (perf == ACLMessage.PROPOSE and self.ctx_t is not None
+                and str(getattr(message.sender, "localname", "")).startswith(
+                    "prosumer")):
+            return self._rng.randint(*THESIS_BID_RANGE)
+        return self._rng.randint(*THESIS_PAYLOAD_RANGE)
+
+    @staticmethod
+    def _instrumentacao(message, receiver):
+        """A mensagem e do PADE, e nao da arquitetura?
+
+        O `Agent.react` do PADE reenvia uma COPIA de tudo o que recebe para o
+        agente `sniffer`, embrulhada num INFORM marcado como mensagem de sistema.
+        O sniffer e ferramenta de depuracao do framework: nao existe na
+        arquitetura da tese, nao e no da rede 6TiSCH e nao consome o meio LPWA.
+
+        Modelar essas copias como trafego distorce tudo o que se mede. Medido
+        numa corrida da fase de operacao sobre a rede da tese: elas eram METADE
+        das mensagens, todas na faixa de 1000 a 1500 bytes porque embrulham a
+        original, e todas com atraso zero porque o destino nao tem no na rede.
+        Com elas dentro, a distribuicao de tamanho da Figura 59 saia invertida e
+        a mediana do tempo de recepcao caia para 0,1 s.
+
+        Elas continuam sendo ENTREGUES; apenas nao passam pelo modelo de rede.
+        """
+        if getattr(message, "system_message", False):
+            return True
+        nome = getattr(receiver, "localname", "") or ""
+        rem = getattr(getattr(message, "sender", None), "localname", "") or ""
+        # O SOLVER tambem nao e da arquitetura. Ele existe aqui porque o
+        # `py_dss_interface` e o Pyomo nao podem rodar na thread do reactor, e o
+        # trabalho original tem o mesmo recurso (`solver_agent.py`). Ele NAO
+        # aparece na topologia publicada: o `nodes_xy.csv` do Apendice B tem 78
+        # posicoes, os 75 nos eletricos mais o DSO e o Mercado, e nenhuma para
+        # ele. Nem aparece nas Figuras 58 e 59, que so mostram AC, AD e AM.
+        #
+        # Medido antes desta exclusao: 36% do trafego da programacao era de e
+        # para o solver, com mediana de 2.916 bytes e maximo de 102.534, contra
+        # mediana de 26 bytes do resto. Era ele que estourava o enlace ruim e
+        # deixava o `concentrator_trafo_5_35` sem resposta, e nao o CFP.
+        for x in (nome, rem):
+            if x.startswith(("sniffer", "ams", "solver")):
+                return True
+        return False
+
     def route(self, agent, original_send, message, receivers):
         """Chamado no lugar do `Agent._send`."""
         for receiver in receivers:
+            if self._instrumentacao(message, receiver):
+                original_send(message, [receiver])
+                continue
             size = self._size(message)
             src = getattr(message.sender, "localname", None)
             dst = getattr(receiver, "localname", None)
@@ -248,6 +341,8 @@ class NetworkLink:
             if self._writer:
                 self._writer.writerow([
                     f"{time.time():.6f}",
+                    "" if self.ctx_t is None else self.ctx_t,
+                    self.cycle["name"] if self.cycle else "",
                     getattr(message.sender, "localname", "?"),
                     getattr(receiver, "localname", "?"),
                     message.performative, size, f"{delay:.6f}", int(dropped)])

@@ -6,8 +6,9 @@ Três produtos, um por lacuna registrada na seção 3.5 do `REVISAO_TESE.md`:
                       nó, com o horário de ocorrência.
   programacao_no.png  Figuras 51 e 52: a programação que o AC propõe e a que o AD
                       aceita, para um nó, ao longo das rodadas de negociação.
-  ciclos.png          Figura 58: quanto tempo de rede cada ciclo consumiu, contra
-                      a fatia que ele tem dentro da janela de 15 minutos.
+  ciclos.png          quanto tempo de rede cada ciclo consumiu, contra a fatia
+                      que ele tem dentro da janela de 15 minutos. NAO e a Figura
+                      58: aquela e por mensagem e sai do `plot_msgs.py`.
 
 As duas primeiras leem `result_negociado.csv` e `run/run.json`, que a execução dos
 agentes grava. Mesma paleta e gramática visual das outras figuras do mercado.
@@ -218,6 +219,7 @@ def ciclos(run_json, out_png):
         cabe = "cabe" if o and tot <= o else ("ESTOURA" if o else "sem fatia")
         print(f"  {n:<18} {r:2d}x {m:6.1f} s = {tot:8.1f} s  "
               f"fatia {o:6.0f} s  {cabe}")
+
 
 
 if __name__ == "__main__":
