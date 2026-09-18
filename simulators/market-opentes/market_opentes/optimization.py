@@ -83,9 +83,17 @@ CVAR_ALPHA = float(os.environ.get("MARKET_CVAR_ALPHA", "0.95"))
 
 
 def _solver():
-    if SOLVER_PATH:
-        return SolverFactory(SOLVER_NAME, executable=SOLVER_PATH)
-    return SolverFactory(SOLVER_NAME)
+    solver = (SolverFactory(SOLVER_NAME, executable=SOLVER_PATH) if SOLVER_PATH
+              else SolverFactory(SOLVER_NAME))
+    if SOLVER_NAME == "cplex":
+        # O barrier do CPLEX resolve os QP daqui sem crossover e, quando o otimo
+        # cai colado no ponto de partida (`p = p_init`, que e o que acontece na
+        # primeira rodada, com lambda ainda zerado), ele para com "Barrier cannot
+        # determine infeasibility" e devolve `unknown`, com residuo de 3e-2 kW.
+        # O crossover refina a solucao ate uma base otima verificavel. Nao muda o
+        # otimo, so garante que o solver saiba que chegou nele.
+        solver.options["barrier crossover"] = 1
+    return solver
 
 
 def _solve(model, label):

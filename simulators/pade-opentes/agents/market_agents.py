@@ -173,6 +173,29 @@ REALIZED_DAY = int(os.environ.get("MARKET_REALIZED_DAY", "9"))
 # aqui e o mesmo: o solver abre o circuito e resolve.
 MARKET_CIRCUIT = os.environ.get("MARKET_CIRCUIT",
                                 "/grid-data/MVLV75/Master.dss")
+
+_BUS_CACHE = None
+
+
+def _bus_name(node):
+    """Nome da barra no OpenDSS para um no do mercado.
+
+    As redes geradas pelo repositorio nomeiam as barras como `n{no}`, e essa
+    continua sendo a regra. Uma rede publicada, como a IEEE 13, tem nomes
+    proprios que nao se pode renomear sem perder a correspondencia com a
+    referencia: nesse caso o `force.json` traz o nome da barra em cada no.
+    Mesma funcao de `sensitivity.py`, que roda no outro container.
+    """
+    global _BUS_CACHE
+    if _BUS_CACHE is None:
+        arq = Path(os.environ.get("MARKET_GRID_DIR",
+                                  Path(MARKET_CIRCUIT).parent)) / "force.json"
+        try:
+            dados = json.loads(arq.read_text())
+            _BUS_CACHE = {n["name"]: n["bus"] for n in dados["nodes"] if "bus" in n}
+        except OSError:
+            _BUS_CACHE = {}
+    return _BUS_CACHE.get(node, f"n{node}")
 # Qual demanda a REDE ve. E independente de a fase de operacao estar ligada:
 # a demanda realizada e a mesma realidade fisica em todos os cenarios
 # comparados, e o que muda entre eles e se os agentes reagem a ela. Amarrar as
@@ -315,8 +338,8 @@ class SolverAgent(Agent):
                 dss.text("Solve")
                 v = []
                 for node in self.case.all_nodes:
-                    dss.circuit.set_active_bus(f"n{node}")
-                    mags = list(dss.bus.vmag_angle_pu[0::2])
+                    dss.circuit.set_active_bus(_bus_name(node))
+                    mags = [m for m in dss.bus.vmag_angle_pu[0::2] if m > 1e-6]
                     v.append(sum(mags) / len(mags))
                 pontos.append(np.array(v))
         finally:

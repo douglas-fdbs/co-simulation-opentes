@@ -491,37 +491,34 @@ BT16 = dict(
 
 # Rede final do trabalho. Diferente da de bancada em intencao, e nao so em
 # tamanho: ali os dois alimentadores sao iguais, e a sobretensao e a subtensao
-# ocorrem NA MESMA barra, em horarios diferentes. Aqui elas ocorrem em barras
-# DIFERENTES, ao mesmo tempo, porque os quatro alimentadores tem caracter
-# distinto:
+# ocorrem no MESMO alimentador, em horarios diferentes. Aqui elas ocorrem em
+# alimentadores DIFERENTES e em horarios diferentes, porque os quatro
+# alimentadores tem caracter distinto:
 #
 #   T1, urbano denso     75 kVA, 210 m, carga alta, pouca geracao no telhado.
 #                        Nunca exporta; sofre a queda de tensao do pico noturno.
 #   T2, suburbano        45 kVA, 405 m, carga e geracao medias. E o alimentador
 #                        neutro, o que serve de referencia.
-#   T3, condominio solar 45 kVA, 495 m, geracao em TODAS as barras, 0,65 kWp por
-#                        kW de carga. E onde a sobretensao aparece.
-#   T4, ponta rural      30 kVA, 660 m com ramal fino desde a oitava barra,
-#                        carga baixa e dispersa. E onde a subtensao e severa.
+#   T3, condominio solar 45 kVA, 495 m, geracao em TODAS as barras. E onde a
+#                        sobretensao aparece, das 08:45 as 13:30.
+#   T4, ponta rural      30 kVA, 660 m com ramal fino, carga baixa e dispersa.
+#                        E onde a subtensao e severa, sobretudo das 14:45 as 22:15.
 #
-# A penetracao DESIGUAL entre alimentadores e o ponto do projeto. Com ela, o
-# preco que resolve a violacao de tensao deixa de ser um numero unico do sistema:
-# a restricao ativa em T3 e o limite superior, a de T4 e o inferior, e o
-# multiplicador de cada uma tem sinal oposto. E o caso em que o preco locacional
-# significa alguma coisa; numa rede homogenea ele degenera para um preco unico.
+# A penetracao DESIGUAL entre alimentadores e o ponto do projeto. No fluxo do dia
+# sem armazenamento, nenhum intervalo tem subtensao e sobretensao ao mesmo tempo;
+# o preco sombra ainda assume os dois sinais no mesmo intervalo (52 de 96 na
+# decomposicao centralizada), porque o armazenamento acopla os intervalos.
 #
-# A razao global de PV sobre carga fica em 0,37, o MESMO valor da rede da tese.
-# O que produz a sobretensao nao e a razao global, e como ela se distribui: 0,12
-# em T1, 0,44 em T2, 0,65 em T3 e 0,24 em T4. A tese tem 0,37 espalhado por
-# igual, e por isso nao ve sobretensao nenhuma. O contraste e o resultado.
+# A razao global de PV sobre carga fica em 0,39 no pico e 0,41 em energia, na
+# faixa do 0,37 da rede da tese. O que produz a sobretensao nao e a razao global,
+# e como ela se distribui. Pico de PV sobre pico de carga, medido nos CSV: 0,12
+# em T1, 0,44 em T2, 0,72 em T3 e 0,24 em T4. A tese tem 0,37 espalhado por
+# igual, e por isso nao ve sobretensao nenhuma.
 #
-# Calibracao. Os valores acima nao sao a primeira tentativa. Com pv_kwp=8,5 em T3
-# a tensao chegava a 1,1346 pu e o modelo do DSO ficava INVIAVEL: nenhum despacho
-# de armazenamento traz 1,13 pu para 1,03. Com 4,2 kWp por barra a violacao fica
-# grande o bastante para ser o objeto do estudo e pequena o bastante para o
-# mecanismo poder resolve-la, que e a condicao para a rede servir de caso de
-# teste. O mesmo vale para T4: o vao caiu de 70 para 55 m e o ramal fino comecou
-# na oitava barra em vez da quinta.
+# Calibracao. A violacao precisa ser grande o bastante para ser o objeto do
+# estudo e pequena o bastante para o modelo do DSO continuar viavel: nenhum
+# despacho de armazenamento traz 1,13 pu para 1,03. Com os valores abaixo a
+# decomposicao dual converge em 42 rodadas sem violacao no modelo linear.
 BT38 = dict(
     nome="BT38",
     descricao="rede final, 4 alimentadores de baixa tensao com penetracao "

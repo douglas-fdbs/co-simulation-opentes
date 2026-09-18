@@ -438,13 +438,17 @@ T3 condominio solar   45      6 + 5       660 m    0,72    a sobretensao
 T4 ponta rural        30      8 + 4       900 m    0,24    a subtensao
 ```
 
-A penetração DESIGUAL entre alimentadores é o ponto do projeto. Com ela, a
-restrição ativa em T3 é o limite superior e a de T4 é o inferior, ao mesmo tempo,
-e o multiplicador de cada uma tem sinal oposto. É o caso em que o preço locacional
-significa alguma coisa; numa rede homogênea ele degenera para um preço único. A
-razão global de PV sobre carga fica em 0,39, praticamente a mesma da rede da tese
-(0,37). O que produz a sobretensão não é a razão global, é como ela se distribui,
-e a coluna PV/carga acima mostra a diferença. T3 gera em TODAS as onze barras, e
+A penetração DESIGUAL entre alimentadores é o ponto do projeto. No fluxo do dia
+sem armazenamento, a sobretensão fica no condomínio solar T3, das 08:45 às 10:45
+e das 11:45 às 13:30; a subtensão fica na ponta rural T4, das 10:45 às 11:45 e
+das 14:45 às 22:15, e à noite em T2 e T3. Os dois extremos ocorrem em
+alimentadores diferentes e em horários diferentes; nenhum intervalo tem os dois ao
+mesmo tempo. O preço sombra ainda assume os dois sinais no mesmo intervalo, em 52
+de 96 na decomposição centralizada, porque o armazenamento acopla os intervalos
+entre si: às 09:45, T3 recebe -8,51 e T4 +0,18. A razão global de PV sobre carga
+fica em 0,39 no pico e 0,41 em energia, na faixa da rede da tese (0,37). O que
+produz a sobretensão não é a razão global, é como ela se distribui, e a coluna
+PV/carga acima mostra a diferença. T3 gera em TODAS as onze barras, e
 as mais distantes ficam a 420 m do transformador pelo caminho, que é onde a mesma
 injeção provoca a maior elevação. A tese tem 0,37 espalhado por igual, e por isso
 não vê sobretensão nenhuma.
@@ -454,8 +458,8 @@ Medido em duas condições. Primeiro na decomposição dual centralizada
 
 ```text
 rede    V base            violacoes base   V negociado       rodadas   s/rodada
-BT16    0,9538 a 1,0489   (57, 87)         0,9720 a 1,0280      41       0,3
-BT38    0,9391 a 1,0527   (414, 124)       0,9720 a 1,0280      69       0,9
+BT16    0,9538 a 1,0489   (57, 87)         0,9710 a 1,0290      39       0,3
+BT38    0,9391 a 1,0527   (414, 124)       0,9710 a 1,0290      42       1,1
 ```
 
 Depois na co-simulação completa (`./run.sh market`), com os agentes reais, o
@@ -464,31 +468,38 @@ programada. As contagens são de pares (barra, intervalo):
 
 ```text
 rede    barras BT  pontos   V baseline        viol.      V negociado       viol.
-BT16       18       1.728   0,9359 a 1,0562   (37, 137)  0,9707 a 1,0291   (0, 0)
-BT38       42       4.032   0,9216 a 1,0649   (406, 128) 0,9701 a 1,0292   (0, 0)
+BT16       18       1.728   0,9359 a 1,0562   (37, 137)  0,9708 a 1,0290   (0, 0)
+BT38       42       4.032   0,9216 a 1,0649   (406, 128) 0,9697 a 1,0290   (1, 0)
 ```
 
-Os dois tipos de violação vão a zero nas duas redes, no fluxo completo e não só
-no modelo linearizado.
+Na BT16 os dois tipos de violação vão a zero no fluxo completo. Na BT38 a
+sobretensão vai a zero e sobra 1 par de subtensão: n46, o fim do alimentador
+rural, às 19:30, a 0,96970 pu. A fase de operação atuou nessa janela e previu
+0,97100 depois da correção, mas avalia a tensão pelo mesmo modelo linear da
+negociação (`voltage_at`). O erro de linearização, que ali chega a 1,3 mpu, fica
+invisível para ela.
 
-Na BT38, o efeito por alimentador mostra que os dois extremos são corrigidos na
-MESMA execução, e em alimentadores diferentes:
+Por alimentador, na BT38, a sobretensão de T3 e a subtensão de T4 são corrigidas
+na mesma execução, em horários diferentes:
 
 ```text
 alimentador   caso        V min    V max    <0,97   >1,03
 T1 urbano     baseline    0,9655   1,0012       4       0
-              negociado   0,9716   1,0010       0       0
+              negociado   0,9710   1,0010       0       0
 T2 suburbano  baseline    0,9375   1,0312      38       2
-              negociado   0,9704   1,0292       0       0
+              negociado   0,9707   1,0290       0       0
 T3 solar      baseline    0,9438   1,0649     132     126
-              negociado   0,9708   1,0290       0       0
+              negociado   0,9701   1,0290       0       0
 T4 rural      baseline    0,9216   1,0157     232       0
-              negociado   0,9701   1,0093       0       0
+              negociado   0,9697   1,0100       1       0
 ```
 
-A BT38 precisa de mais rodadas que a BT16 porque o preço tem de separar duas
-restrições ativas de sinal contrário, em alimentadores distintos, e não apenas
-uma.
+A negociação da co-simulação convergiu em 32 rodadas na BT38, contra 29 na BT16.
+
+Na decomposição centralizada a BT38 converge em 42 rodadas, contra 39 da BT16,
+com o mesmo critério |Δλ| ≤ 1e-4. Conferida no fluxo não linear, com a demanda
+programada, a programação negociada da BT38 deixa 3 leituras por fase abaixo de
+0,97 em 13.248, e nenhuma acima de 1,03.
 
 **Como rodar.** A rede vem de `MARKET_NETWORK`, resolvida pelo `run.sh`:
 

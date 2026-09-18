@@ -27,6 +27,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+import re
+
 import mosaik
 
 PADE_HOST = os.environ.get("PADE_HOST", "pade-market")
@@ -66,9 +68,23 @@ def create_scenario(world):
 
     # Um agente prosumidor por no de baixa tensao com armazenamento; os demais
     # nos tem a carga acionada pelo mesmo mecanismo, com armazenamento nulo.
+    # So entram as cargas do MERCADO, que seguem a convencao `Load_<no>` usada
+    # pelo resto da camada (`Edit Load.Load_{no}` no loading.py, no
+    # sensitivity.py e no market_agents.py). Antes o laco pegava toda carga do
+    # circuito e supunha que o nome terminasse em `_<numero>`, o que so vale
+    # para as redes geradas aqui. Num circuito montado sobre uma rede publicada
+    # convivem as duas: a IEEE 13 mantem as cargas oficiais (`671`, `634a`,
+    # `675b`, ...) desabilitadas ao lado das do mercado, e o `int()` estourava
+    # em `Load-671`.
+    padrao = re.compile(r"^load-load_(\d+)$", re.IGNORECASE)
     n_ligados = 0
+    ignoradas = []
     for eid, load in loads.items():
-        node = eid.split("_")[-1]
+        m = padrao.match(eid)
+        if m is None:
+            ignoradas.append(eid)
+            continue
+        node = m.group(1)
         agent = pade_sim.MarketMAS(node=int(node))
         world.connect(agent, load, ("P_kw", "P_kw"), ("Q_kvar", "Q_kvar"))
         # A demanda liquida REALIZADA por no tambem vai para o coletor: e a
@@ -80,8 +96,15 @@ def create_scenario(world):
     for bus in buses:
         world.connect(bus, monitor, "V1_pu", "V2_pu", "V3_pu")
 
+    if not n_ligados:
+        raise SystemExit(
+            "nenhuma carga com o nome `Load_<no>` no circuito; o mercado nao "
+            f"tem o que acionar. Cargas encontradas: {sorted(loads)[:8]}")
     print(f"   {n_ligados} nos acionados pelos agentes, "
           f"{len(buses)} barras registradas")
+    if ignoradas:
+        print(f"   {len(ignoradas)} cargas fora da convencao do mercado, "
+              f"ignoradas: {sorted(ignoradas)[:6]}")
 
 
 if __name__ == "__main__":

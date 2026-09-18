@@ -175,10 +175,13 @@ A MVLV75 não exibe sobretensão: alimentadores de 60 a 180 m e PV sobre carga d
 0,37 dão cerca de 0,006 pu de elevação ao meio-dia, e a restrição superior nunca
 fica ativa. A BT16 e a BT38 foram projetadas para que os DOIS extremos da faixa
 ocorram, e sem forçar nada: a sobretensão vem da penetração fotovoltaica sobre
-alimentador longo, que é o caso real que motiva o controle transativo. Na BT38 os
-dois extremos ocorrem em alimentadores DIFERENTES, ao mesmo tempo, porque a
-penetração é desigual entre eles. É a condição em que o preço locacional deixa de
-degenerar num preço único.
+alimentador longo, que é o caso real que motiva o controle transativo. Na BT16 os
+dois extremos ocorrem no mesmo alimentador, em horários diferentes. Na BT38
+ocorrem em alimentadores diferentes e em horários diferentes: sobretensão no
+condomínio solar ao meio-dia, subtensão na ponta rural e, à noite, nos
+alimentadores residenciais. Isso vem da penetração desigual entre eles, e faz o
+preço sombra variar entre alimentadores: ele assume os dois sinais no mesmo
+intervalo em 52 de 96.
 
 Os alimentadores das duas são ramificados, tronco em 70 mm² e ramais em 35 mm²,
 e não cadeias de barras em linha. Detalhes e números medidos no `INTEGRACAO.md`,

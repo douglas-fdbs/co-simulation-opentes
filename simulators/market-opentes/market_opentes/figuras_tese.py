@@ -29,7 +29,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 
-from .config import DT_H, PERIODS  # noqa: E402
+from .config import DT_H, GRID_DIR, PERIODS  # noqa: E402
 
 # A tese usa o mapa `jet` em todas as figuras 3D, com barra de cor à direita.
 CMAPA = "jet"
@@ -60,8 +60,48 @@ LEGENDAS = {
 }
 
 
+# Legendas cujo texto NOMEIA nos da MVLV75. Numa rede diferente os nos sao
+# outros, e deixar o nome do arquivo dizendo "no 74" quando a figura mostra o no
+# 671 e pior do que nao ter nome nenhum. `LEGENDAS_NOS` guarda o mesmo texto com
+# um campo de formatacao no lugar dos numeros.
+LEGENDAS_NOS = {
+    44: "Demanda liquida em kW para cada um dos nos e para os nos {destaque}",
+    48: "Demanda liquida em kW apos a insercao dos dispositivos de armazenamento",
+    50: "Graficos de composicao de demandas em kW e de tensoes em pu para o no {a}",
+    51: "Programacoes de demanda em kW ao longo do tempo para o no {a}",
+    52: "Programacoes de demanda em kW ao longo do tempo para o no {b}",
+    53: "Programacoes de demanda em kW para os nos {a} e {b} ao longo da negociacao",
+    56: "Valores de energia adquiridos no mercado futuro bilateral e no mercado "
+        "SPOT para quatro nos da rede eletrica {mercado}",
+}
+_SUBS = {}
+
+
+def definir_nos(destaque=None, detalhe=None, mercado=None):
+    """Fixa os nos que entram nas legendas desta execucao."""
+    _SUBS.clear()
+    if destaque:
+        _SUBS["destaque"] = " ".join(str(x) for x in sorted(destaque))
+    if detalhe:
+        _SUBS["a"] = str(detalhe[0])
+        if len(detalhe) > 1:
+            _SUBS["b"] = str(detalhe[1])
+    if mercado:
+        _SUBS["mercado"] = " ".join(str(x) for x in mercado)
+
+
+def legenda(n):
+    modelo = LEGENDAS_NOS.get(n)
+    if modelo is None or not _SUBS:
+        return LEGENDAS[n]
+    try:
+        return modelo.format(**_SUBS)
+    except KeyError:
+        return LEGENDAS[n]
+
+
 def arquivo(out_dir, n):
-    return Path(out_dir) / (LEGENDAS[n].lower().replace(" ", "_") + ".png")
+    return Path(out_dir) / (legenda(n).lower().replace(" ", "_") + ".png")
 
 
 def hhmm(t):
@@ -86,6 +126,34 @@ def _eixo_tempo(ax, t0, t1, passo, eixo="y"):
 # ---------------------------------------------------------------------------
 # Superfície e barra em 3D, que é o formato dominante da tese
 # ---------------------------------------------------------------------------
+
+def _eixo_nos(ax, nos):
+    """Posiciona os nós no eixo x.
+
+    Na MVLV75 os nós são 1 a 75, densos, e o número serve de coordenada: o eixo
+    numérico é o que a tese desenha. Numa rede cujos nós herdam os nomes das
+    barras, como a IEEE 13 (611, 632, 633, 645, ...), o mesmo eixo abre vãos de
+    dezenas de posições vazias entre nós vizinhos e as marcas caem em números
+    que não existem. Quando os nomes são esparsos, o eixo passa a ser
+    CATEGÓRICO: uma posição por nó, rotulada com o número real.
+
+    Devolve as coordenadas x a usar, na ordem de `nos`.
+    """
+    nos = list(nos)
+    if not nos:
+        return np.array([], dtype=float)
+    denso = (max(nos) - min(nos) + 1) <= 1.5 * len(nos)
+    if denso:
+        x = np.asarray(nos, dtype=float)
+        if len(nos) <= 10:
+            ax.set_xticks(list(nos))
+    else:
+        x = np.arange(len(nos), dtype=float)
+        ax.set_xticks(x)
+        ax.set_xticklabels([str(n) for n in nos], fontsize=6)
+    ax.set_xlim(float(x.min()) - 0.5, float(x.max()) + 0.5)
+    return x
+
 
 def _moldura(ax, rotulo_z, titulo, t0, t1, passo_tempo, azim=AZIM):
     ax.set_xlabel("Nós", fontsize=7, labelpad=-2)
@@ -112,7 +180,8 @@ def hastes(ax, nos, t0, t1, Z, rotulo_z, titulo, passo_tempo=None,
 
     sub = Z[:, t0:t1]
     tempos = np.arange(t0, t1)
-    N, T = np.meshgrid(np.asarray(nos, dtype=float), tempos, indexing="ij")
+    xs = _eixo_nos(ax, nos)
+    N, T = np.meshgrid(xs, tempos, indexing="ij")
     n, t, z = N.ravel(), T.ravel(), sub.ravel()
     norm = plt.Normalize(float(sub.min()), float(sub.max()))
     mapa = matplotlib.colormaps[CMAPA]
@@ -120,11 +189,8 @@ def hastes(ax, nos, t0, t1, Z, rotulo_z, titulo, passo_tempo=None,
                           np.column_stack([n, t, z])], axis=1)
     ax.add_collection3d(Line3DCollection(segmentos, colors=mapa(norm(z)),
                                          linewidths=0.9))
-    ax.set_xlim(min(nos) - 0.5, max(nos) + 0.5)
     ax.set_ylim(t0, t1 - 1)
     ax.set_zlim(min(0.0, float(sub.min())), float(sub.max()))
-    if len(nos) <= 10:
-        ax.set_xticks(list(nos))
     _moldura(ax, rotulo_z, titulo, t0, t1, passo_tempo, azim)
     return plt.cm.ScalarMappable(norm=norm, cmap=CMAPA)
 
@@ -139,14 +205,12 @@ def pontos(ax, nos, t0, t1, Z, rotulo_z, titulo, passo_tempo=None,
     """
     sub = Z[:, t0:t1]
     tempos = np.arange(t0, t1)
-    N, T = np.meshgrid(np.asarray(nos, dtype=float), tempos, indexing="ij")
+    xs = _eixo_nos(ax, nos)
+    N, T = np.meshgrid(xs, tempos, indexing="ij")
     norm = plt.Normalize(float(sub.min()), float(sub.max()))
     disp = ax.scatter(N.ravel(), T.ravel(), sub.ravel(), c=sub.ravel(),
                       cmap=CMAPA, norm=norm, s=5.0, linewidths=0, depthshade=False)
-    ax.set_xlim(min(nos) - 0.5, max(nos) + 0.5)
     ax.set_ylim(t0, t1 - 1)
-    if len(nos) <= 10:
-        ax.set_xticks(list(nos))
     _moldura(ax, rotulo_z, titulo, t0, t1, passo_tempo, azim)
     return disp
 
@@ -167,8 +231,17 @@ def barras3d(ax, nos, Z, rotulo_z, titulo, corte=1e-9, so_positivo=False):
     v = Z[ii, jj]
     norm = plt.Normalize(v.min(), v.max())
     cores = matplotlib.colormaps[CMAPA](norm(v))
-    ax.bar3d(np.asarray(nos, dtype=float)[ii], jj.astype(float),
+    xs = _eixo_nos(ax, nos)
+    ax.bar3d(xs[ii], jj.astype(float),
              np.zeros_like(v), 0.8, 0.8, v, color=cores, shade=True)
+    # O `bar3d` nao estende o eixo z para baixo de zero, e as barras negativas
+    # saiam penduradas abaixo do piso da caixa. Na MVLV75 isso nunca aparece,
+    # porque o preco sombra dela nao fica negativo; numa rede com sobretensao
+    # fica (ver a analise de sinal de lambda), e a Figura 45 precisa mostrar os
+    # dois lados. So se mexe no limite quando ha valor negativo, para nao alterar
+    # as figuras que ja existem.
+    if float(v.min()) < 0.0:
+        ax.set_zlim(float(v.min()), max(float(v.max()), 0.0))
     ax.set_xlabel("Nós", fontsize=7, labelpad=-2)
     ax.set_ylabel("Tempo", fontsize=7, labelpad=2)
     ax.set_zlabel(rotulo_z, fontsize=7, labelpad=2, rotation=90)
@@ -262,10 +335,18 @@ def _figura_demanda(nos, D, quadros, out):
 # ---------------------------------------------------------------------------
 
 def figura_49(nos, v_sem, v_com, out, horarios=(71, 40)):
+    # Mesmo motivo do eixo 3D: com nomes de barra esparsos (611, 632, 645, ...) o
+    # eixo numérico espalha as barras por vãos vazios. Uma posição por nó.
+    nos = list(nos)
+    denso = (max(nos) - min(nos) + 1) <= 1.5 * len(nos)
+    x = np.asarray(nos, dtype=float) if denso else np.arange(len(nos), dtype=float)
     fig, axes = plt.subplots(2, 1, figsize=(9.0, 5.6))
     for ax, t in zip(axes, horarios):
-        ax.bar(nos, v_sem[t], width=0.85, color="#1f77b4", label="Sem armazenamento")
-        ax.bar(nos, v_com[t], width=0.55, color="#ff7f0e", label="Com armazenamento")
+        ax.bar(x, v_sem[t], width=0.85, color="#1f77b4", label="Sem armazenamento")
+        ax.bar(x, v_com[t], width=0.55, color="#ff7f0e", label="Com armazenamento")
+        if not denso:
+            ax.set_xticks(x)
+            ax.set_xticklabels([str(n) for n in nos], fontsize=8)
         lo = min(v_sem[t].min(), v_com[t].min())
         hi = max(v_sem[t].max(), v_com[t].max())
         ax.set_ylim(lo - 0.005, hi + 0.005)
@@ -421,18 +502,99 @@ def figura_57(series_csv, out):
 # ---------------------------------------------------------------------------
 
 def _operacao(result_csv):
-    """Tensão e demanda líquida por nó, da co-simulação da operação."""
+    """Tensão e demanda líquida por nó, da co-simulação da operação.
+
+    Duas generalizações em relação à MVLV75. As barras dela se chamam `n5`, e o
+    coletor grava `Bus-n5-V1_pu`; uma rede publicada mantém o nome próprio da
+    barra, e sai `Bus-611-V1_pu`, então o `n` é opcional. E a tensão do nó passa
+    a ser a MÉDIA das fases presentes, e não a fase 1: numa rede equilibrada dá
+    no mesmo, numa desequilibrada a fase 1 não representa a barra, e é a média
+    que corresponde ao que o modelo do DSO enxerga.
+    """
     linhas = list(csv.reader(open(result_csv)))
     cab, dados = linhas[0], [l for l in linhas[1:] if l]
-    v, p = {}, {}
+    fases, p = {}, {}
     for i, h in enumerate(cab):
-        m = re.search(r"Bus-n(\d+)-V1_pu", h)
+        m = re.search(r"Bus-n?(\d+)-V([123])_pu", h)
         if m:
-            v[int(m.group(1))] = np.array([float(l[i]) for l in dados])
+            col = np.array([float(l[i]) for l in dados])
+            # Fase inexistente na barra sai como zero; entra só o que existe.
+            if np.nanmax(col) > 0.5:
+                fases.setdefault(int(m.group(1)), []).append(col)
         m = re.search(r"node_(\d+)-P_kw", h)
         if m:
             p[int(m.group(1))] = np.array([float(l[i]) for l in dados])
+    v = {n: np.mean(cols, axis=0) for n, cols in fases.items()}
     return v, p
+
+
+# ---------------------------------------------------------------------------
+# Escolha de nos e janelas
+# ---------------------------------------------------------------------------
+# A tese destaca nos e horarios especificos da MVLV75: os nos 17 a 21 nos quadros
+# (b), o 74 e o 25 nas figuras por no, o 15/24/32/52 nas de mercado, e as 17:45 e
+# as 10:00 na Figura 49. Numa rede que nao e a dela esses numeros nao existem, ou
+# existem e nao querem dizer nada. As funcoes abaixo mantem a escolha da tese
+# quando ela cabe, e derivam dos DADOS quando nao cabe, sempre por um criterio
+# declarado. Assim a MVLV75 continua saindo identica e uma rede nova sai com os
+# nos que de fato importam nela.
+
+def _mais_ativos(nos, matriz, quantos):
+    """Os `quantos` nos de maior amplitude na matriz (nos x periodos)."""
+    amp = np.ptp(np.asarray(matriz), axis=1)
+    return [nos[i] for i in np.argsort(-amp)[:quantos]]
+
+
+def escolher_destaque(nos, demanda):
+    """Nos do quadro (b) das Figuras 44, 48 e 55, fora da rede da tese."""
+    return set(_mais_ativos(nos, demanda, min(5, len(nos))))
+
+
+def escolher_detalhe(pros, y, quantos=2):
+    """Nos das Figuras 50 a 53, fora da rede da tese: os que mais mexem no
+    proprio armazenamento."""
+    ordem = np.argsort(-np.abs(np.asarray(y)).sum(axis=1))
+    return [pros[i] for i in ordem[:quantos]]
+
+
+def escolher_horarios(v_base):
+    """Horarios da Figura 49: onde a tensao base bate no minimo e no maximo.
+
+    So e chamada quando a rede NAO e a da tese. Nela os horarios sao os 17:45 e
+    10:00 que ela destaca, e derivar daria 12:00 no lugar de 10:00: o maximo da
+    tensao base da MVLV75 cai as 12:00, mas a tese escolheu as 10:00. Quem manda
+    e a tese, entao a escolha e feita pela REDE e nao pelos numeros.
+    """
+    v = np.asarray(v_base)
+    t_min = int(np.unravel_index(np.argmin(v), v.shape)[0])
+    t_max = int(np.unravel_index(np.argmax(v), v.shape)[0])
+    return (t_min, t_max) if t_min != t_max else (t_min, min(t_min + 8, PERIODS - 1))
+
+
+def escolher_janelas(v_base, largura=7):
+    """Janelas de destaque dos quadros (b) e (c) das Figuras 43, 47 e 54.
+
+    A tese destaca 17:45 a 19:15 e 10:00 a 11:00, que são o vale e o pico da
+    MVLV75. Noutra rede o aperto está noutro horário: aqui as janelas saem dos
+    instantes em que a tensão base bate no máximo e no mínimo.
+    """
+    v = np.asarray(v_base)
+    t_max = int(np.unravel_index(np.argmax(v), v.shape)[0])
+    t_min = int(np.unravel_index(np.argmin(v), v.shape)[0])
+    def janela(t):
+        t0 = max(0, min(t - largura // 2, PERIODS - largura))
+        return (t0, t0 + largura, 1)
+    return janela(t_max), janela(t_min)
+
+
+def escolher_mercado(series_csv, quantos=4):
+    """Nos da Figura 56, fora da rede da tese: os que mais energia movimentam
+    nos dois mercados."""
+    import pandas as pd
+    df = pd.read_csv(series_csv)
+    total = (df.assign(e=df["bilateral_kw"].abs() + df["spot_kw"].abs())
+               .groupby("node")["e"].sum().sort_values(ascending=False))
+    return tuple(int(x) for x in total.index[:quantos])
 
 
 def main():
@@ -463,7 +625,29 @@ def main():
     # Nos que a tese destaca nos quadros (b) das Figuras 44, 48 e 55. A legenda
     # dela diz "nos 9 a 12", mas o eixo das figuras mostra de 16,5 a 21,5, ou
     # seja os nos 17 a 21. Seguimos o eixo, que e o que esta desenhado.
+    # A rede da tese e reconhecida pelo NOME da pasta da rede, e nao pelos
+    # numeros dos nos. Reconhecer pelos numeros falhava na BT38, que tambem tem
+    # nos 17 a 21: o quadro (b) sairia com os nos que a tese destaca na MVLV75,
+    # que na BT38 nao querem dizer nada. Sendo a MVLV75, tudo fica como esta
+    # escrito na tese; sendo outra, tudo vem dos dados.
+    eh_tese = GRID_DIR.name == "MVLV75"
     DESTAQUE = {17, 18, 19, 20, 21}
+    DETALHE = [74, 25]
+    MERCADO = (15, 24, 32, 52)
+    HORARIOS = (71, 40)
+    if not eh_tese:
+        DESTAQUE = escolher_destaque(nos, demanda)
+        DETALHE = escolher_detalhe(pros, y)
+        if Path(a.series).exists():
+            MERCADO = escolher_mercado(a.series)
+        definir_nos(DESTAQUE, DETALHE, MERCADO)
+        HORARIOS = escolher_horarios(v_base)
+        NOITE, MANHA = escolher_janelas(v_base)
+        print(f"  rede fora da MVLV75: quadro (b) com {sorted(DESTAQUE)}, "
+              f"figuras por no {DETALHE}, mercado {list(MERCADO)}, Figura 49 em "
+              f"{[hhmm(t) for t in HORARIOS]}, janelas em "
+              f"{hhmm(NOITE[0])}-{hhmm(NOITE[1] - 1)} e "
+              f"{hhmm(MANHA[0])}-{hhmm(MANHA[1] - 1)}")
 
     if Path(a.links).exists():
         figura_42(a.links, arquivo(out, 42))
@@ -498,16 +682,16 @@ def main():
     _figura_demanda(nos, dep, [(None, 0, PERIODS, 24),
                                (DESTAQUE, 0, PERIODS, 24)],
                     arquivo(out, 48))
-    figura_49(nos, v_base, v_final, arquivo(out, 49))
+    figura_49(nos, v_base, v_final, arquivo(out, 49), horarios=HORARIOS)
 
-    no50 = 74 if 74 in idx else pros[-1]
+    no50 = DETALHE[0]
     i50 = idx[no50]
     arm = y[pros.index(no50)] if no50 in pros else np.zeros(PERIODS)
     figura_50(no50, demanda[i50], arm, v_base[:, i50], v_final[:, i50],
               arquivo(out, 50))
 
     ac, ad = d["trilha_ac"], d["trilha_ad"]      # (rodadas, n_pros, 96)
-    for fign, no in ((51, 74), (52, 25)):
+    for fign, no in zip((51, 52), DETALHE):
         if no not in pros:
             print(f"  no {no} nao tem armazenamento aqui; pulando a Figura {fign}")
             continue
@@ -516,7 +700,11 @@ def main():
                          arquivo(out, fign))
 
     casos = []
-    for no, t in ((74, 71), (25, 78)):
+    # Cada no e mostrado no instante em que o proprio armazenamento dele mais
+    # trabalha, que e onde AC e AD mais discordam. Na MVLV75 isso recai nos
+    # 17:45 e 19:15 que a tese usa.
+    for no, t in zip(DETALHE, [int(np.argmax(np.abs(y[pros.index(nn)])))
+                               if nn in pros else 0 for nn in DETALHE]):
         if no in pros:
             k = pros.index(no)
             base = demanda[idx[no]][t]
@@ -539,7 +727,7 @@ def main():
         print(f"sem {a.operacao}; pulando as Figuras 54 e 55")
 
     if Path(a.series).exists():
-        figura_56(a.series, arquivo(out, 56))
+        figura_56(a.series, arquivo(out, 56), nodes=MERCADO)
         figura_57(a.series, arquivo(out, 57))
     else:
         print(f"sem {a.series}; pulando as Figuras 56 e 57")

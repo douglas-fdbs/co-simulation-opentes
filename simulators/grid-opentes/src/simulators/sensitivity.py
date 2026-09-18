@@ -86,12 +86,37 @@ def apply_loads(dss, loads_kw, loads_kvar=None, pf=DEFAULT_PF):
         dss.text(f"Edit Load.Load_{node} kW={kw} kvar={kvar}")
 
 
+_BUS_CACHE = None
+
+
+def bus_name(node):
+    """Nome da barra no OpenDSS para um no do mercado.
+
+    As redes geradas por `gen_market_grid.py` e `gen_test_grid.py` nomeiam as
+    barras como `n{no}`, e essa continua sendo a regra. Uma rede publicada, como
+    a IEEE 13, tem nomes proprios que nao se pode renomear sem perder a
+    correspondencia com a referencia: nesse caso o `force.json` traz o nome da
+    barra em cada no, e ele manda.
+    """
+    global _BUS_CACHE
+    if _BUS_CACHE is None:
+        data = json.loads(FORCE_JSON.read_text())
+        _BUS_CACHE = {n["name"]: n["bus"] for n in data["nodes"] if "bus" in n}
+    return _BUS_CACHE.get(node, f"n{node}")
+
+
 def read_voltages(dss, nodes):
-    """Tensao em pu por no (media das fases; a rede aqui e equilibrada)."""
+    """Tensao em pu por no, media das fases existentes na barra.
+
+    A media so representa a barra quando as fases estao proximas. Numa rede
+    desequilibrada como a IEEE 13 ela esconde parte da violacao, e isso esta
+    medido no ESTUDO_IEEE13.md. O modelo do DSO e por no, entao e a media que
+    ele consegue usar.
+    """
     v = np.zeros(len(nodes))
     for i, node in enumerate(nodes):
-        dss.circuit.set_active_bus(f"n{node}")
-        mags = list(dss.bus.vmag_angle_pu[0::2])
+        dss.circuit.set_active_bus(bus_name(node))
+        mags = [m for m in dss.bus.vmag_angle_pu[0::2] if m > 1e-6]
         v[i] = sum(mags) / len(mags)
     return v
 

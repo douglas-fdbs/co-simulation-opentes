@@ -45,10 +45,24 @@ services:
       - "5556:5556"
     volumes:
       - ./simulators/comm-opentes:/root/models
+      # As redes de teste, para o servidor 6TiSCH poder usar a topologia de
+      # radio de cada uma. Gravavel porque o `links_csv` e SAIDA do Tisch.cc: e
+      # dele que sai a figura de PER por distancia.
+      - ./simulators/grid-opentes/src/data:/grid-data
+    environment:
+      # O `nodes_xy.csv` e o `adjacency.txt` que ficam ao lado do modelo sao os
+      # da MVLV75, os Apendices B e C da tese. Enquanto ela era a unica rede com
+      # mercado, estar embutido nao incomodava. Com uma segunda rede o problema
+      # aparece, e em silencio: um agente cujo nome nao esta no arquivo de
+      # posicoes e entregue SEM ATRASO (ver `startPacket` no Tisch.cc), entao a
+      # co-simulacao roda, nao acusa nada, e mede uma rede que nao existe.
+      # `TISCH_ARGS` aponta o servidor para a topologia da rede em uso; vazio,
+      # vale a da tese.
+      - TISCH_ARGS=${TISCH_ARGS:-}
     command: >-
       bash -lc "source /root/omnetpp/setenv &&
       opp_makemake -f --deep -O out -o sim_exec -lzmq && make -j4 &&
-      ./sim_exec -u Cmdenv -c tisch"
+      ./sim_exec -u Cmdenv -c tisch $$TISCH_ARGS"
     networks:
       - opentes-net
 
@@ -227,6 +241,9 @@ services:
       # run.sh resolve MARKET_CONFIG e MARKET_DATA_DIR conforme a escolha.
       - MARKET_CONFIG=${MARKET_CONFIG:-/market/data/config.json}
       - MARKET_DATA_DIR=${MARKET_DATA_DIR:-/market/data}
+      # Onde o agente de mercado grava o `run.json`. Um diretorio por rede: com
+      # um so, cada execucao sobrescrevia o registro da anterior.
+      - MARKET_RUN_DIR=${MARKET_RUN_DIR:-/market/data/run}
       - MARKET_GRID_DIR=/grid-data/${MARKET_NETWORK:-MVLV75}
       - MARKET_CIRCUIT=/grid-data/${MARKET_NETWORK:-MVLV75}/Master.dss
       # Teto de rodadas da decomposicao dual. Precisa acompanhar o V_BACKOFF: com

@@ -285,6 +285,16 @@ cmd_market() {
         export MARKET_CONFIG="/grid-data/$net/config.json"
         export MARKET_DATA_DIR="/grid-data/$net"
         : "${MOSAIK_OUTPUT_DIR:=/app/output/market_$net}"
+        # Cada rede grava o proprio registro de execucao e o proprio traco. Com um
+        # diretorio so, a execucao de uma rede sobrescrevia o `run.json` da
+        # anterior, inclusive o da MVLV75, que as Figuras 58 e 59 dela citam como
+        # procedencia. Aconteceu com a execucao da IEEE 13.
+        : "${MARKET_RUN_DIR:=/market/data/run_$net}"
+        export MARKET_RUN_DIR
+        if [ "${NET_BACKEND:-ideal}" = "omnet" ]; then
+            : "${NET_TRACE:=/market/data/msg_trace_$net.csv}"
+            export NET_TRACE
+        fi
         # A sensibilidade dV/dP e dV/dQ e do circuito, e nao do mecanismo: sem
         # ela o DSO nao tem restricao de tensao. Uma vez por rede.
         if [ ! -f "$dir_local/sensitivity_day.npz" ]; then
@@ -297,6 +307,50 @@ cmd_market() {
         fi
     fi
     export MOSAIK_OUTPUT_DIR
+
+    # Topologia de radio do servidor 6TiSCH. Os `nodes_xy.csv` e `adjacency.txt`
+    # que ficam junto do modelo OMNeT++ sao os Apendices B e C da tese, ou seja a
+    # MVLV75. Rodar OUTRA rede com NET_BACKEND=omnet sem trocar isso nao da erro:
+    # o `startPacket` do Tisch.cc entrega SEM ATRASO todo agente que nao acha no
+    # arquivo de posicoes, e o resultado sai medindo uma rede que nao existe.
+    if [ "${NET_BACKEND:-ideal}" = "omnet" ] && [ "$net" != "MVLV75" ]; then
+        if [ -f "$dir_local/nodes_xy.csv" ]; then
+            # As aspas do valor sao PARTE do argumento: o OMNeT++ le o lado
+            # direito como expressao NED, e string sem aspas da erro de sintaxe.
+            # Elas sobrevivem porque a expansao de $TISCH_ARGS dentro do
+            # container nao passa por remocao de aspas.
+            export TISCH_ARGS="--**.tisch.positions_file=\"/grid-data/$net/nodes_xy.csv\" --**.tisch.adjacency_file=\"/grid-data/$net/adjacency.txt\" --**.tisch.links_csv=\"/grid-data/$net/tisch_links.csv\""
+            # Conferencia obrigatoria: um nome que o servidor nao acha no
+            # arquivo de posicoes e entregue SEM ATRASO e sem aviso. O sintoma e
+            # um traco de mensagens com atraso zero em tudo, que passa
+            # despercebido. Aqui o erro aparece ANTES de rodar.
+            python3 - "$dir_local" <<'PYCHK' || exit 1
+import csv, json, sys
+d = sys.argv[1]
+force = json.load(open(f"{d}/force.json"))
+lv = [n["name"] for n in force["nodes"] if n["voltage_level"] == "low voltage"]
+esperados = {"DSO", "Market"}
+esperados |= {str(n) for n in lv}
+esperados |= {str(t["source"]) for t in force["transformers"]}
+tem = {r["node"] for r in csv.DictReader(open(f"{d}/nodes_xy.csv"))}
+faltam = sorted(esperados - tem)
+if faltam:
+    print(f"!! nodes_xy.csv nao tem {len(faltam)} nomes que os agentes procuram: "
+          f"{faltam[:8]}", file=sys.stderr)
+    print("   O servidor 6TiSCH entrega SEM ATRASO o que nao acha, e a "
+          "co-simulacao roda medindo uma rede que nao existe.", file=sys.stderr)
+    sys.exit(1)
+PYCHK
+            echo ">> [market] radio 6TiSCH sobre a topologia de $net "\
+                 "($(( $(wc -l < "$dir_local/nodes_xy.csv") - 1 )) posicoes)"
+        else
+            echo "!! rede '$net' nao tem nodes_xy.csv: o servidor 6TiSCH usaria a" >&2
+            echo "   topologia da MVLV75 e entregaria tudo sem atraso. Gere a" >&2
+            echo "   topologia da rede ou rode com NET_BACKEND=lossy." >&2
+            exit 1
+        fi
+    fi
+
     echo ">> [market] rede $net, resultados em ${MOSAIK_OUTPUT_DIR#/app/}"
 
     # duas passadas: sem negociacao (linha de base) e com negociacao
