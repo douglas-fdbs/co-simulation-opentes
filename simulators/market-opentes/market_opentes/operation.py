@@ -100,22 +100,24 @@ def shifted_v0(case, v0_t, s_t, deviation):
     limite. O desvio nao e variavel de decisao: e um deslocamento do ponto de
     operacao, e por isso entra no V0 e nao nas restricoes.
     """
-    idx = {n: i for i, n in enumerate(case.all_nodes)}
-    dp = np.zeros(len(case.all_nodes))
+    dp = np.zeros(s_t.shape[1])
     for n, value in deviation.items():
-        if n in idx:
-            dp[idx[n]] -= float(value)
+        if n in case.all_nodes:
+            for c, w in case.node_columns(n):
+                dp[c] -= w * float(value)
     return v0_t + s_t @ dp
 
 
 def voltage_at(case, v0_t, s_t, p_t, q_t):
-    """Tensao do intervalo pelo modelo linear, dada a base ja deslocada."""
-    idx = {n: i for i, n in enumerate(case.all_nodes)}
-    dp = np.zeros(len(case.all_nodes))
-    for n, value in p_t.items():
-        dp[idx[n]] -= float(value[0])
-    for n, value in q_t.items():
-        dp[idx[n]] -= float(value[0])
+    """Tensao do intervalo pelo modelo linear, dada a base ja deslocada.
+
+    As chaves de `p_t` e `q_t` sao as do caso (nos, ou portas no modo por fase).
+    """
+    dp = np.zeros(s_t.shape[1])
+    for d in (p_t, q_t):
+        for n, value in d.items():
+            for c, w in case.columns(n):
+                dp[c] -= w * float(value[0])
     return v0_t + s_t @ dp
 
 
@@ -128,8 +130,8 @@ def run_operation(config_json, schedule, first=0, count=PERIODS, alpha=ALPHA,
     _, v0, s = load_sensitivity()
 
     p_sched, q_sched = schedule["y"], schedule["q"]
-    pros = case.prosumer_storage_nodes
-    net_nodes = case.network_storage_nodes
+    pros = case.prosumer_keys
+    net_nodes = case.network_keys
 
     if verbose:
         print(f"\nfase de operacao: intervalos {first} a {first + count - 1} "
@@ -175,15 +177,17 @@ def run_operation(config_json, schedule, first=0, count=PERIODS, alpha=ALPHA,
                 for rounds in range(1, max_rounds + 1):
                     x = {}
                     for c in case.concentrators:
+                        ks = case.chaves(c.prosumer_storage)
                         x.update(solve_concentrator(
-                            c.prosumer_storage,
-                            {n: p_t[n] for n in c.prosumer_storage},
-                            {n: lam_t[n] for n in c.prosumer_storage},
-                            case.prosumer_storage, periods=1))
+                            ks, {n: p_t[n] for n in ks}, {n: lam_t[n] for n in ks},
+                            case.prosumer_storage, periods=1,
+                            node_of=case.node_of, mult=case.mult))
                     p_new, q_new = solve_dso(case, base_kw, p_t, q_t, lam_t,
                                              v0_t[None, :], s[t:t + 1], periods=1)
                     residual = np.array([x[n] - p_new[n] for n in pros])
                     d_lam = alpha * residual
+                    if case.por_porta:          # passo x |F|, como em dual.run
+                        d_lam = d_lam * np.array([float(case.mult(n)) for n in pros])[:, None]
                     for i, n in enumerate(pros):
                         lam_t[n] = lam_t[n] + d_lam[i]
                     if np.abs(d_lam).max() <= eps:

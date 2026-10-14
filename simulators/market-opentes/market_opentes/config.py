@@ -21,6 +21,8 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import numpy as np
+
 PKG_DIR = Path(__file__).resolve().parent
 # Onde ficam os perfis, o preco e o reservatorio de cenarios. Cada rede de teste
 # leva os seus junto do circuito, para ser autocontida; `MARKET_DATA_DIR` aponta
@@ -75,6 +77,26 @@ _pf = os.environ.get("MARKET_STORAGE_PF", "none")
 STORAGE_PF = None if _pf.lower() in ("none", "", "0") else float(_pf)
 STORAGE_TAN_PHI = 0.0 if STORAGE_PF is None else math.tan(math.acos(STORAGE_PF))
 
+# Analise POR FASE (MARKET_FASE=1). Padrao 0: a formulacao da tese, com uma
+# tensao e um preco sombra por no, e a media das fases quando a barra e
+# multifasica. Com 1 o indice l das Eq. 6.18 a 6.30 passa a ser o par (barra,
+# fase): o DSO vigia a tensao de cada fase e le a matriz `sensitivity_fase.npz`.
+# Ver docs/MERCADO.md, secao "Analise por fase".
+FASE = os.environ.get("MARKET_FASE", "0") == "1"
+# Como o armazenamento injeta nas fases, so com MARKET_FASE=1:
+#   independente  cada fase e despachada separadamente (tres inversores
+#                 monofasicos sobre a mesma bateria, ou inversor de quatro
+#                 bracos), com limite Pmax/|F| por fase e um estado de carga so.
+#                 E a unica escolha com preco sombra POR FASE.
+#   equilibrado   o inversor reparte a potencia igualmente entre as fases, que
+#                 e o comportamento da maioria dos inversores trifasicos de tres
+#                 bracos. O DSO continua vigiando cada fase, mas a variavel e o
+#                 preco sombra voltam a ser um por no.
+DISPOSITIVO = os.environ.get("MARKET_DISPOSITIVO", "independente")
+if DISPOSITIVO not in ("independente", "equilibrado"):
+    raise ValueError(f"MARKET_DISPOSITIVO desconhecido: {DISPOSITIVO}")
+LETRA = {1: "A", 2: "B", 3: "C"}
+
 # Pesos das funcoes objetivo.
 CK = 1.0        # concentrador, Eq. 6.25
 A_PROSUMER = 0.2   # DSO, peso do armazenamento de prosumidor (p1 no codigo original)
@@ -109,6 +131,76 @@ class Case:
     concentrators: list
     prosumer_storage: dict          # no -> Storage
     network_storage: dict           # no -> Storage
+    # Modo por fase. `rows` sao as linhas da restricao de tensao (os nos, no
+    # modo por no; os pares (no, fase), no modo por fase) e `ports` as colunas
+    # da matriz por fase, os pares (no, fase) em que ha porta de armazenamento.
+    fase: bool = False
+    dispositivo: str = "independente"
+    rows: list = field(default_factory=list)
+    ports: list = field(default_factory=list)
+
+    # ---- variaveis de decisao do armazenamento -------------------------------
+    # Uma CHAVE identifica uma variavel de decisao de armazenamento, e e o indice
+    # do preco sombra. No modo por no (e no por fase com dispositivo equilibrado)
+    # a chave e o proprio no, um inteiro, exatamente como sempre foi. No modo por
+    # fase com dispositivo independente e a porta, "671.A".
+
+    @property
+    def por_porta(self):
+        return self.fase and self.dispositivo == "independente"
+
+    def _portas_do_no(self, node):
+        return [k for n, k in self.ports if n == node]
+
+    def chaves(self, nodes):
+        """Chaves das variaveis dos dispositivos nos nos dados, na ordem deles."""
+        if not self.por_porta:
+            return list(nodes)
+        return [f"{n}.{LETRA[k]}" for n in nodes for k in self._portas_do_no(n)]
+
+    @property
+    def prosumer_keys(self):
+        return self.chaves(self.prosumer_storage_nodes)
+
+    @property
+    def network_keys(self):
+        return self.chaves(self.network_storage_nodes)
+
+    @staticmethod
+    def node_of(key):
+        return key if isinstance(key, int) else int(str(key).split(".")[0])
+
+    def mult(self, key):
+        """Quantas variaveis o dispositivo da chave tem (|F| por porta, 1 por no)."""
+        return len(self._portas_do_no(self.node_of(key))) if self.por_porta else 1
+
+    def columns(self, key):
+        """[(coluna, peso)] da chave na matriz de sensibilidade em uso.
+
+        Por no: a coluna do no. Por porta: a coluna da porta. Equilibrado: a
+        media das colunas das fases do no, que e o efeito de repartir 1 kW
+        igualmente entre elas.
+        """
+        node = self.node_of(key)
+        if not self.fase:
+            return [(self.all_nodes.index(node), 1.0)]
+        if self.por_porta:
+            letra = str(key).split(".")[1]
+            k = next(k for k, l in LETRA.items() if l == letra)
+            return [(self.ports.index((node, k)), 1.0)]
+        cols = [self.ports.index((node, k)) for k in self._portas_do_no(node)]
+        return [(c, 1.0 / len(cols)) for c in cols]
+
+    def node_columns(self, node):
+        """[(coluna, peso)] de uma variacao de demanda no no (carga base).
+
+        Por fase, a carga base nao tem coluna propria: a demanda do Load_n e
+        aproximada por injecao igual nas fases das portas do no.
+        """
+        if not self.fase:
+            return [(self.all_nodes.index(node), 1.0)]
+        cols = [self.ports.index((node, k)) for k in self._portas_do_no(node)]
+        return [(c, 1.0 / len(cols)) for c in cols] if cols else []
 
     @property
     def prosumer_storage_nodes(self):
@@ -173,8 +265,23 @@ def load_case(config_json):
     if orphans:
         raise ValueError(f"nos com armazenamento de prosumidor sem concentrador: {sorted(orphans)}")
 
-    return Case(lv_nodes=lv_nodes, all_nodes=all_nodes, concentrators=concentrators,
-                prosumer_storage=prosumer_storage, network_storage=network_storage)
+    case = Case(lv_nodes=lv_nodes, all_nodes=all_nodes, concentrators=concentrators,
+                prosumer_storage=prosumer_storage, network_storage=network_storage,
+                rows=list(all_nodes))
+    if FASE:
+        arq = DATA_DIR / "sensitivity_fase.npz"
+        if not arq.exists():
+            raise FileNotFoundError(
+                f"MARKET_FASE=1 precisa de {arq}: gere com `sensitivity.py day --por-fase`")
+        z = np.load(arq)
+        case.fase, case.dispositivo = True, DISPOSITIVO
+        case.rows = [(int(n), int(k)) for n, k in z["rows"]]
+        case.ports = [(int(n), int(k)) for n, k in z["ports"]]
+        sem_porta = [n for n in set(prosumer_storage) | set(network_storage)
+                     if not case._portas_do_no(n)]
+        if sem_porta:
+            raise ValueError(f"nos com armazenamento sem porta por fase: {sorted(sem_porta)}")
+    return case
 
 
 def describe(case):

@@ -30,7 +30,7 @@ from pathlib import Path
 
 import numpy as np
 
-from .config import (DATA_DIR, PERIODS, STORAGE_TAN_PHI, V_MAX, V_MIN,
+from .config import (DATA_DIR, FASE, PERIODS, STORAGE_TAN_PHI, V_MAX, V_MIN,
                      V_TOL, load_case)
 from .optimization import solve_concentrator, solve_dso, solve_prosumer
 from .scenarios import build_scenarios
@@ -82,7 +82,18 @@ def load_sensitivity():
 
     Arquivo de sensibilidade gerado antes da Fase 6 nao tem `s_q`; nesse caso o
     termo e ignorado, com aviso, em vez de quebrar.
+
+    Com MARKET_FASE=1 a matriz e a `sensitivity_fase.npz`: linhas por (no, fase)
+    e colunas pelas portas. O primeiro valor devolvido passa a ser a lista de
+    linhas, e nao a de nos.
     """
+    if FASE:
+        data = np.load(DATA_DIR / "sensitivity_fase.npz")
+        rows = [(int(n), int(k)) for n, k in data["rows"]]
+        s = data["s"]
+        if STORAGE_TAN_PHI and not os.environ.get("MARKET_IGNORE_DQ"):
+            s = s + STORAGE_TAN_PHI * data["s_q"]
+        return rows, data["v0"], s
     data = np.load(DATA_DIR / "sensitivity_day.npz")
     s = data["s"]
     if os.environ.get("MARKET_IGNORE_DQ"):
@@ -104,15 +115,19 @@ def load_sensitivity():
 
 
 def voltage_of(case, v0, s, p_prosumer, p_network):
-    """Tensao prevista pelo modelo linear para uma programacao."""
-    idx = {n: i for i, n in enumerate(case.all_nodes)}
+    """Tensao prevista pelo modelo linear para uma programacao.
+
+    Uma coluna por linha de `v0`: os nos, ou os pares (no, fase) no modo por fase.
+    As chaves dos dicionarios sao as do caso, e `case.columns` diz em que coluna
+    da matriz cada uma injeta.
+    """
     v = np.array(v0, dtype=float)
     for t in range(PERIODS):
-        dp = np.zeros(len(case.all_nodes))
-        for n, series in p_prosumer.items():
-            dp[idx[n]] -= series[t]        # carregar consome: injecao negativa
-        for n, series in p_network.items():
-            dp[idx[n]] -= series[t]
+        dp = np.zeros(s.shape[2])
+        for d in (p_prosumer, p_network):
+            for n, series in d.items():
+                for c, w in case.columns(n):
+                    dp[c] -= w * series[t]  # carregar consome: injecao negativa
         v[t] = v[t] + s[t] @ dp
     return v
 
@@ -150,8 +165,9 @@ def run(config_json, alpha=ALPHA, eps=EPS, max_rounds=MAX_ROUNDS, n_scenarios=1,
     case = load_case(config_json)
     net_demand, price = load_profiles()
     nodes, v0, s = load_sensitivity()
-    if nodes != case.all_nodes:
-        raise ValueError("ordem dos nos da sensibilidade difere do caso")
+    if nodes != case.rows:
+        raise ValueError("ordem das linhas da sensibilidade difere do caso")
+    pros, rede = case.prosumer_keys, case.network_keys
 
     # ---- ciclo 1: cada prosumidor programa seu armazenamento --------------
     t0 = time.time()
@@ -170,9 +186,17 @@ def run(config_json, alpha=ALPHA, eps=EPS, max_rounds=MAX_ROUNDS, n_scenarios=1,
         if node in case.prosumer_storage:
             p_init[node] = decision["storage"]
     t_pros = time.time() - t0
+    # A proposta do prosumidor e uma serie por dispositivo: o modelo dele e
+    # economico e nao enxerga fase. Por fase, ela e repartida igualmente entre as
+    # portas do dispositivo, e o concentrador redistribui a partir dai.
+    p_init = {k: p_init[case.node_of(k)] / case.mult(k) for k in pros}
 
-    q_init = {n: np.zeros(PERIODS) for n in case.network_storage_nodes}
-    lam = {n: np.zeros(PERIODS) for n in case.prosumer_storage_nodes}
+    q_init = {n: np.zeros(PERIODS) for n in rede}
+    lam = {n: np.zeros(PERIODS) for n in pros}
+    # Passo do subgradiente por chave. Por fase, multiplicado por |F|: o residuo de
+    # cada porta e 1/|F| do residuo do dispositivo, e sem isto a iteracao por
+    # fase andaria mais devagar que a por no numa rede equilibrada.
+    passo_k = np.array([float(case.mult(k)) for k in pros])[:, None] if case.por_porta else 1.0
 
     v_base = voltage_of(case, v0, s, {n: np.zeros(PERIODS) for n in p_init}, q_init)
     v_prop = voltage_of(case, v0, s, p_init, q_init)
@@ -198,23 +222,24 @@ def run(config_json, alpha=ALPHA, eps=EPS, max_rounds=MAX_ROUNDS, n_scenarios=1,
         # ---- ciclo 4a: concentradores ------------------------------------
         x = {}
         for c in case.concentrators:
+            ks = case.chaves(c.prosumer_storage)
             x.update(solve_concentrator(
-                c.prosumer_storage,
-                {n: p_init[n] for n in c.prosumer_storage},
-                {n: lam[n] for n in c.prosumer_storage},
-                case.prosumer_storage))
+                ks, {n: p_init[n] for n in ks}, {n: lam[n] for n in ks},
+                case.prosumer_storage, node_of=case.node_of, mult=case.mult))
 
         # ---- ciclo 4b: DSO ------------------------------------------------
         y, q = solve_dso(case, net_demand, p_init, q_init, lam, v0, s)
 
         # ---- ciclo 4c: agente de mercado atualiza o preco sombra ----------
-        residual = np.array([x[n] - y[n] for n in case.prosumer_storage_nodes])
+        residual = np.array([x[n] - y[n] for n in pros])
         d_lam = step_size(alpha, round_, step_rule) * residual
-        for i, n in enumerate(case.prosumer_storage_nodes):
+        if case.por_porta:
+            d_lam = d_lam * passo_k
+        for i, n in enumerate(pros):
             lam[n] = lam[n] + d_lam[i]
 
-        trilha_ac.append({n: np.array(x[n]) for n in case.prosumer_storage_nodes})
-        trilha_ad.append({n: np.array(y[n]) for n in case.prosumer_storage_nodes})
+        trilha_ac.append({n: np.array(x[n]) for n in pros})
+        trilha_ad.append({n: np.array(y[n]) for n in pros})
 
         v_now = voltage_of(case, v0, s, y, q)
         dt = time.time() - t_round

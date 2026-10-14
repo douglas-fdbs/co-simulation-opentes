@@ -49,6 +49,12 @@ numero de nos controlaveis. Diferenca adiantada: N + 1, com metade da precisao.
 Uso direto (dentro do container grid):
 
     python src/simulators/sensitivity.py
+
+Matriz por fase, para MARKET_FASE=1 (linhas por (no, fase), colunas pelas portas
+`Port_<no>_<fase>` do circuito):
+
+    python src/simulators/sensitivity.py day --por-fase --load-csv ... \
+        --pv-csv ... --out .../sensitivity_fase.npz
 """
 
 import json
@@ -241,6 +247,91 @@ def compute_day(dss, nodes, loads_by_period, delta_kw=DEFAULT_DELTA_KW,
     return np.array(v0_list), np.array(s_list), np.array(sq_list)
 
 
+# ----------------------------------------------------------------------------
+# Sensibilidade POR FASE (MARKET_FASE=1)
+# ----------------------------------------------------------------------------
+# A media das fases so representa a barra quando as fases estao proximas. Numa
+# rede desequilibrada ela esconde violacao: na IEEE 13 a negociacao feita sobre a
+# media zera as violacoes na media e deixa 152 pontos acima de 1,03 pu quando a
+# tensao e lida fase a fase. Aqui cada fase de cada barra vira uma LINHA da
+# matriz, e cada fase em que um dispositivo pode injetar vira uma COLUNA (uma
+# "porta"). As portas sao as cargas monofasicas `Port_<no>_<fase>` que o gerador
+# do caso escreve no Master.dss, com potencia zero.
+#
+# Duas diferencas de metodo em relacao a `compute_sensitivity`:
+#   - as perturbacoes sao feitas com as derivacoes do regulador CONGELADAS
+#     (ControlMode=OFF), depois de o ponto base ter sido resolvido com elas
+#     livres. E a sensibilidade local que interessa: o regulador tem banda morta
+#     e nao responde a 1 kW; congelar apenas impede que um ponto perto da borda
+#     da banda contamine uma coluna com uma troca de derivacao;
+#   - o reativo da carga base fica no ponto base, como no metodo por no.
+
+def phase_rows(dss, nodes):
+    """(no, fase) de cada fase existente das barras dadas, na ordem dos nos."""
+    rows = []
+    for node in nodes:
+        dss.circuit.set_active_bus(bus_name(node))
+        rows += [(node, k) for k in sorted(dss.bus.nodes) if k in (1, 2, 3)]
+    return rows
+
+
+def phase_ports(dss):
+    """(no, fase) de cada carga `Port_<no>_<fase>` do circuito."""
+    ports = []
+    for name in dss.loads.names:
+        parts = name.lower().split("_")
+        if len(parts) == 3 and parts[0] == "port":
+            ports.append((int(parts[1]), int(parts[2])))
+    return sorted(ports)
+
+
+def read_voltages_phase(dss, rows):
+    """Tensao em pu de cada (no, fase), pelo NUMERO do no da barra e nao pela
+    posicao: numa barra 645, que so tem as fases B e C, a primeira leitura e B."""
+    cache, v = {}, np.zeros(len(rows))
+    for i, (node, k) in enumerate(rows):
+        if node not in cache:
+            dss.circuit.set_active_bus(bus_name(node))
+            cache[node] = dict(zip(dss.bus.nodes, dss.bus.vmag_angle_pu[0::2]))
+        v[i] = cache[node][k]
+    return v
+
+
+def compute_sensitivity_phase(dss, rows, ports, loads_kw, delta_kw=DEFAULT_DELTA_KW,
+                              pf=DEFAULT_PF, reactive=True):
+    """V0 por fase e dV/dP, dV/dQ por porta, com diferenca central.
+
+    Returns:
+        (V0, S, SQ): V0 com len(rows) posicoes; S e SQ (len(rows), len(ports)),
+        em pu/kW e pu/kvar, com P e Q em INJECAO, como em `compute_sensitivity`.
+    """
+    apply_loads(dss, loads_kw, pf=pf)
+    for n, k in ports:
+        dss.text(f"Edit Load.Port_{n}_{k} kW=0 kvar=0")
+    dss.text("Set ControlMode=static")
+    solve(dss)
+    v0 = read_voltages_phase(dss, rows)
+    dss.text("Set ControlMode=OFF")
+    s = np.zeros((len(rows), len(ports)))
+    s_q = np.zeros((len(rows), len(ports)))
+    try:
+        for j, (n, k) in enumerate(ports):
+            for col, campo in ((s, "kW"), (s_q, "kvar") if reactive else (None, None)):
+                if col is None:
+                    continue
+                dss.text(f"Edit Load.Port_{n}_{k} {campo}={-delta_kw}")
+                solve(dss)
+                vp = read_voltages_phase(dss, rows)
+                dss.text(f"Edit Load.Port_{n}_{k} {campo}={delta_kw}")
+                solve(dss)
+                vm = read_voltages_phase(dss, rows)
+                dss.text(f"Edit Load.Port_{n}_{k} {campo}=0")
+                col[:, j] = (vp - vm) / (2.0 * delta_kw)
+    finally:
+        dss.text("Set ControlMode=static")
+    return v0, s, s_q
+
+
 def _run_day(args):
     """Gera V0(t) e S(t) para o dia, a partir dos perfis de carga e PV."""
     import csv
@@ -267,6 +358,22 @@ def _run_day(args):
 
     dss = py_dss_interface.DSS()
     dss.text(f'Compile "{MASTER}"')
+
+    if args.por_fase:
+        rows, ports = phase_rows(dss, nodes), phase_ports(dss)
+        if not ports:
+            raise SystemExit(f"{MASTER} nao tem cargas Port_<no>_<fase>: o modo por fase "
+                             "precisa delas (ver gen_ieee13_market.py)")
+        res = [compute_sensitivity_phase(dss, rows, ports, loads) for loads in periods]
+        v0, s, s_q = (np.array([r[i] for r in res]) for i in range(3))
+        np.savez(args.out, nodes=np.array(nodes), rows=np.array(rows),
+                 ports=np.array(ports), v0=v0, s=s, s_q=s_q)
+        print(f"{n_periods} periodos, {len(rows)} linhas por fase, {len(ports)} portas -> {args.out}")
+        print(f"  V0 por fase: min={v0.min():.5f} max={v0.max():.5f}; violacoes no caso "
+              f"base: {(v0 < 0.97).sum()} abaixo de 0,97 e {(v0 > 1.03).sum()} acima de 1,03 "
+              f"(de {v0.size})")
+        return
+
     v0, s, s_q = compute_day(dss, nodes, periods)
 
     np.savez(args.out, nodes=np.array(nodes), v0=v0, s=s, s_q=s_q)
@@ -394,6 +501,8 @@ if __name__ == "__main__":
     d.add_argument("--load-csv", required=True, dest="load_csv")
     d.add_argument("--pv-csv", required=True, dest="pv_csv")
     d.add_argument("--out", required=True)
+    d.add_argument("--por-fase", action="store_true", dest="por_fase",
+                   help="linhas por (no, fase) e colunas pelas portas Port_<no>_<fase>")
     parsed = ap.parse_args()
 
     if parsed.cmd == "day":

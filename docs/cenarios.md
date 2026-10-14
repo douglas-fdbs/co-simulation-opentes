@@ -65,7 +65,8 @@ A rede vem de `MARKET_NETWORK`, e cada uma responde a uma pergunta diferente.
 | `BT38` | 38 BT | a rede final do trabalho, com quatro alimentadores |
 
 ```bash
-MARKET_NETWORK=13Bus ./run.sh market     # -> output/market_13Bus/
+MARKET_NETWORK=13Bus ./run.sh market                 # -> output/market_13Bus/
+MARKET_NETWORK=13Bus MARKET_FASE=1 ./run.sh market   # -> output/market_13Bus_fase/ (MERCADO.md, 5.6)
 ```
 
 A MVLV75 não exibe sobretensão, e por isso metade do mecanismo ficava sem ser
@@ -133,6 +134,8 @@ Todas têm valor padrão no `docker-compose.yaml`. As que mais importam:
     | `MARKET_SCENARIOS` | `1` | cenários por prosumidor; 1 é determinístico |
     | `MARKET_REALIZED_MODE` | `perturb` | como a demanda realizada difere da programada |
     | `MARKET_STORAGE_PF` | `none` | fator de potência do armazenamento; `none` reproduz a tese |
+    | `MARKET_FASE` | `0` | `1` faz o DSO vigiar cada fase e o preço sombra ser por (barra, fase); só na `13Bus` |
+    | `MARKET_DISPOSITIVO` | `independente` | com `MARKET_FASE=1`: `independente` despacha cada fase; `equilibrado` reparte igual entre elas |
     | `MARKET_SOLVER` | `cplex` | solver de otimização |
 
 === "Rede de comunicação"

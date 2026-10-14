@@ -300,6 +300,13 @@ services:
       - MARKET_STORAGE_PF=${MARKET_STORAGE_PF:-none}
       # Chave de experimento: o dispositivo injeta reativo mas o modelo ignora.
       - MARKET_IGNORE_DQ=${MARKET_IGNORE_DQ:-}
+      # Analise por fase: 1 faz o DSO vigiar a tensao de cada fase e o preco
+      # sombra ser por (barra, fase). Precisa da sensitivity_fase.npz e das
+      # cargas Port_<no>_<fase> no circuito; hoje so a IEEE 13 as tem. O
+      # dispositivo `independente` despacha cada fase separadamente;
+      # `equilibrado` reparte igual entre as fases. Ver docs/MERCADO.md.
+      - MARKET_FASE=${MARKET_FASE:-0}
+      - MARKET_DISPOSITIVO=${MARKET_DISPOSITIVO:-independente}
       # Camada de rede entre os agentes: ideal, lossy ou omnet (6TiSCH da tese).
       - NET_BACKEND=${NET_BACKEND:-ideal}
       - NET_TIME_SCALE=${NET_TIME_SCALE:-1.0}
@@ -343,6 +350,7 @@ services:
       - MOSAIK_STEP_SIZE=900
       - RESULT_TAG=${RESULT_TAG:-negociado}
       - MARKET_CIRCUIT=/app/src/data/${MARKET_NETWORK:-MVLV75}/Master.dss
+      - MARKET_FASE=${MARKET_FASE:-0}
       - PADE_HOST=pade-market
       - PADE_PORT=5678
       - OPENDSS_HOST=opendss

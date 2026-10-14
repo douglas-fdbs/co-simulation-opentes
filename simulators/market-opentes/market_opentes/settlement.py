@@ -114,7 +114,7 @@ def flexibility(p_init, y, prices, calibrado=False):
         delta = np.asarray(y[node]) - np.asarray(p_init[node])
         price = np.asarray(prices[node])
         rows.append({
-            "node": node,
+            **_no_fase(node),
             "energy_shifted_kwh": float(np.sum(np.abs(delta)) * DT_H),
             "net_shift_kwh": float(np.sum(delta) * DT_H),
             f"value_{u}": float(np.sum(-delta * price * DT_H) / 1000.0),
@@ -122,6 +122,15 @@ def flexibility(p_init, y, prices, calibrado=False):
             f"dlmp_max_{u}": float(np.max(price)),
         })
     return rows
+
+
+def _no_fase(key):
+    """Colunas de identificacao de uma chave: so `node` por no; `node` e `fase`
+    por porta ("671.A"). O modo por no mantem o formato de sempre."""
+    if isinstance(key, str) and "." in key:
+        no, fase = key.split(".")
+        return {"node": int(no), "fase": fase}
+    return {"node": key}
 
 
 def write_csv(rows, path):
@@ -178,7 +187,7 @@ def settle(result, out_dir, ck_eur=None):
     dlmp_rows = []
     for node, series in sorted(prices.items()):
         for t, value in enumerate(series):
-            dlmp_rows.append({"node": node, "t": t,
+            dlmp_rows.append({**_no_fase(node), "t": t,
                               f"dlmp_{u}": float(value),
                               "spot_eur_mwh": float(spot_price[t]),
                               f"adder_{u}": float(value - spot_price[t])})
@@ -205,8 +214,8 @@ def _dump_figuras(result, out_dir):
         chaves = nos if chaves is None else chaves
         return np.array([np.asarray(d.get(n, np.zeros(PERIODS)), dtype=float)
                          for n in chaves])
-    pros = case.prosumer_storage_nodes
-    rede = case.network_storage_nodes
+    pros = case.prosumer_keys
+    rede = case.network_keys
     np.savez_compressed(
         Path(out_dir) / "figuras.npz",
         nodes=np.array(nos),
@@ -222,5 +231,9 @@ def _dump_figuras(result, out_dir):
         preco=np.asarray(result["price"]),
         trilha_ac=np.array([[r[n] for n in pros] for r in result["trilha_ac"]]),
         trilha_ad=np.array([[r[n] for n in pros] for r in result["trilha_ad"]]),
+        # Modo por fase: as tensoes sao por (no, fase), uma coluna por linha de
+        # `rows`, e as chaves do armazenamento sao portas "671.A".
+        fase=np.array(case.fase),
+        rows=np.array(case.rows),
     )
     print(f"gravado {Path(out_dir) / 'figuras.npz'}")

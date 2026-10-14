@@ -215,7 +215,8 @@ def pontos(ax, nos, t0, t1, Z, rotulo_z, titulo, passo_tempo=None,
     return disp
 
 
-def barras3d(ax, nos, Z, rotulo_z, titulo, corte=1e-9, so_positivo=False):
+def barras3d(ax, nos, Z, rotulo_z, titulo, corte=1e-9, so_positivo=False,
+             norm=None, zlim=None):
     """Barras verticais valor(nó, tempo). Formato das Figuras 45 e 46, em que o
     dado é esparso e uma superfície esconderia os picos.
 
@@ -229,7 +230,10 @@ def barras3d(ax, nos, Z, rotulo_z, titulo, corte=1e-9, so_positivo=False):
                   transform=ax.transAxes)
         return None
     v = Z[ii, jj]
-    norm = plt.Normalize(v.min(), v.max())
+    # `norm` e `zlim` vem de fora quando varios paineis precisam da MESMA escala,
+    # como os tres da Figura 45 por fase: com escala propria por painel, uma
+    # barra de 200 numa fase e uma de 1000 noutra teriam a mesma cor.
+    norm = plt.Normalize(v.min(), v.max()) if norm is None else norm
     cores = matplotlib.colormaps[CMAPA](norm(v))
     xs = _eixo_nos(ax, nos)
     ax.bar3d(xs[ii], jj.astype(float),
@@ -240,7 +244,9 @@ def barras3d(ax, nos, Z, rotulo_z, titulo, corte=1e-9, so_positivo=False):
     # fica (ver a analise de sinal de lambda), e a Figura 45 precisa mostrar os
     # dois lados. So se mexe no limite quando ha valor negativo, para nao alterar
     # as figuras que ja existem.
-    if float(v.min()) < 0.0:
+    if zlim is not None:
+        ax.set_zlim(*zlim)
+    elif float(v.min()) < 0.0:
         ax.set_zlim(float(v.min()), max(float(v.max()), 0.0))
     ax.set_xlabel("Nós", fontsize=7, labelpad=-2)
     ax.set_ylabel("Tempo", fontsize=7, labelpad=2)
@@ -256,6 +262,78 @@ def _barra_cor(fig, ax, mapeavel):
     if mapeavel is not None:
         cb = fig.colorbar(mapeavel, ax=ax, shrink=0.55, pad=0.14)
         cb.ax.tick_params(labelsize=6)
+
+
+# ---------------------------------------------------------------------------
+# Modo por fase (MARKET_FASE=1)
+# ---------------------------------------------------------------------------
+
+def _barra_cor_lateral(fig, mapeavel):
+    """Barra de cor num eixo proprio, a direita dos tres paineis. Pendurada no
+    ultimo painel, ela encolhia so aquele, e a fase C saia menor que as outras."""
+    fig.subplots_adjust(left=0.02, right=0.90, wspace=0.08)
+    cax = fig.add_axes([0.92, 0.25, 0.010, 0.5])
+    cb = fig.colorbar(mapeavel, cax=cax)
+    cb.ax.tick_params(labelsize=6)
+
+
+def _por_no(chaves, M, eixo=0):
+    """Soma as portas "671.A", "671.B", ... de cada no. Devolve (nos, matriz)."""
+    nos = []
+    for k in chaves:
+        n = int(k.split(".")[0])
+        if n not in nos:
+            nos.append(n)
+    M = np.asarray(M)
+    partes = [np.take(M, [i for i, k in enumerate(chaves) if int(k.split(".")[0]) == n],
+                      axis=eixo).sum(axis=eixo) for n in nos]
+    return nos, np.stack(partes, axis=eixo)
+
+
+def _barras_por_fase(chaves, Z, rotulo_z, titulo, out, corte=1e-9, so_positivo=False):
+    """Figuras 45 e 46 em tres paineis, um por fase, com a MESMA escala de cor
+    e o mesmo eixo vertical, para que valores iguais tenham a mesma cor."""
+    Z = np.asarray(Z)
+    sel = (Z > corte) if so_positivo else (np.abs(Z) > corte)
+    v = Z[sel] if sel.any() else np.zeros(1)
+    lo, hi = float(min(v.min(), 0.0)), float(max(v.max(), 0.0))
+    norm = plt.Normalize(float(v.min()), float(v.max()))
+    fig = plt.figure(figsize=(15.0, 5.0))
+    for j, f in enumerate("ABC"):
+        idx = [i for i, k in enumerate(chaves) if k.endswith("." + f)]
+        ax = fig.add_subplot(1, 3, j + 1, projection="3d")
+        if not idx:
+            ax.text2D(0.5, 0.5, "sem portas nesta fase", ha="center", transform=ax.transAxes)
+            continue
+        barras3d(ax, [int(chaves[i].split(".")[0]) for i in idx], Z[idx], rotulo_z,
+                 f"{titulo}: fase {f}", corte=corte, so_positivo=so_positivo,
+                 norm=norm, zlim=(lo, hi))
+    _barra_cor_lateral(fig, plt.cm.ScalarMappable(norm=norm, cmap=CMAPA))
+    fig.savefig(out, dpi=160); plt.close(fig)
+    print(f"gravado {out.name}")
+
+
+def _figura_tensao_fases(rows, V, out, titulo="Níveis de Tensão ao longo da rede elétrica"):
+    """Figuras 43, 47 e 54 por fase: um painel por fase, o dia inteiro, mesma
+    escala de cor nos tres."""
+    V = np.asarray(V)
+    norm_lo, norm_hi = float(V.min()), float(V.max())
+    fig = plt.figure(figsize=(15.0, 4.8))
+    for j, f in enumerate("ABC"):
+        idx = [i for i, (n, k) in enumerate(rows) if k == j + 1]
+        ax = fig.add_subplot(1, 3, j + 1, projection="3d")
+        sub = V[:, idx].T
+        xs = _eixo_nos(ax, [rows[i][0] for i in idx])
+        tempos = np.arange(PERIODS)
+        N, T = np.meshgrid(xs, tempos, indexing="ij")
+        disp = ax.scatter(N.ravel(), T.ravel(), sub.ravel(), c=sub.ravel(), cmap=CMAPA,
+                          norm=plt.Normalize(norm_lo, norm_hi), s=5.0, linewidths=0,
+                          depthshade=False)
+        ax.set_zlim(norm_lo, norm_hi)
+        _moldura(ax, "Tensão em pu", f"{titulo}: fase {f}", 0, PERIODS, 24)
+    _barra_cor_lateral(fig, disp)
+    fig.savefig(out, dpi=150); plt.close(fig)
+    print(f"gravado {out.name}")
 
 
 # ---------------------------------------------------------------------------
@@ -338,7 +416,9 @@ def figura_49(nos, v_sem, v_com, out, horarios=(71, 40)):
     # Mesmo motivo do eixo 3D: com nomes de barra esparsos (611, 632, 645, ...) o
     # eixo numérico espalha as barras por vãos vazios. Uma posição por nó.
     nos = list(nos)
-    denso = (max(nos) - min(nos) + 1) <= 1.5 * len(nos)
+    # Por fase os rotulos sao "671A": sempre categoricos.
+    denso = (all(isinstance(n, (int, np.integer)) for n in nos)
+             and (max(nos) - min(nos) + 1) <= 1.5 * len(nos))
     x = np.asarray(nos, dtype=float) if denso else np.arange(len(nos), dtype=float)
     fig, axes = plt.subplots(2, 1, figsize=(9.0, 5.6))
     for ax, t in zip(axes, horarios):
@@ -346,7 +426,8 @@ def figura_49(nos, v_sem, v_com, out, horarios=(71, 40)):
         ax.bar(x, v_com[t], width=0.55, color="#ff7f0e", label="Com armazenamento")
         if not denso:
             ax.set_xticks(x)
-            ax.set_xticklabels([str(n) for n in nos], fontsize=8)
+            ax.set_xticklabels([str(n) for n in nos], fontsize=8 if len(nos) <= 16 else 6,
+                               rotation=0 if len(nos) <= 16 else 90)
         lo = min(v_sem[t].min(), v_com[t].min())
         hi = max(v_sem[t].max(), v_com[t].max())
         ax.set_ylim(lo - 0.005, hi + 0.005)
@@ -363,7 +444,7 @@ def figura_49(nos, v_sem, v_com, out, horarios=(71, 40)):
 # Figura 50: composição do nó 74
 # ---------------------------------------------------------------------------
 
-def figura_50(no, carga, armaz, v_sem, v_com, out):
+def figura_50(no, carga, armaz, v_sem, v_com, out, fases=None):
     t = np.arange(PERIODS)
     fig, axes = plt.subplots(2, 1, figsize=(9.6, 6.0))
     ax = axes[0]
@@ -379,10 +460,20 @@ def figura_50(no, carga, armaz, v_sem, v_com, out):
     ax.legend(fontsize=7, ncol=3, loc="lower left")
 
     ax = axes[1]
-    ax.bar(t, v_sem, width=0.85, color="#1f77b4", label="Sem armazenamento")
-    ax.bar(t, v_com, width=0.55, color="#ff7f0e", label="Com armazenamento")
-    ax.plot(t, v_sem, color="black", linewidth=1.0, label="tensão res. sem armaz.")
-    ax.plot(t, v_com, color="#d81f1f", linewidth=1.0, label="tensão res. com armaz.")
+    if fases is None:
+        ax.bar(t, v_sem, width=0.85, color="#1f77b4", label="Sem armazenamento")
+        ax.bar(t, v_com, width=0.55, color="#ff7f0e", label="Com armazenamento")
+        ax.plot(t, v_sem, color="black", linewidth=1.0, label="tensão res. sem armaz.")
+        ax.plot(t, v_com, color="#d81f1f", linewidth=1.0, label="tensão res. com armaz.")
+    else:
+        # Por fase: uma linha por fase, tracejada sem armazenamento e continua
+        # com. Barras sobrepostas de tres fases ficariam ilegiveis.
+        cores = {"A": "#1f77b4", "B": "#ff7f0e", "C": "#2f7d32"}
+        for k, f in enumerate(fases):
+            ax.plot(t, v_sem[:, k], color=cores[f], linewidth=1.0, linestyle="--",
+                    label=f"fase {f} sem armaz.")
+            ax.plot(t, v_com[:, k], color=cores[f], linewidth=1.4,
+                    label=f"fase {f} com armaz.")
     ax.set_ylim(min(v_sem.min(), v_com.min()) - 0.005,
                 max(v_sem.max(), v_com.max()) + 0.005)
     ax.set_title(f"Tensões no nó {no} ao longo do tempo", fontsize=11)
@@ -501,7 +592,7 @@ def figura_57(series_csv, out):
 # Leitura da fase de operação
 # ---------------------------------------------------------------------------
 
-def _operacao(result_csv):
+def _operacao(result_csv, por_tensao_fase=False):
     """Tensão e demanda líquida por nó, da co-simulação da operação.
 
     Duas generalizações em relação à MVLV75. As barras dela se chamam `n5`, e o
@@ -513,7 +604,7 @@ def _operacao(result_csv):
     """
     linhas = list(csv.reader(open(result_csv)))
     cab, dados = linhas[0], [l for l in linhas[1:] if l]
-    fases, p = {}, {}
+    fases, p, por_fase = {}, {}, {}
     for i, h in enumerate(cab):
         m = re.search(r"Bus-n?(\d+)-V([123])_pu", h)
         if m:
@@ -521,10 +612,20 @@ def _operacao(result_csv):
             # Fase inexistente na barra sai como zero; entra só o que existe.
             if np.nanmax(col) > 0.5:
                 fases.setdefault(int(m.group(1)), []).append(col)
+                por_fase[(int(m.group(1)), int(m.group(2)))] = col
         m = re.search(r"node_(\d+)-P_kw", h)
         if m:
-            p[int(m.group(1))] = np.array([float(l[i]) for l in dados])
+            n = int(m.group(1))
+            p[n] = p.get(n, 0.0) + np.array([float(l[i]) for l in dados])
+        # Por fase, o armazenamento vai pelas portas: a demanda liquida do no e a
+        # carga do Load_n mais a soma das portas dele.
+        m = re.search(r"port_(\d+)_[123]-P_kw", h)
+        if m:
+            n = int(m.group(1))
+            p[n] = p.get(n, 0.0) + np.array([float(l[i]) for l in dados])
     v = {n: np.mean(cols, axis=0) for n, cols in fases.items()}
+    if por_tensao_fase:
+        return por_fase, p
     return v, p
 
 
@@ -613,10 +714,27 @@ def main():
 
     d = np.load(a.npz)
     nos = [int(x) for x in d["nodes"]]
-    pros = [int(x) for x in d["prosumer_nodes"]]
-    rede = [int(x) for x in d["network_nodes"]]
-    v_base, v_final = d["v_base"], d["v_final"]         # (96, n_nos)
+    v_base, v_final = d["v_base"], d["v_final"]         # (96, linhas)
     demanda, y, q, lam = d["demanda"], d["y"], d["q"], d["lam"]
+    ac, ad = d["trilha_ac"], d["trilha_ad"]              # (rodadas, chaves, 96)
+    # Modo por fase: as tensoes sao por (no, fase) e as chaves do armazenamento
+    # sao portas "671.A". As figuras por no (44, 48, 50 a 53) usam o total do
+    # dispositivo, somando as portas; as de tensao e de preco sombra mostram as
+    # tres fases.
+    fase = bool(d["fase"]) if "fase" in d.files else False
+    if fase:
+        rows = [(int(n), int(k)) for n, k in d["rows"]]
+        rotulos = [f"{n}{'ABC'[k - 1]}" for n, k in rows]
+        chaves_p = [str(x) for x in d["prosumer_nodes"]]
+        chaves_q = [str(x) for x in d["network_nodes"]]
+        pros, y_no = _por_no(chaves_p, y)
+        rede, q_no = _por_no(chaves_q, q)
+        _, ac_no = _por_no(chaves_p, ac, eixo=1)
+        _, ad_no = _por_no(chaves_p, ad, eixo=1)
+    else:
+        pros = [int(x) for x in d["prosumer_nodes"]]
+        rede = [int(x) for x in d["network_nodes"]]
+        y_no, q_no, ac_no, ad_no = y, q, ac, ad
 
     # janelas que a tese destaca
     NOITE = (71, 78, 1)          # 17:45 a 19:15
@@ -637,7 +755,7 @@ def main():
     HORARIOS = (71, 40)
     if not eh_tese:
         DESTAQUE = escolher_destaque(nos, demanda)
-        DETALHE = escolher_detalhe(pros, y)
+        DETALHE = escolher_detalhe(pros, y_no)
         if Path(a.series).exists():
             MERCADO = escolher_mercado(a.series)
         definir_nos(DESTAQUE, DETALHE, MERCADO)
@@ -651,72 +769,95 @@ def main():
 
     if Path(a.links).exists():
         figura_42(a.links, arquivo(out, 42))
-    _figura_tensao(nos, v_base, [DIA, NOITE], arquivo(out, 43))
+    if fase:
+        _figura_tensao_fases(rows, v_base, arquivo(out, 43))
+    else:
+        _figura_tensao(nos, v_base, [DIA, NOITE], arquivo(out, 43))
     _figura_demanda(nos, demanda, [(None, 0, PERIODS, 24),
                                    (DESTAQUE, 0, PERIODS, 24)],
                     arquivo(out, 44))
-    fig = plt.figure(figsize=(6.4, 5.0)); ax = fig.add_subplot(111, projection="3d")
     # A tese exclui os nos de shadow price nulo (Tabela 8). O nosso lambda nao
     # zera exatamente em lugar nenhum, entao o corte e relativo, de 1% do maximo,
     # e fica declarado aqui: e limiar de EXIBICAO, o dado continua denso.
-    _barra_cor(fig, ax, barras3d(ax, pros, lam, "Valor", "Shadow Price",
-                                 corte=0.01 * np.abs(lam).max()))
-    fig.tight_layout(); fig.savefig(arquivo(out, 45), dpi=160); plt.close(fig)
-    print(f"gravado {arquivo(out, 45).name}")
+    if fase:
+        _barras_por_fase(chaves_p, lam, "Valor", "Shadow Price",
+                         arquivo(out, 45), corte=0.01 * np.abs(lam).max())
+        _barras_por_fase(chaves_q, -q, "Potência em kW",
+                         "Programação do armazenamento de rede",
+                         arquivo(out, 46), so_positivo=True)
+    else:
+        fig = plt.figure(figsize=(6.4, 5.0)); ax = fig.add_subplot(111, projection="3d")
+        _barra_cor(fig, ax, barras3d(ax, pros, lam, "Valor", "Shadow Price",
+                                     corte=0.01 * np.abs(lam).max()))
+        fig.tight_layout(); fig.savefig(arquivo(out, 45), dpi=160); plt.close(fig)
+        print(f"gravado {arquivo(out, 45).name}")
 
-    fig = plt.figure(figsize=(6.4, 5.0)); ax = fig.add_subplot(111, projection="3d")
-    _barra_cor(fig, ax, barras3d(ax, rede, -q, "Potência em kW",
-                                 "Programação do armazenamento de rede",
-                                 so_positivo=True))
-    fig.tight_layout(); fig.savefig(arquivo(out, 46), dpi=160); plt.close(fig)
-    print(f"gravado {arquivo(out, 46).name}")
+        fig = plt.figure(figsize=(6.4, 5.0)); ax = fig.add_subplot(111, projection="3d")
+        _barra_cor(fig, ax, barras3d(ax, rede, -q, "Potência em kW",
+                                     "Programação do armazenamento de rede",
+                                     so_positivo=True))
+        fig.tight_layout(); fig.savefig(arquivo(out, 46), dpi=160); plt.close(fig)
+        print(f"gravado {arquivo(out, 46).name}")
 
-    _figura_tensao(nos, v_final, [DIA, NOITE, MANHA], arquivo(out, 47))
+    if fase:
+        _figura_tensao_fases(rows, v_final, arquivo(out, 47))
+    else:
+        _figura_tensao(nos, v_final, [DIA, NOITE, MANHA], arquivo(out, 47))
 
     idx = {n: i for i, n in enumerate(nos)}
     dep = demanda.copy()
     for k, n in enumerate(pros):
-        dep[idx[n]] += y[k]
+        dep[idx[n]] += y_no[k]
     for k, n in enumerate(rede):
-        dep[idx[n]] += q[k]
+        dep[idx[n]] += q_no[k]
     _figura_demanda(nos, dep, [(None, 0, PERIODS, 24),
                                (DESTAQUE, 0, PERIODS, 24)],
                     arquivo(out, 48))
-    figura_49(nos, v_base, v_final, arquivo(out, 49), horarios=HORARIOS)
+    figura_49(rotulos if fase else nos, v_base, v_final, arquivo(out, 49),
+              horarios=HORARIOS)
 
     no50 = DETALHE[0]
     i50 = idx[no50]
-    arm = y[pros.index(no50)] if no50 in pros else np.zeros(PERIODS)
-    figura_50(no50, demanda[i50], arm, v_base[:, i50], v_final[:, i50],
-              arquivo(out, 50))
+    arm = y_no[pros.index(no50)] if no50 in pros else np.zeros(PERIODS)
+    if fase:
+        cols = [i for i, (n, _) in enumerate(rows) if n == no50]
+        figura_50(no50, demanda[i50], arm, v_base[:, cols], v_final[:, cols],
+                  arquivo(out, 50), fases=["ABC"[rows[i][1] - 1] for i in cols])
+    else:
+        figura_50(no50, demanda[i50], arm, v_base[:, i50], v_final[:, i50],
+                  arquivo(out, 50))
 
-    ac, ad = d["trilha_ac"], d["trilha_ad"]      # (rodadas, n_pros, 96)
     for fign, no in zip((51, 52), DETALHE):
         if no not in pros:
             print(f"  no {no} nao tem armazenamento aqui; pulando a Figura {fign}")
             continue
         k = pros.index(no)
-        figura_iteracoes(no, demanda[idx[no]], ad[:, k], ac[:, k],
+        figura_iteracoes(no, demanda[idx[no]], ad_no[:, k], ac_no[:, k],
                          arquivo(out, fign))
 
     casos = []
     # Cada no e mostrado no instante em que o proprio armazenamento dele mais
     # trabalha, que e onde AC e AD mais discordam. Na MVLV75 isso recai nos
     # 17:45 e 19:15 que a tese usa.
-    for no, t in zip(DETALHE, [int(np.argmax(np.abs(y[pros.index(nn)])))
+    for no, t in zip(DETALHE, [int(np.argmax(np.abs(y_no[pros.index(nn)])))
                                if nn in pros else 0 for nn in DETALHE]):
         if no in pros:
             k = pros.index(no)
             base = demanda[idx[no]][t]
-            casos.append((no, t, base + ac[:, k, t], base + ad[:, k, t]))
+            casos.append((no, t, base + ac_no[:, k, t], base + ad_no[:, k, t]))
     if casos:
         figura_53(casos, arquivo(out, 53))
 
     if Path(a.operacao).exists():
-        vop, pop = _operacao(a.operacao)
-        nos_op = sorted(n for n in vop if n in idx)
-        V = np.array([vop[n] for n in nos_op]).T
-        _figura_tensao(nos_op, V, [DIA, NOITE, MANHA], arquivo(out, 54))
+        vop, pop = _operacao(a.operacao, por_tensao_fase=fase)
+        if fase:
+            linhas_op = [r for r in rows if r in vop]
+            V = np.array([vop[r] for r in linhas_op]).T
+            _figura_tensao_fases(linhas_op, V, arquivo(out, 54))
+        else:
+            nos_op = sorted(n for n in vop if n in idx)
+            V = np.array([vop[n] for n in nos_op]).T
+            _figura_tensao(nos_op, V, [DIA, NOITE, MANHA], arquivo(out, 54))
         if pop:
             nos_p = sorted(pop)
             P = np.array([pop[n] for n in nos_p])

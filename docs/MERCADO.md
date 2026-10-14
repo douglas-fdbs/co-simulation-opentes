@@ -518,7 +518,207 @@ capacidade do inversor, daria ao DSO uma segunda alavanca de tensão, mais barat
 que deslocar energia. Isso é controle Volt/Var e fica registrado como extensão,
 fora do escopo desta camada.
 
+## 5.6 Análise por fase
+
+A tese aplica o mecanismo à MVLV75, em que todas as barras são trifásicas e
+equilibradas: uma tensão e um preço sombra por barra bastam. A IEEE 13 tem
+barras mono, bi e trifásicas e é desequilibrada de propósito. Nela o modelo por
+barra precisa resumir as fases numa só tensão, e o que se usava era a média
+(`sensitivity.read_voltages`). A média esconde violação: a negociação feita
+sobre ela zera as violações na média e, conferida fase a fase no fluxo não
+linear, deixa 151 pontos acima de 1,03 pu, com a fase B chegando a 1,053 pu.
+
+Com `MARKET_FASE=1` o índice l das Eq. 6.18 a 6.30 passa a ser o par
+(barra, fase). É a adaptação que o próprio artigo em que a formulação se baseia
+indica para rede desequilibrada: introduzir o preço sombra em cada fase (HU et
+al., 2017, seção V). O resultado é um preço sombra por fase, e a Figura 45 passa
+a ter três painéis, um por fase.
+
+### Por que a média não serve: o acoplamento entre fases
+
+Injetar 1 kW só na fase A da barra 671 sobe a fase A em 51 µpu, **baixa a fase B
+em 71 µpu** e sobe a C em 39 (média do dia). O efeito sobre a fase vizinha é do
+mesmo tamanho do efeito próprio, e metade dos termos cruzados é negativa. A
+causa é geométrica: a impedância mútua da linha tem ângulo de cerca de 73°, e
+projetada na direção da tensão da fase B, que está a −120°, fica quase oposta a
+ela.
+
+A consequência para o DSO é direta. Uma injeção equilibrada na 671 move a fase B
+em 4,4 µpu/kW, enquanto o modelo da média enxerga 9,2. O DSO superestimava em
+duas a três vezes a eficácia do armazenamento justamente na fase que viola.
+
+### A formulação
+
+| | por nó (padrão) | por fase |
+|---|---|---|
+| linha da restrição de tensão | barra (média das fases) | (barra, fase) |
+| variável e preço sombra | um por nó | um por porta: (nó, fase) |
+| matriz | `sensitivity_day.npz` | `sensitivity_fase.npz` |
+
+Uma **porta** é cada fase em que o dispositivo do nó pode injetar: as fases em
+que o `Load_<nó>` já está ligado, cada uma como carga monofásica fase-neutro
+`Port_<nó>_<fase>`, escrita no `Master.dss` pelo `gen_ieee13_market.py` com
+potência zero. Com zero, o circuito resolve como antes (diferença de 4e-10 pu nos
+96 intervalos). A IEEE 13 tem 22 portas.
+
+Quatro regras completam o modelo, e cada uma tem motivo:
+
+1. **Cada porta tem limite Pmax/|F|**, sendo |F| o número de fases do
+   dispositivo, e o dispositivo tem **um estado de carga só**, a soma das portas.
+   É o comportamento de três inversores monofásicos sobre a mesma bateria, ou de
+   um inversor de quatro braços.
+2. **A proposta do prosumidor continua escalar.** O modelo dele (Eq. 6.1 a 6.9) é
+   econômico e não enxerga fase. O concentrador reparte a proposta igualmente
+   entre as portas do dispositivo e redistribui a partir daí, que é o papel que a
+   tese lhe dá: agregar os prosumidores e acionar os dispositivos sob ele.
+3. **Os pesos Ck, a e b são multiplicados por |F|.** Sem isso, a penalidade de
+   desviar o dispositivo inteiro cairia para Ck/|F| e o problema por fase deixaria
+   de ser o mesmo numa rede equilibrada.
+4. **O passo α é multiplicado por |F| em cada porta.** O resíduo de cada porta é
+   1/|F| do resíduo do dispositivo; com o mesmo α, a iteração por fase andaria
+   mais devagar.
+
+Com as regras 3 e 4, numa rede equilibrada a formulação por fase **reproduz a
+por nó**, com λ igual nas três fases e igual ao λ do nó, rodada a rodada. Foi
+verificado na BT16, com o protótipo do estudo que precedeu esta implementação
+(a BT16 não tem portas no circuito): mesmas 39 rodadas e mesma trajetória de λ,
+desde que as duas formulações usem a mesma matriz. A matriz por nó obtida perturbando a carga trifásica difere
+em 0,3% da média das perturbações monofásicas, por tolerância do solver, e só
+isso mudou a contagem de 60 para 39 rodadas. Por isso a convergência é comparada
+aqui pelo resíduo primal, e não pelo critério de 1e-4 na cauda.
+
+O modo padrão continua sendo o por nó. Ele foi conferido contra a implementação
+anterior na MVLV75, na BT16 e na IEEE 13: na negociação centralizada, rodadas,
+λ, programações e tensões **idênticos bit a bit**; na co-simulação da IEEE 13, as
+mesmas 81 rodadas, o mesmo λ e as mesmas contagens de violação por fase.
+
+### Dispositivo independente ou equilibrado
+
+`MARKET_DISPOSITIVO` escolhe como o armazenamento injeta nas fases.
+
+- `independente` (padrão do modo por fase): cada fase é despachada
+  separadamente. É a única escolha com preço sombra por fase.
+- `equilibrado`: o inversor reparte a potência igualmente entre as fases, que é o
+  comportamento da maioria dos inversores trifásicos de três braços (algumas
+  normas, como a AS/NZS 4777, chegam a exigir saída equilibrada). O DSO continua
+  vigiando cada fase, mas a variável e o preço sombra voltam a ser um por nó, e a
+  coluna da matriz é a média das colunas das fases.
+
+Despacho independente por fase existe no mercado, mas é menos comum: híbridos
+com saída desequilibrada opcional e teto por fase, sistemas de três inversores
+monofásicos sobre um barramento CC comum, que transferem potência entre fases, e
+inversores de quatro braços, que na literatura aparecem sobretudo em simulação.
+O limite Pmax/|F| por porta coincide com o teto por fase relatado nesses
+equipamentos, e o estado de carga compartilhado corresponde ao barramento CC
+comum.
+
+### Resultados na IEEE 13
+
+Negociação centralizada, 1 cenário, mesma programação proposta nos três casos:
+
+| formulação | rodadas | resíduo < 0,1 kW | flexibilidade deslocada | armazenamento de rede | λ |
+|---|---:|---:|---:|---:|---|
+| por nó | 98 | rodada 51 | 6.904 kWh | 6.411 kWh | −896 a +383 |
+| por fase, independente | 79 | rodada 44 | 7.528 kWh | 6.242 kWh | −1.007 a +284 |
+| por fase, equilibrado | 130 | rodada 70 | 8.990 kWh | 7.491 kWh | −850 a +415 |
+
+As três zeram as violações no modelo linear, mas a por nó o faz na média. A
+conferência no fluxo não linear, fase a fase, com a derivação do regulador
+travada pelo ponto da previsão:
+
+| formulação | > 1,03 pu | < 0,97 pu | fora de ANSI Range A | faixa |
+|---|---:|---:|---:|---|
+| sem armazenamento | 287 | 0 | 38 | 0,9846 a 1,0780 |
+| por nó | **151** | 18 | 1 | 0,9619 a 1,0532 |
+| por fase, independente | **9** | 28 | 0 | 0,9615 a 1,0308 |
+| por fase, equilibrado | **5** | 26 | 0 | 0,9616 a 1,0305 |
+
+Três leituras:
+
+1. As duas formulações por fase eliminam a sobretensão escondida. O que sobra
+   acima de 1,03 está a menos de 1 mpu do limite, e o que sobra abaixo de 0,97 é
+   erro de linearização: de 9 mpu no pior ponto, contra a margem
+   `MARKET_V_BACKOFF` de 1 mpu.
+2. A variante independente atende às mesmas restrições com **17% menos
+   flexibilidade** e 17% menos armazenamento de rede que a equilibrada, e converge
+   em menos rodadas. Despachar por fase permite combinar fases, por exemplo
+   absorver na B e injetar na A para baixar a B, o que um dispositivo equilibrado
+   não faz.
+3. Custa mais que a por nó (+9% de flexibilidade), porque a por nó resolve um
+   problema mais frouxo: ela atende à média, não a cada fase.
+
+Em 159 de 504 instantes (nó multifásico com preço ativo), fases do mesmo nó têm
+λ de sinais opostos: uma é remunerada para absorver e outra para injetar. Um
+preço por nó não consegue representar isso, e é o que justifica os três painéis
+da Figura 45.
+
+### Custo de comunicação
+
+O CFP de cada rodada carrega λ por porta: na IEEE 13, 22 séries em vez de 10. O
+CFP ao DSO passa de 10,9 para 24,2 kB por rodada (de 20,4 para 47,3 kB na
+primeira, que leva também as propostas), e a resposta do concentrador de 11,2
+para 24,4 kB. Na MVLV75 o fator seria 3, sem ganho nenhum, porque a rede é
+equilibrada e as três fases teriam o mesmo preço. Por isso as redes equilibradas
+continuam no modo por nó.
+
+### Como rodar
+
+```bash
+MARKET_NETWORK=13Bus MARKET_FASE=1 ./run.sh market             # independente
+MARKET_NETWORK=13Bus MARKET_FASE=1 MARKET_DISPOSITIVO=equilibrado ./run.sh market
+```
+
+O `run.sh` gera a `sensitivity_fase.npz` na primeira execução
+(`sensitivity.py day --por-fase`). Só a IEEE 13 tem portas por fase; nas outras
+redes o modo por fase recusa rodar com uma mensagem que diz o que falta.
+
+Saídas: o `dlmp.csv` e o `flexibility.csv` ganham a coluna `fase`, e o
+`figuras_tese.py` desenha as Figuras 45 e 46 em três painéis com a mesma escala
+de cor, as de tensão (43, 47 e 54) uma fase por painel, a 49 com uma barra por
+fase e a 50 com uma linha por fase. As figuras da IEEE 13 por fase ficam em
+`simulators/grid-opentes/src/data/13Bus/figuras_13bus_fase/`.
+
+### O que a co-simulação mostrou, e por quê
+
+Na co-simulação completa (agentes PADE, Mosaik e OpenDSS), as três formulações
+convergem e a fase de operação corrige todas as janelas que o modelo aponta.
+Contado no OpenDSS, porém, o resultado é parecido nos três casos:
+
+| formulação | rodadas | > 1,03 pu | < 0,97 pu | fora de ANSI Range A |
+|---|---:|---:|---:|---:|
+| por nó | 81 | 99 | 334 | 104 |
+| por fase, independente | 66 | 106 | 352 | 107 |
+| por fase, equilibrado | 108 | 108 | 337 | 87 |
+
+A subtensão domina, e ela não vem do mercado. O `get_all_regulators_info` do
+`opendss_wrapper.py` fixa `max_tap_change = 0` e `tap_number = 0` em todos os
+reguladores ao montar a rede para o Mosaik, o que faz sentido no cenário em que
+um controlador externo comanda as derivações e não existe no cenário de mercado.
+O regulador fica parado na posição neutra o dia inteiro (a barra `rg60` em
+1,0000 pu), enquanto a matriz de sensibilidade foi calculada com ele operando,
+com derivações de 1 a 7. O modelo do DSO e a rede simulada descrevem estados
+diferentes. Repetindo a conferência centralizada com as derivações paradas em 0,
+os números da co-simulação se reproduzem: 101 acima e 305 abaixo por nó, 105 e
+334 por fase.
+
+O efeito atinge as três formulações por igual e mascara a diferença entre elas.
+O pico da fase B, que a análise por fase existe para corrigir, cai de 1,068 para
+1,040 pu na co-simulação mesmo assim. Corrigir o regulador do cenário de mercado
+é uma decisão à parte: o wrapper é compartilhado com o cenário Volt/Var, e a
+correção muda os números da co-simulação da IEEE 13 já registrados.
+
 ## 6. Limitações conhecidas
+- **Na co-simulação, o regulador da IEEE 13 fica parado na posição neutra.** O
+  `opendss_wrapper.get_all_regulators_info` zera as derivações e o
+  `max_tap_change` ao montar a rede para o Mosaik, pensando num controlador
+  externo que o cenário de mercado não tem. A matriz de sensibilidade foi
+  calculada com o regulador operando, então o DSO negocia contra uma rede e a
+  co-simulação mede outra. Vale para os dois modos e explica a subtensão noturna
+  das fases A e C na co-simulação (ver a seção 5.6). Não corrigido: o wrapper é
+  compartilhado com o cenário Volt/Var.
+- **Por fase, o erro de linearização pesa mais.** O despacho por fase move
+  potências maiores e desequilibradas, e o erro chega a 9 mpu no pior ponto, contra
+  a margem de 1 mpu.
 - **A restrição de estado de carga terminal é NOSSA, não da tese.** A Eq. 6.9 não
   a tem, e sem ela o modelo despeja a energia da bateria no último intervalo,
   porque ela não vale nada na função objetivo. Está ligada por padrão

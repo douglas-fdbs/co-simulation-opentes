@@ -124,6 +124,16 @@ python -m market_opentes.plot_convergence data/history.json -o data/convergencia
 > e as colunas de preco saem com o sufixo `_signal` em vez de `_eur_mwh`. Calibre
 > `MARKET_CK_EUR` (em EUR/kW^2.h) para obter preco. Ver docs/MERCADO.md.
 
+## Analise por fase (MARKET_FASE=1)
+
+Na IEEE 13, que e desequilibrada, o DSO pode vigiar a tensao de cada fase em vez
+da media da barra, e o preco sombra passa a ser por (barra, fase). O padrao
+continua sendo o por no, identico ao anterior. A formulacao, os resultados e as
+duas variantes do dispositivo (`MARKET_DISPOSITIVO=independente` ou
+`equilibrado`) estao em `docs/MERCADO.md`, secao 5.6.
+
+    MARKET_NETWORK=13Bus MARKET_FASE=1 ./run.sh market
+
 ## Resultados medidos na rede MVLV75
 
 A carga base ja viola por conta propria: 331 pontos abaixo de 0,97 pu, com minima

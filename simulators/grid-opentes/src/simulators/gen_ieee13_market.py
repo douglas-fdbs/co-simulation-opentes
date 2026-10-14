@@ -53,6 +53,12 @@ DECISOES DE CONVERSAO, TODAS MEDIDAS
 - **Regulador de tensao com o ajuste oficial e derivacoes livres.** Ver a secao
   de regulador abaixo.
 
+- **Portas por fase.** Cada no com armazenamento ganha uma carga monofasica
+  fase-neutro `Port_{no}_{fase}` em cada fase em que o `Load_{no}` esta ligado,
+  com potencia zero (22 portas). Sao usadas so pela analise por fase
+  (MARKET_FASE=1), que despacha o armazenamento de cada fase nelas; com zero, o
+  circuito resolve exatamente como sem elas. Ver docs/MERCADO.md, secao 5.6.
+
 Uso, dentro do container grid:
 
     python src/simulators/gen_ieee13_market.py
@@ -315,6 +321,7 @@ def escrever_master(barras, cargas):
         "Batchedit PVSystem..* enabled=no",
         "",
     ]
+    portas = {}
     for n in PROSUMIDORES:
         itens = cargas_por_no.get(n, [])
         if itens:
@@ -333,6 +340,21 @@ def escrever_master(barras, cargas):
             f"New Load.Load_{n} bus1={bus} phases={fases} conn={conn} model=1 "
             f"kV={kv} kW={total:.3f} kvar={total * math.tan(math.acos(0.9)):.3f} "
             f"Vminpu=0.8 Vmaxpu=1.2")
+        portas[n] = sorted(int(x) for x in bus.split(".")[1:]) or [1, 2, 3]
+
+    linhas += [
+        "",
+        "! Portas de armazenamento por fase, usadas so com MARKET_FASE=1. Uma",
+        "! carga monofasica fase-neutro em cada fase em que o Load_n do no esta",
+        "! ligado, com potencia zero: o modo por fase escreve nelas o despacho de",
+        "! cada fase, e o modo por no nao as toca. Com zero, o circuito resolve",
+        "! exatamente como sem elas.",
+    ]
+    for n in sorted(set(ARMAZ_REDE) | set(ARMAZ_PROSUMIDOR)):
+        for k in portas[n]:
+            linhas.append(
+                f"New Load.Port_{n}_{k} bus1={n}.{k} phases=1 conn=wye model=1 "
+                f"kV={barras[str(n)]['kv_base']:.4f} kW=0 kvar=0 Vminpu=0.8 Vmaxpu=1.2")
 
     linhas += [
         "",

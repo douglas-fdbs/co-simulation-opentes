@@ -43,7 +43,10 @@ Cenarios:
                           EXIGE um solver: export CPLEX_HOME=... (ver
                           simulators/market-opentes/README.md).
                           A rede vem de MARKET_NETWORK: MVLV75 (padrao, a da
-                          tese), BT16 (bancada) ou BT38 (rede final).
+                          tese), 13Bus (IEEE 13), BT16 (bancada) ou BT38.
+                          MARKET_FASE=1 (so 13Bus): tensao e preco sombra
+                          por fase; MARKET_DISPOSITIVO=independente (padrao)
+                          ou equilibrado.
 
 Experimentos:
   48h                     Cenario integrado em horizonte de 48h (2 dias com a
@@ -284,12 +287,15 @@ cmd_market() {
     else
         export MARKET_CONFIG="/grid-data/$net/config.json"
         export MARKET_DATA_DIR="/grid-data/$net"
-        : "${MOSAIK_OUTPUT_DIR:=/app/output/market_$net}"
+        # A analise por fase grava ao lado, e nao por cima, dos resultados por no.
+        local sufixo=""
+        [ "${MARKET_FASE:-0}" = "1" ] && sufixo="_fase"
+        : "${MOSAIK_OUTPUT_DIR:=/app/output/market_$net$sufixo}"
         # Cada rede grava o proprio registro de execucao e o proprio traco. Com um
         # diretorio so, a execucao de uma rede sobrescrevia o `run.json` da
         # anterior, inclusive o da MVLV75, que as Figuras 58 e 59 dela citam como
         # procedencia. Aconteceu com a execucao da IEEE 13.
-        : "${MARKET_RUN_DIR:=/market/data/run_$net}"
+        : "${MARKET_RUN_DIR:=/market/data/run_$net$sufixo}"
         export MARKET_RUN_DIR
         if [ "${NET_BACKEND:-ideal}" = "omnet" ]; then
             : "${NET_TRACE:=/market/data/msg_trace_$net.csv}"
@@ -304,6 +310,15 @@ cmd_market() {
                 --load-csv "/app/src/data/$net/load_kw.csv" \
                 --pv-csv "/app/src/data/$net/pv_kw.csv" \
                 --out "/app/src/data/$net/sensitivity_day.npz"
+        fi
+        # Analise por fase: a matriz por (no, fase), tambem uma vez por rede.
+        if [ "${MARKET_FASE:-0}" = "1" ] && [ ! -f "$dir_local/sensitivity_fase.npz" ]; then
+            echo ">> [market] gerando a sensibilidade POR FASE de $net"
+            docker compose run --rm --no-deps -e GRID_DIR="/app/src/data/$net" \
+                opendss python src/simulators/sensitivity.py day --por-fase \
+                --load-csv "/app/src/data/$net/load_kw.csv" \
+                --pv-csv "/app/src/data/$net/pv_kw.csv" \
+                --out "/app/src/data/$net/sensitivity_fase.npz"
         fi
     fi
     export MOSAIK_OUTPUT_DIR

@@ -230,6 +230,8 @@ Todas com valor padrão no `docker-compose.yaml`. As que mais importam:
 | `MARKET_STORAGE_PF` | `none` | fator de potência do armazenamento; `none` reproduz a tese |
 | `NET_BACKEND` | `ideal` | camada de rede entre os agentes |
 | `MARKET_NETWORK` | `MVLV75` | qual rede de teste; ver a seção acima |
+| `MARKET_FASE` | `0` | `1`: tensão e preço sombra por fase (só `13Bus`); ver `MERCADO.md`, 5.6 |
+| `MARKET_DISPOSITIVO` | `independente` | por fase: cada fase despachada separadamente, ou `equilibrado` |
 
 ## 5. O que já foi medido
 

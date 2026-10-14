@@ -289,9 +289,28 @@ Na co-simulação completa, com os agentes reais e a rede 6TiSCH no laço, a
 negociação converge em 81 rodadas com 3.212 mensagens e nenhuma perda, e as
 leituras **por fase** fora de ANSI Range A caem de 191 para 104. A diferença
 para a execução centralizada tem três causas medidas: a medição é por fase e não
-a média que o DSO enxerga, o regulador está livre e disputa a variável com o
-mercado, e a demanda é a realizada, não a programada. O estudo completo está em
+a média que o DSO enxerga, o regulador da co-simulação fica **parado na posição
+neutra** (o `opendss_wrapper` zera as derivações ao montar a rede para o Mosaik,
+enquanto a negociação foi calculada com ele operando; ver `MERCADO.md`, seção
+5.6) e a demanda é a realizada, não a programada. O estudo completo está em
 `Docs_Externo/ESTUDO_IEEE13.md`.
+
+### O caso `13Bus` por fase, em `output/market_13Bus_fase/`
+
+Com `MARKET_FASE=1` o DSO vigia a tensão de cada fase e o preço sombra é por
+(barra, fase). A pasta tem a mesma estrutura da `market_13Bus/`, com duas
+diferenças: o `dlmp.csv` e o `flexibility.csv` têm uma coluna `fase`, e a
+`figuras.npz` traz as tensões por fase (`rows`) e as chaves por porta ("671.A").
+As figuras ficam em `simulators/grid-opentes/src/data/13Bus/figuras_13bus_fase/`.
+
+| Conferência não linear por fase, derivação travada | > 1,03 pu | < 0,97 pu |
+|---|---:|---:|
+| sem armazenamento | 287 | 0 |
+| negociado por nó | 151 | 18 |
+| negociado por fase | 9 | 28 |
+
+A formulação, as duas variantes do dispositivo e a leitura completa estão em
+`MERCADO.md`, seção 5.6.
 
 ### As figuras, em `simulators/market-opentes/data/`
 

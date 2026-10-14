@@ -42,6 +42,10 @@ OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 RESULT_TAG = os.environ.get("RESULT_TAG", "negociado")
 RESULT_CSV = str(OUTPUT_DIR / f"result_{RESULT_TAG}.csv")
 
+# Analise por fase (MARKET_FASE=1): o armazenamento de cada fase vai para a carga
+# monofasica `Port_<no>_<fase>` do circuito, e o Load_<no> leva so a demanda.
+FASE = os.environ.get("MARKET_FASE", "0") == "1"
+
 START_DATE = os.environ.get("MOSAIK_START_DATE", "2026-01-01 00:00:00")
 STEP_SIZE = int(os.environ.get("MOSAIK_STEP_SIZE", "900"))      # 15 min
 N_PASSOS = int(os.environ.get("MOSAIK_N_PASSOS", "96"))
@@ -93,6 +97,24 @@ def create_scenario(world):
         world.connect(agent, monitor, "P_kw")
         n_ligados += 1
 
+    n_portas = 0
+    if FASE:
+        porta_re = re.compile(r"^load-port_(\d+)_([123])$", re.IGNORECASE)
+        for eid, load in loads.items():
+            m = porta_re.match(eid)
+            if m is None:
+                continue
+            agent = pade_sim.MarketMAS(node=int(m.group(1)), porta=int(m.group(2)))
+            world.connect(agent, load, ("P_kw", "P_kw"), ("Q_kvar", "Q_kvar"))
+            # Registrada tambem, para que a demanda liquida do no (carga mais
+            # armazenamento) possa ser reconstituida somando as portas.
+            world.connect(agent, monitor, "P_kw")
+            n_portas += 1
+        if not n_portas:
+            raise SystemExit("MARKET_FASE=1, mas o circuito nao tem cargas "
+                             "Port_<no>_<fase> (ver gen_ieee13_market.py)")
+        ignoradas = [e for e in ignoradas if not porta_re.match(e)]
+
     for bus in buses:
         world.connect(bus, monitor, "V1_pu", "V2_pu", "V3_pu")
 
@@ -101,7 +123,8 @@ def create_scenario(world):
             "nenhuma carga com o nome `Load_<no>` no circuito; o mercado nao "
             f"tem o que acionar. Cargas encontradas: {sorted(loads)[:8]}")
     print(f"   {n_ligados} nos acionados pelos agentes, "
-          f"{len(buses)} barras registradas")
+          + (f"{n_portas} portas por fase, " if FASE else "")
+          + f"{len(buses)} barras registradas")
     if ignoradas:
         print(f"   {len(ignoradas)} cargas fora da convencao do mercado, "
               f"ignoradas: {sorted(ignoradas)[:6]}")

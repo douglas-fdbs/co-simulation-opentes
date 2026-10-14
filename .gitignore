@@ -51,6 +51,7 @@ simulators/market-opentes/data/run/
 # Sensibilidade dV/dP e dV/dQ das redes geradas: 3 MB por rede, derivada do
 # circuito e regenerada pelo run.sh na primeira execucao. E produto, nao fonte.
 simulators/grid-opentes/src/data/*/sensitivity_day.npz
+simulators/grid-opentes/src/data/*/sensitivity_fase.npz
 
 # Saidas de execucao da camada de mercado que vivem na pasta de dados do pacote:
 # traco de mensagens do NET_TRACE, serie por intervalo da liquidacao e as figuras
