@@ -80,7 +80,7 @@ HOST = os.environ.get("PADE_AGENT_HOST", "127.0.0.1")
 BASE_PORT = int(os.environ.get("PADE_PORT", "5678"))
 AMS_PORT = int(os.environ.get("AMS_PORT", "8000"))
 STEP_SIZE = int(os.environ.get("AGENT_STEP_SIZE", "900"))
-CONFIG_JSON = os.environ.get("MARKET_CONFIG", "/market/data/config.json")
+CONFIG_JSON = os.environ.get("MARKET_CONFIG", "/grid-data/13Bus/config.json")
 ALPHA = float(os.environ.get("MARKET_ALPHA", "0.6"))
 EPS = float(os.environ.get("MARKET_EPS", "1e-3"))
 MAX_ROUNDS = int(os.environ.get("MARKET_MAX_ROUNDS", "30"))
@@ -172,7 +172,7 @@ REALIZED_DAY = int(os.environ.get("MARKET_REALIZED_DAY", "9"))
 # (`analyse_auction_grid_restrictions` chama `run_powerflow_in_pandapower`), e
 # aqui e o mesmo: o solver abre o circuito e resolve.
 MARKET_CIRCUIT = os.environ.get("MARKET_CIRCUIT",
-                                "/grid-data/MVLV75/Master.dss")
+                                "/grid-data/13Bus/Master.dss")
 
 _BUS_CACHE = None
 
@@ -1883,7 +1883,7 @@ def _install_network(agents, case=None):
     return link
 
 
-RUN_DIR = Path(os.environ.get("MARKET_RUN_DIR", "/market/data/run"))
+RUN_DIR = Path(os.environ.get("MARKET_RUN_DIR", "/app/output/market"))
 
 
 def _dump_run(market, link):

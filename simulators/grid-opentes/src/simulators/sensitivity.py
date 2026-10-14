@@ -64,12 +64,10 @@ from pathlib import Path
 
 import numpy as np
 
-# Qual rede. `GRID_DIR` aponta para a pasta do circuito; sem a variavel, vale a
-# rede da tese. Sem isso o modulo compilava a MVLV75 mesmo quando recebia os
-# perfis de outra rede, e devolvia uma matriz que nao correspondia a nenhuma das
-# duas.
+# Qual rede. `GRID_DIR` aponta para a pasta do circuito; sem a variavel, vale o
+# caso IEEE 13 do mercado.
 DATA_DIR = Path(os.environ.get(
-    "GRID_DIR", Path(__file__).resolve().parents[1] / "data" / "MVLV75"))
+    "GRID_DIR", Path(__file__).resolve().parents[1] / "data" / "13Bus"))
 MASTER = DATA_DIR / "Master.dss"
 FORCE_JSON = DATA_DIR / "force.json"
 
@@ -98,11 +96,10 @@ _BUS_CACHE = None
 def bus_name(node):
     """Nome da barra no OpenDSS para um no do mercado.
 
-    As redes geradas por `gen_market_grid.py` e `gen_test_grid.py` nomeiam as
-    barras como `n{no}`, e essa continua sendo a regra. Uma rede publicada, como
-    a IEEE 13, tem nomes proprios que nao se pode renomear sem perder a
-    correspondencia com a referencia: nesse caso o `force.json` traz o nome da
-    barra em cada no, e ele manda.
+    A regra padrao e `n{no}`. Uma rede publicada, como a IEEE 13, tem nomes
+    proprios que nao se pode renomear sem perder a correspondencia com a
+    referencia: nesse caso o `force.json` traz o nome da barra em cada no, e ele
+    manda.
     """
     global _BUS_CACHE
     if _BUS_CACHE is None:
@@ -162,7 +159,7 @@ def compute_sensitivity(dss, nodes, loads_kw, delta_kw=DEFAULT_DELTA_KW,
     derivacoes CONGELADAS (ControlMode=OFF). E o ponto da previsao que fixa as
     derivacoes do dia seguinte: o mercado decide depois, com elas como condicao
     de contorno, e o cenario de mercado aplica essas mesmas derivacoes na
-    co-simulacao. Ver docs/MERCADO.md, secao "O regulador de tensao".
+    co-simulacao. Ver docs/paginas/mercado.md, "O regulador de tensao".
 
     Returns:
         (V0, S, SQ): V0 com len(nodes) posicoes em pu; S em pu/kW e SQ em

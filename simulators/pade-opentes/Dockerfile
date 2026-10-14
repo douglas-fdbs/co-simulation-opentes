@@ -43,4 +43,4 @@ EXPOSE 5678/tcp
 EXPOSE 8000/tcp
 EXPOSE 8001/tcp
 
-CMD ["python3", "agents/pade_star.py"]
+CMD ["python3", "agents/market_agents.py"]

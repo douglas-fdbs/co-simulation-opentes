@@ -24,16 +24,13 @@ from pathlib import Path
 import numpy as np
 
 PKG_DIR = Path(__file__).resolve().parent
-# Onde ficam os perfis, o preco e o reservatorio de cenarios. Cada rede de teste
-# leva os seus junto do circuito, para ser autocontida; `MARKET_DATA_DIR` aponta
-# para essa pasta. Sem a variavel, vale a pasta do proprio pacote, que e a da
-# rede da tese.
-DATA_DIR = Path(os.environ.get("MARKET_DATA_DIR", PKG_DIR.parent / "data"))
-# Dentro do container o pacote e montado fora da arvore do repositorio, entao o
-# caminho da rede e parametrizavel.
-GRID_DIR = Path(os.environ.get(
-    "MARKET_GRID_DIR",
-    PKG_DIR.parents[1] / "grid-opentes" / "src" / "data" / "MVLV75"))
+# O caso de estudo e a IEEE 13 barras, montada por `gen_ieee13_market.py` com o
+# circuito, a alocacao de armazenamento, os perfis, o preco e o reservatorio de
+# cenarios na mesma pasta. Dentro dos conteineres o pacote e montado fora da
+# arvore do repositorio, entao os dois caminhos sao parametrizaveis.
+_CASO = PKG_DIR.parents[1] / "grid-opentes" / "src" / "data" / "13Bus"
+DATA_DIR = Path(os.environ.get("MARKET_DATA_DIR", _CASO))
+GRID_DIR = Path(os.environ.get("MARKET_GRID_DIR", _CASO))
 
 PERIODS = 96
 DT_H = 0.25
@@ -77,12 +74,12 @@ _pf = os.environ.get("MARKET_STORAGE_PF", "none")
 STORAGE_PF = None if _pf.lower() in ("none", "", "0") else float(_pf)
 STORAGE_TAN_PHI = 0.0 if STORAGE_PF is None else math.tan(math.acos(STORAGE_PF))
 
-# Analise POR FASE (MARKET_FASE=1). Padrao 0: a formulacao da tese, com uma
-# tensao e um preco sombra por no, e a media das fases quando a barra e
-# multifasica. Com 1 o indice l das Eq. 6.18 a 6.30 passa a ser o par (barra,
-# fase): o DSO vigia a tensao de cada fase e le a matriz `sensitivity_fase.npz`.
-# Ver docs/MERCADO.md, secao "Analise por fase".
-FASE = os.environ.get("MARKET_FASE", "0") == "1"
+# Analise POR FASE (padrao, MARKET_FASE=1): o indice l das Eq. 6.18 a 6.30 e o
+# par (barra, fase), o DSO vigia a tensao de cada fase e le a matriz
+# `sensitivity_fase.npz`. Com 0 volta a formulacao da tese, com uma tensao e um
+# preco sombra por no e a media das fases quando a barra e multifasica, que fica
+# para comparacao. Ver docs/paginas/mercado.md.
+FASE = os.environ.get("MARKET_FASE", "1") == "1"
 # Como o armazenamento injeta nas fases, so com MARKET_FASE=1:
 #   independente  cada fase e despachada separadamente (tres inversores
 #                 monofasicos sobre a mesma bateria, ou inversor de quatro

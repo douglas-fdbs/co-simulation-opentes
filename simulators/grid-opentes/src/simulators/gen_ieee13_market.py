@@ -42,7 +42,7 @@ DECISOES DE CONVERSAO, TODAS MEDIDAS
   modelos 1, 2 e 5. A restricao de tensao do DSO e linearizada em dV/dP com
   potencia constante; manter carga de impedancia constante deixaria o modelo do
   agente e o fluxo de potencia falando de coisas diferentes. `Vminpu` e `Vmaxpu`
-  alargados pelo mesmo motivo, como em `gen_market_grid.py`.
+  alargados pelo mesmo motivo.
 
 - **O PV entra como carga negativa.** Os `PVSystem` ficam desabilitados e a
   geracao vai para o `pv_kw.csv`, que o mercado subtrai da demanda. Consequencia
@@ -57,7 +57,7 @@ DECISOES DE CONVERSAO, TODAS MEDIDAS
   fase-neutro `Port_{no}_{fase}` em cada fase em que o `Load_{no}` esta ligado,
   com potencia zero (22 portas). Sao usadas so pela analise por fase
   (MARKET_FASE=1), que despacha o armazenamento de cada fase nelas; com zero, o
-  circuito resolve exatamente como sem elas. Ver docs/MERCADO.md, secao 5.6.
+  circuito resolve exatamente como sem elas. Ver docs/paginas/mercado.md.
 
 Uso, dentro do container grid:
 
@@ -412,17 +412,10 @@ def escrever_pool(carga, pv):
     """
     rng = np.random.default_rng(13)
     nos = sorted(carga)
-    # A serie de preco spot e a mesma da MVLV75 (Nordpool, recortada pelo
-    # `data_prep`), para que a economia dos dois casos seja comparavel. O pacote
-    # do mercado nao esta sempre montado no mesmo lugar, entao procura-se.
-    candidatos = [p / "market-opentes" / "data" / "spot_price.csv"
-                  for p in (DATA.parents[2], DATA.parents[3], Path("/app/simulators"),
-                            Path(__file__).resolve().parents[3])]
-    fonte = next((c for c in candidatos if c.exists()), None)
-    if fonte is None:
-        raise SystemExit("spot_price.csv do market-opentes nao encontrado em "
-                         + ", ".join(str(c) for c in candidatos))
-    preco = np.genfromtxt(fonte, delimiter=",", skip_header=1)[:PERIODS]
+    # O preco spot e um dia de mercado day-ahead do Nordpool, o mesmo recorte que
+    # a tese usa. Ele e DADO de entrada do caso e mora no proprio `spot_price.csv`
+    # desta pasta: o gerador le e regrava, sem alterar.
+    preco = np.genfromtxt(DATA / "spot_price.csv", delimiter=",", skip_header=1)[:PERIODS]
     L, P, PR = [], [], []
     for d in range(9):
         fator_c = 1.0 + rng.normal(0, 0.10)

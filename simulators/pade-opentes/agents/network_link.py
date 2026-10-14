@@ -16,12 +16,12 @@ tempo de execucao (`install`), e a entrega passa a ser agendada pelo backend.
 BACKENDS
 --------
 `ideal`    entrega tudo, sem atraso. E o caso de controle da Fase 5.
-`lossy`    modelo fenomenologico igual ao do NetworkNode.cc do comm-opentes:
+`lossy`    modelo fenomenologico, sem o OMNeT++:
            sorteia a perda, e o atraso e propagacao + transmissao (tamanho da
            mensagem sobre a banda) + jitter exponencial. Permite rodar o
            experimento de perda sem depender do OMNeT++.
-`omnet`    cliente ZMQ do servidor de rotas 6TiSCH do container `comm-tisch`
-           (`comm-opentes/Tisch.cc`, configuracao `-c tisch`). E a rede LPWA da
+`omnet`    cliente ZMQ do servidor de rotas 6TiSCH do conteiner `comm`
+           (`comm-opentes/Tisch.cc`). E a rede LPWA da
            tese: PER por distancia pelo modelo de Pister-Hack, matriz de
            adjacencia com limiar de PER 0,5, roteamento multi-salto e atraso
            vindo do slotframe do TSCH. Cada envio vira uma consulta com origem,
@@ -131,7 +131,7 @@ class LossyBackend:
 
 
 class OmnetBackend:
-    """Cliente do servidor de rotas 6TiSCH do container `comm-tisch`.
+    """Cliente do servidor de rotas 6TiSCH do conteiner `comm`.
 
     Uma consulta por envio, sincrona. O custo e de dezenas de microssegundos por
     mensagem em ZMQ local, desprezivel perto do que a propria rede simulada
@@ -150,7 +150,7 @@ class OmnetBackend:
     def __init__(self, host=None, port=None, node_map=None, timeout_ms=120000):
         import zmq
 
-        self.host = host or os.environ.get("OMNET_HOST", "comm-tisch")
+        self.host = host or os.environ.get("OMNET_HOST", "comm")
         self.port = int(port or os.environ.get("OMNET_NET_PORT", "5556"))
         self.node_map = node_map or {}
         self.unmapped = set()

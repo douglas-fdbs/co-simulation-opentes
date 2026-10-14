@@ -1,20 +1,23 @@
-"""Reprodução fiel das Figuras 42 a 55 da tese de referência.
+"""Figuras do mercado no formato das Figuras 42 a 59 da tese de referência.
 
-Cada figura sai com o MESMO formato da original: os mesmos eixos, os mesmos nós
-destacados, o mesmo tipo de gráfico (superfície ou barra em 3D onde a tese usa
-3D) e o mesmo título interno. O arquivo recebe o nome da legenda da figura, e não
-um `figNN_*`, para que a correspondência seja lida sem tabela auxiliar.
+Cada figura usa o formato da figura correspondente da tese de Lucas S. Melo
+(2022): os mesmos eixos, o mesmo tipo de gráfico (superfície ou barra em 3D onde
+a tese usa 3D) e o mesmo título interno. O arquivo recebe o nome da legenda da
+figura, para que a correspondência seja lida sem tabela auxiliar. No modo por
+fase, as figuras de tensão e de preço sombra têm um painel por fase.
 
-O objetivo aqui é comparar FORMA, não número: se a nossa figura tem o mesmo
-formato da dela, a diferença que sobrar é de resultado e pode ser discutida. Com
-formatos diferentes não dá para dizer nem isso.
+Todas as entradas saem da mesma pasta de resultados, a que `./run.sh market`
+grava (`output/market/`, ou `output/market_por_no/` com MARKET_FASE=0):
 
-Entradas:
-  data/figuras.npz              o que a negociação produziu (settlement.py)
-  data/tisch_links.csv          levantamento de enlaces do 6TiSCH (Figura 42)
-  output/market/result_*.csv    a fase de operação (Figuras 54 e 55)
+  figuras.npz            a negociação centralizada (`./run.sh centralizado`)
+  market_series.csv      as transações por intervalo (idem)
+  result_negociado.csv   a fase de operação na co-simulação (Figuras 54 e 55)
+  msg_trace.csv          o traço de mensagens, com NET_TRACE (Figuras 58 e 59)
+  run.json               o registro da negociação distribuída
 
-    python -m market_opentes.figuras_tese --out-dir data/figuras_tese
+e a Figura 42 lê o `tisch_links.csv` que o servidor 6TiSCH grava junto do caso.
+
+    python -m market_opentes.figuras_tese --resultados /app/output/market
 """
 
 import argparse
@@ -700,17 +703,17 @@ def escolher_mercado(series_csv, quantos=4):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--npz", default="data/figuras.npz")
-    ap.add_argument("--links", default="data/tisch_links.csv")
-    ap.add_argument("--operacao", default="/app/output/market/result_negociado.csv")
-    ap.add_argument("--series", default="data/market_series.csv")
-    ap.add_argument("--trace", default="data/msg_trace.csv")
-    ap.add_argument("--run-json", default="data/run/run.json", dest="run_json",
-                    help="procedencia da execucao, para avisar se o traco esta "
-                         "no modo de tamanho errado para as Figuras 58 e 59")
-    ap.add_argument("--out-dir", default="data/figuras_tese")
+    ap.add_argument("--resultados", default="/app/output/market",
+                    help="pasta com os resultados de ./run.sh market e centralizado")
+    ap.add_argument("--links", default=str(GRID_DIR / "tisch_links.csv"))
+    ap.add_argument("--out-dir", default=None,
+                    help="padrao: <resultados>/figuras")
     a = ap.parse_args()
-    out = Path(a.out_dir); out.mkdir(parents=True, exist_ok=True)
+    r = Path(a.resultados)
+    a.npz, a.series = r / "figuras.npz", r / "market_series.csv"
+    a.operacao, a.trace, a.run_json = r / "result_negociado.csv", r / "msg_trace.csv", r / "run.json"
+    out = Path(a.out_dir) if a.out_dir else r / "figuras"
+    out.mkdir(parents=True, exist_ok=True)
 
     d = np.load(a.npz)
     nos = [int(x) for x in d["nodes"]]
@@ -736,36 +739,18 @@ def main():
         rede = [int(x) for x in d["network_nodes"]]
         y_no, q_no, ac_no, ad_no = y, q, ac, ad
 
-    # janelas que a tese destaca
-    NOITE = (71, 78, 1)          # 17:45 a 19:15
-    MANHA = (40, 45, 1)          # 10:00 a 11:00
+    # Nos e horarios em destaque: saem dos dados, por um criterio declarado em
+    # cada `escolher_*` (a tese fixava os da MVLV75, que aqui nao existem).
     DIA = (0, PERIODS, 24)
-    # Nos que a tese destaca nos quadros (b) das Figuras 44, 48 e 55. A legenda
-    # dela diz "nos 9 a 12", mas o eixo das figuras mostra de 16,5 a 21,5, ou
-    # seja os nos 17 a 21. Seguimos o eixo, que e o que esta desenhado.
-    # A rede da tese e reconhecida pelo NOME da pasta da rede, e nao pelos
-    # numeros dos nos. Reconhecer pelos numeros falhava na BT38, que tambem tem
-    # nos 17 a 21: o quadro (b) sairia com os nos que a tese destaca na MVLV75,
-    # que na BT38 nao querem dizer nada. Sendo a MVLV75, tudo fica como esta
-    # escrito na tese; sendo outra, tudo vem dos dados.
-    eh_tese = GRID_DIR.name == "MVLV75"
-    DESTAQUE = {17, 18, 19, 20, 21}
-    DETALHE = [74, 25]
-    MERCADO = (15, 24, 32, 52)
-    HORARIOS = (71, 40)
-    if not eh_tese:
-        DESTAQUE = escolher_destaque(nos, demanda)
-        DETALHE = escolher_detalhe(pros, y_no)
-        if Path(a.series).exists():
-            MERCADO = escolher_mercado(a.series)
-        definir_nos(DESTAQUE, DETALHE, MERCADO)
-        HORARIOS = escolher_horarios(v_base)
-        NOITE, MANHA = escolher_janelas(v_base)
-        print(f"  rede fora da MVLV75: quadro (b) com {sorted(DESTAQUE)}, "
-              f"figuras por no {DETALHE}, mercado {list(MERCADO)}, Figura 49 em "
-              f"{[hhmm(t) for t in HORARIOS]}, janelas em "
-              f"{hhmm(NOITE[0])}-{hhmm(NOITE[1] - 1)} e "
-              f"{hhmm(MANHA[0])}-{hhmm(MANHA[1] - 1)}")
+    DESTAQUE = escolher_destaque(nos, demanda)
+    DETALHE = escolher_detalhe(pros, y_no)
+    MERCADO = escolher_mercado(a.series) if Path(a.series).exists() else tuple(DETALHE)
+    definir_nos(DESTAQUE, DETALHE, MERCADO)
+    HORARIOS = escolher_horarios(v_base)
+    NOITE, MANHA = escolher_janelas(v_base)
+    print(f"  quadro (b) com {sorted(DESTAQUE)}, figuras por no {DETALHE}, mercado "
+          f"{list(MERCADO)}, Figura 49 em {[hhmm(t) for t in HORARIOS]}, janelas em "
+          f"{hhmm(NOITE[0])}-{hhmm(NOITE[1] - 1)} e {hhmm(MANHA[0])}-{hhmm(MANHA[1] - 1)}")
 
     if Path(a.links).exists():
         figura_42(a.links, arquivo(out, 42))

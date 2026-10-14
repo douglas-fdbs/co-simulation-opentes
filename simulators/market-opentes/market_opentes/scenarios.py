@@ -22,7 +22,7 @@ from .config import DATA_DIR
 
 
 def load_pool():
-    """Reservatorio de dias alternativos gerado por `data_prep`."""
+    """Reservatorio de dias alternativos, gerado por `gen_ieee13_market.py`."""
     data = np.load(DATA_DIR / "scenario_pool.npz")
     nodes = [int(x) for x in data["nodes"]]
     index = {n: i for i, n in enumerate(nodes)}

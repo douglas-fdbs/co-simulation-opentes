@@ -1,7 +1,8 @@
 """Cenario de mercado transativo: negociacao em PADE, rede em OpenDSS.
 
 Fase de programacao da operacao (subsecao 6.1.2 da tese de Lucas S. Melo, 2022),
-sobre a rede MVLV75 (75 barras, 5 transformadores, 68 prosumidores).
+sobre a IEEE 13 barras (10 prosumidores, um concentrador, 14 bancos de
+armazenamento).
 
     t = 0        o sistema multi-agentes negocia: os prosumidores propoem a
                  programacao do armazenamento, o DSO verifica as restricoes e o
@@ -17,7 +18,7 @@ LINEARIZADO (dV = S . dP), e aqui se verifica se a promessa se confirma na
 solucao nao linear. Sem isso, o resultado da negociacao seria uma afirmacao
 sobre o proprio modelo dela.
 
-Comparacao: com CONTROL_ENABLED=0 os agentes publicam a programacao PROPOSTA
+Comparacao: com MARKET_NEGOTIATE=0 os agentes publicam a programacao PROPOSTA
 pelos prosumidores, sem negociacao, que e a linha de base.
 """
 
@@ -31,12 +32,12 @@ import re
 
 import mosaik
 
-PADE_HOST = os.environ.get("PADE_HOST", "pade-market")
+PADE_HOST = os.environ.get("PADE_HOST", "pade")
 PADE_PORT = os.environ.get("PADE_PORT", "5678")
-OPENDSS_HOST = os.environ.get("OPENDSS_HOST", "opendss")
-ELEC_COLLECTOR_HOST = os.environ.get("ELEC_COLLECTOR_HOST", "elec-collector")
+OPENDSS_HOST = os.environ.get("OPENDSS_HOST", "grid")
+ELEC_COLLECTOR_HOST = os.environ.get("ELEC_COLLECTOR_HOST", "collector")
 
-CIRCUITO_DSS = os.environ.get("MARKET_CIRCUIT", "/app/src/data/MVLV75/Master.dss")
+CIRCUITO_DSS = os.environ.get("MARKET_CIRCUIT", "/app/src/data/13Bus/Master.dss")
 OUTPUT_DIR = Path(os.environ.get("MOSAIK_OUTPUT_DIR", "/app/output/market"))
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 RESULT_TAG = os.environ.get("RESULT_TAG", "negociado")

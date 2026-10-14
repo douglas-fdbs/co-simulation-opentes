@@ -1,19 +1,13 @@
 //
 // Rede LPWA 6TiSCH da tese (subsecao 6.1.5), como servidor de roteamento.
 //
-// O `CoSimulationNetwork` existente e uma nuvem de rede de no unico, com perda
-// plana e latencia de dezenas de milissegundos. Esta rede e outra coisa: um
-// modelo multi-salto com PER por distancia, que responde consultas de rota vindas
-// dos agentes PADE em vez de participar do passo do Mosaik.
-//
-// Os dois convivem: escolha pela configuracao do omnetpp.ini (`-c General` para a
-// nuvem, `-c tisch` para esta).
+// Modelo multi-salto com PER por distancia, que responde consultas de rota
+// vindas dos agentes PADE em vez de participar do passo do Mosaik.
 //
 simple TischServer
 {
     parameters:
-        // Porta ZMQ das consultas de rota. Diferente da 5555 do MosaikBridge de
-        // proposito: os dois podem rodar ao mesmo tempo.
+        // Porta ZMQ das consultas de rota.
         int port = default(5556);
         string positions_file = default("nodes_xy.csv");
         // Matriz de adjacencia da tese (Apendice C). Vazia = gerar pelo limiar

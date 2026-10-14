@@ -292,7 +292,7 @@ def solve_concentrator(nodes, p_init, lam, storages, ck=CK, d_energy=D_ENERGY,
 
     Por fase, cada porta tem limite Pmax/|F|, o dispositivo tem um estado de
     carga so (a soma das portas) e o peso Ck e multiplicado por |F|: assim, numa
-    rede equilibrada, a solucao por fase e a por no coincidem (ver MERCADO.md).
+    rede equilibrada, a solucao por fase e a por no coincidem (ver docs/paginas/mercado.md).
 
     Returns:
         {chave: array[96]} programacao resultante.
