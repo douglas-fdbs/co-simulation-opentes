@@ -97,6 +97,21 @@ if DISPOSITIVO not in ("independente", "equilibrado"):
     raise ValueError(f"MARKET_DISPOSITIVO desconhecido: {DISPOSITIVO}")
 LETRA = {1: "A", 2: "B", 3: "C"}
 
+# Regulador de tensao na co-simulacao.
+#   previsao  as derivacoes de cada intervalo sao as do ponto de operacao da
+#             PREVISAO, as mesmas com que a matriz de sensibilidade foi
+#             calculada, e o DSO as envia ao regulador. E o sequenciamento
+#             fisicamente correto: o regulador ajusta pela previsao e o mercado
+#             decide depois, com a derivacao como condicao de contorno. Sem isso
+#             os dois controladores disputam a mesma variavel.
+#   neutro    nenhum comando: o simulador OpenDSS trava as derivacoes em 0 ao
+#             montar a rede, que era o comportamento antes desta chave. Existe so
+#             para comparacao; o DSO negocia contra uma rede e a co-simulacao
+#             mede outra.
+REGULADOR = os.environ.get("MARKET_REGULADOR", "previsao")
+if REGULADOR not in ("previsao", "neutro"):
+    raise ValueError(f"MARKET_REGULADOR desconhecido: {REGULADOR}")
+
 # Pesos das funcoes objetivo.
 CK = 1.0        # concentrador, Eq. 6.25
 A_PROSUMER = 0.2   # DSO, peso do armazenamento de prosumidor (p1 no codigo original)

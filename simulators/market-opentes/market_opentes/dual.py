@@ -114,6 +114,19 @@ def load_sensitivity():
     return [int(x) for x in data["nodes"]], data["v0"], s
 
 
+def load_taps():
+    """(nomes dos reguladores, derivacoes por intervalo) do ponto da previsao.
+
+    Vem da mesma matriz de sensibilidade em uso, que guarda as derivacoes com que
+    cada ponto de operacao foi resolvido. Matriz gerada antes desta chave nao
+    as tem: devolve listas vazias, e quem usa decide o que fazer.
+    """
+    data = np.load(DATA_DIR / ("sensitivity_fase.npz" if FASE else "sensitivity_day.npz"))
+    if "taps" not in data.files or "reguladores" not in data.files:
+        return [], np.zeros((0, 0))
+    return [str(n) for n in data["reguladores"]], np.asarray(data["taps"])
+
+
 def voltage_of(case, v0, s, p_prosumer, p_network):
     """Tensao prevista pelo modelo linear para uma programacao.
 

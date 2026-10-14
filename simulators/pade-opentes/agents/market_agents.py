@@ -65,9 +65,9 @@ from twisted.internet import reactor
 MARKET_PKG = os.environ.get("MARKET_OPENTES_PATH", "/market")
 sys.path.insert(0, MARKET_PKG)
 
-from market_opentes.config import (PERIODS, STORAGE_TAN_PHI,   # noqa: E402
+from market_opentes.config import (PERIODS, REGULADOR, STORAGE_TAN_PHI,  # noqa: E402
                                    load_case)
-from market_opentes.dual import load_profiles, load_sensitivity  # noqa: E402
+from market_opentes.dual import load_profiles, load_sensitivity, load_taps  # noqa: E402
 from market_opentes.optimization import (solve_concentrator, solve_dso,  # noqa: E402
                                          solve_prosumer)
 from market_opentes.operation import realized_profiles, voltage_at  # noqa: E402
@@ -218,6 +218,14 @@ MOSAIK_MODELS = {
             "params": ["node", "porta"],
             "attrs": ["P_kw", "Q_kvar", "lambda_max", "round_count"],
         },
+        # Comando de derivacao de um regulador (MARKET_REGULADOR=previsao): o DSO
+        # aplica as derivacoes do ponto de operacao da previsao, com que a matriz
+        # de sensibilidade foi calculada.
+        "Regulador": {
+            "public": True,
+            "params": ["nome"],
+            "attrs": ["tap"],
+        },
     },
 }
 
@@ -334,12 +342,19 @@ class SolverAgent(Agent):
         import py_dss_interface
 
         cwd = os.getcwd()
+        nomes, taps = load_taps() if REGULADOR == "previsao" else ([], None)
         try:
             dss = py_dss_interface.DSS()
             dss.text(f'Compile "{MARKET_CIRCUIT}"')
             tan_phi = math.tan(math.acos(0.9))
+            if nomes:
+                # As mesmas derivacoes que a co-simulacao aplica: as da previsao.
+                dss.text("Set ControlMode=OFF")
             pontos = []
             for t in range(PERIODS):
+                for i, nome in enumerate(nomes):
+                    dss.regcontrols.name = nome
+                    dss.regcontrols.tap_number = int(taps[t][i])
                 for node in self.case.lv_nodes:
                     if node in self.realized:
                         kw = float(self.realized[node][t])
@@ -1686,13 +1701,21 @@ class MarketMosaikSim(MosaikCon):
     def __init__(self, agent):
         super().__init__(MOSAIK_MODELS, agent)
         self.step_size = STEP_SIZE
-        self.entities = {}       # eid -> no
+        self.entities = {}       # eid -> no, porta ou ("regulador", indice)
+        self.reguladores, self.taps = load_taps() if REGULADOR == "previsao" else ([], None)
+        if REGULADOR == "previsao" and not self.reguladores:
+            raise SystemExit("MARKET_REGULADOR=previsao, mas a matriz de sensibilidade nao "
+                             "tem as derivacoes da previsao: regere com sensitivity.py day")
 
     def init(self, sid, time_resolution=1.0, step_size=STEP_SIZE, **kwargs):
         self.step_size = int(step_size)
         return MOSAIK_MODELS
 
-    def create(self, num, model, node=None, porta=None, **params):
+    def create(self, num, model, node=None, porta=None, nome=None, **params):
+        if model == "Regulador":
+            eid = f"reg_{nome}"
+            self.entities[eid] = ("regulador", self.reguladores.index(str(nome).lower()))
+            return [{"eid": eid, "type": model}]
         # Por fase, cada porta de armazenamento e uma entidade propria, ligada a
         # carga monofasica `Port_<no>_<fase>`; a entidade do no passa a levar so a
         # demanda. `porta` e o numero da fase (1, 2 ou 3).
@@ -1729,6 +1752,9 @@ class MarketMosaikSim(MosaikCon):
         for eid, attrs in outputs.items():
             node = self.entities[eid]
             data[eid] = {}
+            if isinstance(node, tuple):                  # regulador
+                data[eid]["tap"] = int(self.taps[t][node[1]])
+                continue
             for attr in attrs:
                 if attr == "P_kw":
                     data[eid][attr] = float(agent.node_power(node, t))

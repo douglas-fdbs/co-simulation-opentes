@@ -133,8 +133,19 @@ def solve(dss):
         raise RuntimeError("fluxo de potencia nao convergiu")
 
 
+def read_taps(dss):
+    """Derivacao de cada regulador, na ordem de `dss.regcontrols.names`."""
+    taps = []
+    for name in dss.regcontrols.names or []:
+        if not name:
+            continue
+        dss.regcontrols.name = name
+        taps.append(dss.regcontrols.tap_number)
+    return taps
+
+
 def compute_sensitivity(dss, nodes, loads_kw, delta_kw=DEFAULT_DELTA_KW,
-                        central=True, pf=DEFAULT_PF, reactive=True):
+                        central=True, pf=DEFAULT_PF, reactive=True, taps_out=None):
     """Calcula V0, dV/dP e dV/dQ no ponto de operacao dado.
 
     Args:
@@ -145,6 +156,13 @@ def compute_sensitivity(dss, nodes, loads_kw, delta_kw=DEFAULT_DELTA_KW,
         central: diferenca central (2N+1 fluxos) ou adiantada (N+1 fluxos).
         pf: fator de potencia usado para fixar o Q das cargas.
         reactive: se False, devolve dV/dQ nula e economiza metade dos fluxos.
+        taps_out: lista em que se acrescentam as derivacoes do ponto base.
+
+    O ponto base e resolvido com o regulador livre; as perturbacoes, com as
+    derivacoes CONGELADAS (ControlMode=OFF). E o ponto da previsao que fixa as
+    derivacoes do dia seguinte: o mercado decide depois, com elas como condicao
+    de contorno, e o cenario de mercado aplica essas mesmas derivacoes na
+    co-simulacao. Ver docs/MERCADO.md, secao "O regulador de tensao".
 
     Returns:
         (V0, S, SQ): V0 com len(nodes) posicoes em pu; S em pu/kW e SQ em
@@ -152,8 +170,12 @@ def compute_sensitivity(dss, nodes, loads_kw, delta_kw=DEFAULT_DELTA_KW,
     """
     tan_phi = math.tan(math.acos(pf))
     apply_loads(dss, loads_kw, pf=pf)
+    dss.text("Set ControlMode=static")
     solve(dss)
     v0 = read_voltages(dss, nodes)
+    if taps_out is not None:
+        taps_out.append(read_taps(dss))
+    dss.text("Set ControlMode=OFF")
 
     n = len(nodes)
     s = np.zeros((n, n))
@@ -194,6 +216,7 @@ def compute_sensitivity(dss, nodes, loads_kw, delta_kw=DEFAULT_DELTA_KW,
 
         dss.text(f"Edit Load.Load_{node} kW={base_kw} kvar={base_kvar}")
 
+    dss.text("Set ControlMode=static")
     solve(dss)
     return v0, s, s_q
 
@@ -238,13 +261,14 @@ def compute_day(dss, nodes, loads_by_period, delta_kw=DEFAULT_DELTA_KW,
     equivalente do laco de `run_powerflow_in_pandapower`, que resolvia o fluxo e
     guardava (vm_pu, jac_inv_21) para cada um dos 96 intervalos.
     """
-    v0_list, s_list, sq_list = [], [], []
+    v0_list, s_list, sq_list, taps = [], [], [], []
     for loads in loads_by_period:
-        v0, s, s_q = compute_sensitivity(dss, nodes, loads, delta_kw, central, pf)
+        v0, s, s_q = compute_sensitivity(dss, nodes, loads, delta_kw, central, pf,
+                                         taps_out=taps)
         v0_list.append(v0)
         s_list.append(s)
         sq_list.append(s_q)
-    return np.array(v0_list), np.array(s_list), np.array(sq_list)
+    return np.array(v0_list), np.array(s_list), np.array(sq_list), np.array(taps)
 
 
 # ----------------------------------------------------------------------------
@@ -298,7 +322,7 @@ def read_voltages_phase(dss, rows):
 
 
 def compute_sensitivity_phase(dss, rows, ports, loads_kw, delta_kw=DEFAULT_DELTA_KW,
-                              pf=DEFAULT_PF, reactive=True):
+                              pf=DEFAULT_PF, reactive=True, taps_out=None):
     """V0 por fase e dV/dP, dV/dQ por porta, com diferenca central.
 
     Returns:
@@ -311,6 +335,8 @@ def compute_sensitivity_phase(dss, rows, ports, loads_kw, delta_kw=DEFAULT_DELTA
     dss.text("Set ControlMode=static")
     solve(dss)
     v0 = read_voltages_phase(dss, rows)
+    if taps_out is not None:
+        taps_out.append(read_taps(dss))
     dss.text("Set ControlMode=OFF")
     s = np.zeros((len(rows), len(ports)))
     s_q = np.zeros((len(rows), len(ports)))
@@ -364,19 +390,23 @@ def _run_day(args):
         if not ports:
             raise SystemExit(f"{MASTER} nao tem cargas Port_<no>_<fase>: o modo por fase "
                              "precisa delas (ver gen_ieee13_market.py)")
-        res = [compute_sensitivity_phase(dss, rows, ports, loads) for loads in periods]
+        taps = []
+        res = [compute_sensitivity_phase(dss, rows, ports, loads, taps_out=taps)
+               for loads in periods]
         v0, s, s_q = (np.array([r[i] for r in res]) for i in range(3))
         np.savez(args.out, nodes=np.array(nodes), rows=np.array(rows),
-                 ports=np.array(ports), v0=v0, s=s, s_q=s_q)
+                 ports=np.array(ports), v0=v0, s=s, s_q=s_q, taps=np.array(taps),
+                 reguladores=np.array([n for n in dss.regcontrols.names if n]))
         print(f"{n_periods} periodos, {len(rows)} linhas por fase, {len(ports)} portas -> {args.out}")
         print(f"  V0 por fase: min={v0.min():.5f} max={v0.max():.5f}; violacoes no caso "
               f"base: {(v0 < 0.97).sum()} abaixo de 0,97 e {(v0 > 1.03).sum()} acima de 1,03 "
               f"(de {v0.size})")
         return
 
-    v0, s, s_q = compute_day(dss, nodes, periods)
+    v0, s, s_q, taps = compute_day(dss, nodes, periods)
 
-    np.savez(args.out, nodes=np.array(nodes), v0=v0, s=s, s_q=s_q)
+    np.savez(args.out, nodes=np.array(nodes), v0=v0, s=s, s_q=s_q, taps=taps,
+             reguladores=np.array([n for n in dss.regcontrols.names if n]))
     below = (v0 < 0.97).sum()
     above = (v0 > 1.03).sum()
     print(f"{n_periods} periodos, {len(nodes)} nos -> {args.out}")

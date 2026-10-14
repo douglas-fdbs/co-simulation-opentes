@@ -307,6 +307,9 @@ services:
       # `equilibrado` reparte igual entre as fases. Ver docs/MERCADO.md.
       - MARKET_FASE=${MARKET_FASE:-0}
       - MARKET_DISPOSITIVO=${MARKET_DISPOSITIVO:-independente}
+      # Regulador: `previsao` aplica as derivacoes do ponto da previsao (as da
+      # matriz de sensibilidade); `neutro` deixa o simulador trava-las em 0.
+      - MARKET_REGULADOR=${MARKET_REGULADOR:-previsao}
       # Camada de rede entre os agentes: ideal, lossy ou omnet (6TiSCH da tese).
       - NET_BACKEND=${NET_BACKEND:-ideal}
       - NET_TIME_SCALE=${NET_TIME_SCALE:-1.0}
@@ -351,6 +354,7 @@ services:
       - RESULT_TAG=${RESULT_TAG:-negociado}
       - MARKET_CIRCUIT=/app/src/data/${MARKET_NETWORK:-MVLV75}/Master.dss
       - MARKET_FASE=${MARKET_FASE:-0}
+      - MARKET_REGULADOR=${MARKET_REGULADOR:-previsao}
       - PADE_HOST=pade-market
       - PADE_PORT=5678
       - OPENDSS_HOST=opendss
