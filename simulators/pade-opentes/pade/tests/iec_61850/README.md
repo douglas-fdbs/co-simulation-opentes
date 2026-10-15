@@ -10,8 +10,6 @@ The legacy objective is preserved: one PADE agent receives periodic FIPA Request
 |------|-------------|
 | `agent_example_iec_61850_1_updated.py` | Main PADE-side IEC 61850 integration example. |
 | `server_iec61850.py` | Simple IEC 61850 server used as the IED endpoint. |
-| `changelogs.md` | Portuguese migration notes for this example. |
-| `changelogs_en.md` | English migration notes for this example. |
 
 ## Required dependency
 

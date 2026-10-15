@@ -1,10 +1,10 @@
 """Configuracao do caso: rede, concentradores e dispositivos de armazenamento.
 
-Le o `force.json` (topologia, ja convertido para OpenDSS na Fase 1) e o
-`config.json` do trabalho original (alocacao de RED por no) e monta as
-estruturas que os modelos de otimizacao consomem.
+Le o `force.json` (topologia) e o `config.json` (alocacao do armazenamento por
+no) do caso, ambos gerados por `gen_ieee13_market.py`, e monta as estruturas que
+os modelos de otimizacao consomem.
 
-Papeis, na nomenclatura da tese (subsecao 6.1.2):
+Papeis (a nomenclatura e a de Melo, 2022, cap. 6, de onde vem a formulacao):
   AP  Agente Prosumidor      -> um por no de baixa tensao
   AC  Agente Concentrador    -> um por transformador de distribuicao
   AD  Agente DSO             -> um, na subestacao
@@ -35,7 +35,7 @@ GRID_DIR = Path(os.environ.get("MARKET_GRID_DIR", _CASO))
 PERIODS = 96
 DT_H = 0.25
 
-# Limites operacionais da rede (subsecao 6.2.2 da tese).
+# Faixa de tensao do mercado.
 V_MIN = 0.97
 V_MAX = 1.03
 # Tolerancia para CONTAR violacao. O otimizador do DSO cola a solucao no limite,
@@ -49,8 +49,8 @@ V_TOL = 1e-9
 # vira violacao no fluxo de potencia completo. Sem esta margem, a negociacao
 # promete 0,9700 pu e o OpenDSS entrega 0,96924.
 #
-# NAO existe na tese, que usa a mesma restricao linearizada sem recuo. Aparece
-# quando a restricao passa a atuar de fato.
+# E um acrescimo a formulacao de referencia, que usa a restricao linearizada sem
+# recuo.
 V_BACKOFF = float(os.environ.get("MARKET_V_BACKOFF", "1e-3"))
 
 # Limiar de ACAO da fase de operacao, que pode ser mais rigoroso que o limite.
@@ -62,23 +62,23 @@ V_BACKOFF = float(os.environ.get("MARKET_V_BACKOFF", "1e-3"))
 V_ACAO_MIN = float(os.environ.get("MARKET_V_ACAO_MIN", str(V_MIN)))
 V_ACAO_MAX = float(os.environ.get("MARKET_V_ACAO_MAX", str(V_MAX)))
 
-# Fator de potencia do armazenamento. A Eq. 6.16 supoe dQ = 0, o que vale para um
-# dispositivo que nao mexe em reativo. Um inversor comum, porem, opera com fator
-# de potencia constante, e ai o reativo acompanha o ativo e a hipotese passa a
-# dominar o erro da restricao: medido no `sensitivity.py`, o erro sobe de 2,6e-5
-# para 1,0e-3 pu, quarenta vezes.
+# Fator de potencia do armazenamento. A restricao de tensao (6.16) supoe dQ = 0,
+# o que vale para um dispositivo que nao mexe em reativo. Um inversor comum,
+# porem, opera com fator de potencia constante, e ai o reativo acompanha o ativo
+# e a hipotese passa a dominar o erro da restricao: medido no `sensitivity.py`, o
+# erro sobe de 2,6e-5 para 1,0e-3 pu, quarenta vezes.
 #
-# `none` (padrao) reproduz a tese exatamente, porque o termo dV/dQ zera. Um
+# `none` (padrao) mantem a hipotese dQ = 0, porque o termo dV/dQ zera. Um
 # numero entre 0 e 1 liga o termo com tan(acos(pf)).
 _pf = os.environ.get("MARKET_STORAGE_PF", "none")
 STORAGE_PF = None if _pf.lower() in ("none", "", "0") else float(_pf)
 STORAGE_TAN_PHI = 0.0 if STORAGE_PF is None else math.tan(math.acos(STORAGE_PF))
 
-# Analise POR FASE (padrao, MARKET_FASE=1): o indice l das Eq. 6.18 a 6.30 e o
-# par (barra, fase), o DSO vigia a tensao de cada fase e le a matriz
-# `sensitivity_fase.npz`. Com 0 volta a formulacao da tese, com uma tensao e um
-# preco sombra por no e a media das fases quando a barra e multifasica, que fica
-# para comparacao. Ver docs/paginas/mercado.md.
+# Analise POR FASE (padrao, MARKET_FASE=1): o indice l das restricoes de tensao
+# e do preco sombra e o par (barra, fase), o DSO vigia a tensao de cada fase e le
+# a matriz `sensitivity_fase.npz`. Com 0, a analise e por barra, com uma tensao e
+# um preco sombra por no e a media das fases quando a barra e multifasica, que
+# fica para comparacao. Ver docs/paginas/mercado.md.
 FASE = os.environ.get("MARKET_FASE", "1") == "1"
 # Como o armazenamento injeta nas fases, so com MARKET_FASE=1:
 #   independente  cada fase e despachada separadamente (tres inversores
@@ -102,18 +102,17 @@ LETRA = {1: "A", 2: "B", 3: "C"}
 #             decide depois, com a derivacao como condicao de contorno. Sem isso
 #             os dois controladores disputam a mesma variavel.
 #   neutro    nenhum comando: o simulador OpenDSS trava as derivacoes em 0 ao
-#             montar a rede, que era o comportamento antes desta chave. Existe so
-#             para comparacao; o DSO negocia contra uma rede e a co-simulacao
-#             mede outra.
+#             montar a rede. Existe so para comparacao; o DSO negocia contra uma
+#             rede e a co-simulacao mede outra.
 REGULADOR = os.environ.get("MARKET_REGULADOR", "previsao")
 if REGULADOR not in ("previsao", "neutro"):
     raise ValueError(f"MARKET_REGULADOR desconhecido: {REGULADOR}")
 
-# Pesos das funcoes objetivo.
-CK = 1.0        # concentrador, Eq. 6.25
-A_PROSUMER = 0.2   # DSO, peso do armazenamento de prosumidor (p1 no codigo original)
-B_NETWORK = 0.8    # DSO, peso do armazenamento de rede    (p2 no codigo original)
-D_ENERGY = 0.8     # Dl da Eq. 6.26 (fixo em 0,8 no codigo original)
+# Pesos das funcoes objetivo, com os valores da formulacao de referencia.
+CK = 1.0           # concentrador, (6.25)
+A_PROSUMER = 0.2   # DSO, peso do armazenamento de prosumidor, (6.27)
+B_NETWORK = 0.8    # DSO, peso do armazenamento de rede, (6.27)
+D_ENERGY = 0.8     # fracao minima de energia movimentada, Dl de (6.26)
 
 
 @dataclass
@@ -154,8 +153,8 @@ class Case:
     # ---- variaveis de decisao do armazenamento -------------------------------
     # Uma CHAVE identifica uma variavel de decisao de armazenamento, e e o indice
     # do preco sombra. No modo por no (e no por fase com dispositivo equilibrado)
-    # a chave e o proprio no, um inteiro, exatamente como sempre foi. No modo por
-    # fase com dispositivo independente e a porta, "671.A".
+    # a chave e o proprio no, um inteiro. No modo por fase com dispositivo
+    # independente e a porta, "671.A".
 
     @property
     def por_porta(self):
@@ -226,9 +225,8 @@ class Case:
     def prosumer_nodes(self):
         """TODOS os nos de baixa tensao sob algum concentrador.
 
-        E quem negocia no mercado, com ou sem bateria: o
-        `start_pade_agents.py` do trabalho original cria um `ProsumerAgent` por
-        no de baixa tensao. Nao confundir com `prosumer_storage_nodes`, que sao
+        E quem negocia no mercado, com ou sem bateria: ha um `ProsumerAgent`
+        por no de baixa tensao. Nao confundir com `prosumer_storage_nodes`, que sao
         os que entram na negociacao de lambda, porque so eles tem programacao de
         armazenamento a acoplar.
         """
@@ -270,8 +268,7 @@ def load_case(config_json):
         ))
 
     # Um no de armazenamento que nao caia sob nenhum transformador ficaria fora
-    # da negociacao sem ninguem perceber: o force.json tem casos assim (o
-    # trafo_6_55 lista o no 54, que pertence ao trafo_5_35).
+    # da negociacao sem ninguem perceber, entao o caso e recusado.
     assigned = {n for c in concentrators for n in c.prosumer_storage}
     orphans = set(prosumer_storage) - assigned
     if orphans:

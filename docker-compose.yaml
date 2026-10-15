@@ -84,8 +84,8 @@ services:
       # operacao). O run.sh aponta para a mesma pasta dos resultados eletricos.
       - MARKET_RUN_DIR=${MARKET_RUN_DIR:-/app/output/market}
       # Analise por fase (padrao): o DSO vigia a tensao de cada fase e o preco
-      # sombra e por (barra, fase). 0 volta a formulacao da tese, por barra, com
-      # a media das fases. Ver docs/paginas/mercado.md.
+      # sombra e por (barra, fase). 0 e a analise por barra, com a media das
+      # fases, para comparacao. Ver docs/paginas/mercado.md.
       - MARKET_FASE=${MARKET_FASE:-1}
       # Como o armazenamento injeta nas fases: `independente` (inversor de quatro
       # fios, cada fase despachada separadamente) ou `equilibrado` (tres fios,
@@ -103,8 +103,8 @@ services:
       - MARKET_NEGOTIATE=${MARKET_NEGOTIATE:-1}
       - MARKET_OPERATION=${MARKET_OPERATION:-1}
       - MARKET_REALIZED=${MARKET_REALIZED:-1}
-      # Como a demanda realizada difere da programada: `perturb` e o mecanismo
-      # da tese, que altera a programacao em ate +/-10%.
+      # Como a demanda realizada difere da programada: `perturb` altera a
+      # programacao de cada prosumidor em ate +/-10% (MARKET_REALIZED_SPREAD).
       - MARKET_REALIZED_MODE=${MARKET_REALIZED_MODE:-perturb}
       - MARKET_REALIZED_SPREAD=${MARKET_REALIZED_SPREAD:-0.10}
       - MARKET_REALIZED_DAY=${MARKET_REALIZED_DAY:-9}
@@ -118,15 +118,15 @@ services:
       # na imagem nem no repositorio.
       - MARKET_SOLVER=${MARKET_SOLVER:-cplex}
       - MARKET_SOLVER_PATH=/opt/cplex/bin/x86-64_linux/cplex
-      # Fator de potencia do armazenamento. `none` e a hipotese dQ = 0 da tese.
+      # Fator de potencia do armazenamento. `none` e a hipotese dQ = 0.
       - MARKET_STORAGE_PF=${MARKET_STORAGE_PF:-none}
       # Camada de rede entre os agentes: `ideal` (entrega imediata), `lossy`
       # (perda e atraso sorteados) ou `omnet` (a rede 6TiSCH do servico comm).
       - NET_BACKEND=${NET_BACKEND:-ideal}
       - NET_TIME_SCALE=${NET_TIME_SCALE:-1.0}
       - NET_TRACE=${NET_TRACE:-}
-      # Tamanho informado a rede: `real` usa o conteudo serializado; `thesis`
-      # as classes de tamanho declaradas pela tese.
+      # Tamanho informado a rede: `real` usa o conteudo serializado;
+      # `declarado`, as classes de tamanho fixas da implementacao de referencia.
       - NET_MESSAGE_SIZE=${NET_MESSAGE_SIZE:-real}
       - OMNET_HOST=comm
       - OMNET_NET_PORT=5556

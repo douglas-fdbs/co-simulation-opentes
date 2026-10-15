@@ -1,36 +1,31 @@
 /**
  * @file Tisch.cc
- * @brief Rede LPWA 6TiSCH multi-salto da tese (subsecao 6.1.5).
+ * @brief Rede LPWA 6TiSCH multi-salto, como servidor de rotas para os agentes.
  *
- * O QUE A TESE ESPECIFICA
+ * O MODELO
+ * --------
+ * O modelo de rede de Melo (2022, secao 6.1.5): IEEE 802.15.4g modo 1 na banda
+ * ISM dos EUA, 50 kbps, 16 canais, TSCH com salto de canal. Slotframe de 101
+ * timeslots executado em 4,04 s. RSSI pelo modelo de Friis menos uma uniforme de
+ * 0 a 40 dB (Pister-Hack, LE et al. 2009), que e a abordagem do Simulador 6TiSCH
+ * (MUNICIO et al., 2019). Conversao de RSSI para PER pela curva de Prando et al.
+ * (2019, Fig. 3), com nivel de sensibilidade de -106,37 dBm. Enlace viavel
+ * sempre que o PER ficar abaixo de 0,5. As posicoes dos agentes vem do
+ * `nodes_xy.csv` do caso.
+ *
+ * A MATRIZ DE ADJACENCIA
  * ----------------------
- * IEEE 802.15.4g modo 1 na banda ISM dos EUA, 50 kbps, 16 canais, TSCH com salto
- * de canal. Slotframe de 101 timeslots executado em 4,04 s. RSSI pelo modelo de
- * Friis menos uma uniforme de 0 a 40 dB (Pister-Hack, LE et al. 2009), que e a
- * abordagem do Simulador 6TiSCH (MUNICIO et al., 2019). Conversao de RSSI para
- * PER pela Tabela 7 da tese, obtida de Prando et al. (2019, Fig. 3), com nivel de
- * sensibilidade de -106,37 dBm. Enlace viavel sempre que o PER ficar abaixo de
- * 0,5. As coordenadas sao as do Apendice B, reproduzidas em `nodes_xy.csv`, e
- * conferem exatamente com o `bus_xy.txt` da implementacao de referencia.
+ * Pode ser lida de um arquivo (`adjacency_file`), quando a topologia e dado
+ * publicado, ou gerada pelo limiar de PER, como no caso IEEE 13, que nao tem
+ * topologia de radio publicada. Gerar pelo limiar exige supor o orcamento de
+ * enlace do radio (0 dBm aqui), e a suposicao pesa: uma rede mais conectada tem
+ * menos saltos e menos perda, ou seja, resultados de comunicacao otimistas.
  *
- * A MATRIZ DE ADJACENCIA E DADO, NAO RECONSTRUCAO
- * ----------------------------------------------
- * O Apendice C publica a matriz, e ela tambem esta no `adj_array.txt` da
- * implementacao de referencia: 578 enlaces entre os 77 agentes. Reconstrui-la
- * pelo limiar de PER exigiria supor o orcamento de enlace do radio, que a tese
- * nao informa, e a suposicao natural de 0 dBm produz 1.466 enlaces, duas vezes e
- * meia a densidade real. Uma rede mais conectada tem menos saltos e menos perda,
- * ou seja, resultados de comunicacao otimistas. Por isso a matriz e lida do
- * arquivo, e o modelo de propagacao fica responsavel apenas pelo PER de cada
- * enlace que existe.
- *
- * O QUE ESTE MODULO ACRESCENTA
- * ---------------------------
- * A tese roda o Simulador 6TiSCH OFF-LINE, extrai PER e atraso e alimenta o ns-3
- * com esses numeros. Aqui o caminho e percorrido salto a salto em tempo de
- * evento do OMNeT++, entao o atraso sai da propria simulacao e nao de uma tabela
- * pre-calculada. O custo em bytes tambem e o real: o numero de frames vem do
- * tamanho serializado da mensagem FIPA, nao de um valor arbitrario.
+ * O CAMINHO SALTO A SALTO
+ * -----------------------
+ * O caminho e percorrido salto a salto em tempo de evento do OMNeT++, entao o
+ * atraso sai da propria simulacao e nao de uma tabela pre-calculada. O numero
+ * de frames vem do tamanho da mensagem FIPA que o agente informa.
  *
  * POR QUE UM SERVIDOR DE ROTAS E NAO UM PASSO DO MOSAIK
  * ---------------------------------------------------
@@ -58,8 +53,8 @@ using json = nlohmann::json;
 
 namespace {
 
-// Tabela 7 da tese: PER em funcao do RSSI acima do nivel de sensibilidade, em
-// passos de 1 dB. O indice 0 e o proprio nivel de sensibilidade.
+// PER em funcao do RSSI acima do nivel de sensibilidade, em passos de 1 dB
+// (Prando et al., 2019). O indice 0 e o proprio nivel de sensibilidade.
 const double PER_TABLE[] = {1.0, 0.8, 0.4, 0.15, 0.03, 0.006, 0.0015, 0.0};
 const int PER_TABLE_LEN = 8;
 
@@ -181,12 +176,10 @@ void TischServer::buildLinks(const std::string& csvPath) {
     size_t n = names.size();
     per.assign(n, std::vector<double>(n, 1.0));
 
-    // A matriz de adjacencia da tese existe como dado publicado (Apendice C, e o
-    // `adj_array.txt` da implementacao de referencia). Quando disponivel ela e
-    // usada como esta, em vez de ser reconstruida: reconstruir exigiria supor o
-    // orcamento de enlace do radio, e a suposicao de 0 dBm gera uma rede 2,5
-    // vezes mais densa que a real (1.466 enlaces contra 578), o que tornaria os
-    // resultados de comunicacao otimistas.
+    // Uma matriz de adjacencia publicada, quando informada, e usada como esta,
+    // em vez de ser reconstruida: reconstruir exige supor o orcamento de enlace
+    // do radio, o que pode tornar a rede mais densa que a real e os resultados
+    // de comunicacao otimistas.
     bool doArquivo = loadAdjacency(par("adjacency_file").stdstringValue());
     if (!doArquivo) adjacent.assign(n, std::vector<bool>(n, false));
 
@@ -202,8 +195,8 @@ void TischServer::buildLinks(const std::string& csvPath) {
             double d = std::hypot(xs[i] - xs[j], ys[i] - ys[j]);
             double p, rssi;
             if (d < 1e-9) {
-                // Mesmo ponto: o AM e o AD estao na mesma coordenada no Apendice
-                // B. Enlace perfeito, sem radio no meio.
+                // Mesmo ponto: o AM e o AD dividem a coordenada da subestacao.
+                // Enlace perfeito, sem radio no meio.
                 rssi = 0.0;
                 p = 0.0;
             } else {
@@ -242,7 +235,7 @@ void TischServer::buildLinks(const std::string& csvPath) {
         }
     }
     std::printf("[6TiSCH] %d enlaces viaveis (%s)%s\n", links,
-                doArquivo ? "matriz da tese" : "PER abaixo do limiar",
+                doArquivo ? "matriz de adjacencia do arquivo" : "PER abaixo do limiar",
                 forcados ? " com enlaces alem do alcance do modelo" : "");
     if (forcados)
         std::printf("[6TiSCH] AVISO: %d enlaces publicados excedem o alcance que o "
@@ -356,7 +349,7 @@ void TischServer::startPacket(const json& j) {
 
     auto itS = indexOf.find(src), itD = indexOf.find(dst);
     if (itS == indexOf.end() || itD == indexOf.end()) {
-        // Origem ou destino sem posicao no Apendice B. Entregar sem atraso e
+        // Origem ou destino sem posicao no `nodes_xy.csv`. Entregar sem atraso e
         // mentir menos do que descartar: o agente nao esta no modelo de radio.
         flight.dropped = false;
         flight.path.clear();

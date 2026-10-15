@@ -6,7 +6,7 @@
 #   ./run.sh market        co-simulacao completa (o comando do dia a dia)
 #
 # Os resultados vao para output/market/ (analise por fase, o padrao) ou para
-# output/market_por_no/ (MARKET_FASE=0, a formulacao da tese, para comparacao).
+# output/market_por_no/ (MARKET_FASE=0, analise por barra, para comparacao).
 
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -30,7 +30,7 @@ Comandos:
   centralizado    A mesma negociacao, sem agentes nem Mosaik, mais a liquidacao:
                   figuras.npz, dlmp.csv, flexibility.csv, transactions.csv e
                   market_series.csv. Rapido; e o que alimenta as figuras.
-  figuras         Figuras no formato da tese, a partir das saidas dos dois
+  figuras         As figuras de uma execucao, a partir das saidas dos dois
                   comandos acima, em <resultados>/figuras/.
   caso            Regenera o caso IEEE 13 (gen_ieee13_market.py) e as duas
                   matrizes de sensibilidade. So depois de mudar o circuito,
@@ -152,7 +152,7 @@ cmd_figuras() {
     docker compose run --rm --no-deps -v "$PWD/simulators/market-opentes:/market:ro" \
         -v "$PWD/$CASO:/app/src/data/13Bus" \
         -e PYTHONPATH=/market -e MARKET_GRID_DIR=/app/src/data/13Bus -e MPLCONFIGDIR=/tmp \
-        mosaik python -m market_opentes.figuras_tese --resultados "/app/output/$SAIDA"
+        mosaik python -m market_opentes.figuras --resultados "/app/output/$SAIDA"
     RESULT="output/$SAIDA/figuras/"
 }
 

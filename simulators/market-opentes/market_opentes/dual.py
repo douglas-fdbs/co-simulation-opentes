@@ -1,21 +1,22 @@
-"""Decomposicao dual da fase de programacao da operacao (Eq. 6.24 e 6.30).
+"""Decomposicao dual da fase de programacao da operacao, (6.24) e (6.30).
 
 Roda o mecanismo inteiro de forma CENTRALIZADA, sem PADE e sem Mosaik. O
 objetivo e separar o risco numerico (a decomposicao converge? em quantas
-rodadas? quanto custa cada uma?) do risco de comunicacao, que so aparece nas
-fases seguintes. Se nao convergir aqui, nao vai convergir distribuido.
+rodadas? quanto custa cada uma?) do risco de comunicacao, que so aparece na
+co-simulacao. Se nao convergir aqui, nao vai convergir distribuido.
 
-Sequencia (subsecao 6.1.2 da tese, fase de programacao):
+Sequencia da fase de programacao (Melo, 2022, cap. 6; numeracao de equacoes
+de la):
   1. cada Agente Prosumidor programa seu armazenamento (uma vez);
   2. a cada rodada, os Agentes Concentradores e o Agente DSO reotimizam com o
      preco sombra corrente;
-  3. o Agente Mercado atualiza o preco sombra pelo subgradiente (Eq. 6.30) e
+  3. o Agente Mercado atualiza o preco sombra pelo subgradiente (6.30) e
      testa a convergencia.
 
-O criterio de parada da tese e |lambda_w - lambda_w+1| <= eps. Como esse
-incremento e alpha vezes o residuo primal, o criterio e um residuo primal
-escalado por alpha: com alpha pequeno ele afrouxa. Aqui os dois residuos sao
-reportados lado a lado, sem trocar o criterio original.
+O criterio de parada e |lambda_w - lambda_w+1| <= eps. Como esse incremento e
+alpha vezes o residuo primal, o criterio e um residuo primal escalado por alpha:
+com alpha pequeno ele afrouxa. Por isso os dois residuos sao reportados lado a
+lado.
 
 Uso:
 
@@ -36,17 +37,13 @@ from .optimization import solve_concentrator, solve_dso, solve_prosumer
 from .scenarios import build_scenarios
 from .settlement import settle
 
-# Passo do subgradiente. O `alpha = 0.0005` do codigo original NAO converge no
-# porte real: a diferenca e de unidade, porque o residuo que alimenta a Eq. 6.30
-# vem das mensagens ACL, onde as potencias trafegam em W, enquanto as variaveis
-# dos modelos estao em kW. O passo efetivo da tese equivale a 0,5 com residuo em
-# kW. O padrao aqui e 0,6, que foi o melhor na varredura; usar 5e-4 rende sessenta
-# rodadas de nada, com lambda parado em 0,09.
+# Passo do subgradiente, com o residuo de (6.30) em kW. O padrao, 0,6, foi o
+# melhor numa varredura de passos; um passo pensado para residuo em W, como 5e-4,
+# deixa lambda praticamente parado.
 ALPHA = float(os.environ.get("MARKET_ALPHA", "0.6"))
-# Precisao desejada em lambda (valor do codigo original). E um residuo primal
-# escalado pelo passo, entao o mesmo numero significa coisas diferentes sob
-# passos diferentes. Medido: nas condicoes da tese, este 1e-4 exige mais de 150
-# rodadas, enquanto 1e-1 converge em 9, que e o numero que ela reporta.
+# Precisao desejada em lambda. E um residuo primal escalado pelo passo, entao o
+# mesmo numero significa coisas diferentes sob passos diferentes. O
+# docker-compose.yaml fixa 1e-3 (MARKET_EPS).
 EPS = float(os.environ.get("MARKET_EPS", "1e-4"))
 MAX_ROUNDS = 30
 
@@ -70,7 +67,7 @@ def load_profiles():
 def load_sensitivity():
     """Nos, V0(t) e a sensibilidade EFETIVA de tensao.
 
-    A Eq. 6.16 usa so dV/dP, supondo que o dispositivo despachado nao mexe em
+    A restricao (6.16) usa so dV/dP, supondo que o dispositivo despachado nao mexe em
     reativo. Um inversor com fator de potencia constante mexe: dQ = tan(phi) . dP.
     Como a mesma variavel de decisao move as duas potencias, o efeito cabe numa
     unica matriz,
@@ -78,10 +75,10 @@ def load_sensitivity():
         S_efetiva = dV/dP + tan(phi) . dV/dQ
 
     e todo o resto do modelo continua igual. Com `MARKET_STORAGE_PF=none`, que e
-    o padrao, tan(phi) e zero e a matriz e exatamente a da tese.
+    o padrao, tan(phi) e zero e a matriz e so dV/dP.
 
-    Arquivo de sensibilidade gerado antes da Fase 6 nao tem `s_q`; nesse caso o
-    termo e ignorado, com aviso, em vez de quebrar.
+    Arquivo de sensibilidade sem `s_q` (dV/dQ) tem o termo ignorado, com aviso,
+    em vez de quebrar.
 
     Com MARKET_FASE=1 a matriz e a `sensitivity_fase.npz`: linhas por (no, fase)
     e colunas pelas portas. O primeiro valor devolvido passa a ser a lista de
@@ -152,11 +149,8 @@ def violations(v):
 def step_size(alpha, round_, rule):
     """Passo do subgradiente na rodada `round_`.
 
-    `constant` e o do codigo original. `diminishing` e alpha / w, a regra
-    classica de subgradiente com passo decrescente. Ela NAO e a que estava
-    comentada no market_agent.py original (`alpha = (1 + m) / (aux + m)`, que
-    depende do proprio residuo e nao da rodada); e apenas o registro de que a
-    constante foi uma escolha entre alternativas, nao a unica opcao.
+    `constant` e o passo fixo de (6.30). `diminishing` e alpha / w, a regra
+    classica de subgradiente com passo decrescente, para comparacao.
 
     A diferenca importa: com passo constante o subgradiente nao converge ao
     otimo, converge a uma vizinhanca cujo raio cresce com o passo, o que aparece
@@ -187,9 +181,8 @@ def run(config_json, alpha=ALPHA, eps=EPS, max_rounds=MAX_ROUNDS, n_scenarios=1,
     p_init = {}
     contracts = {}
     # TODOS os prosumidores programam e contratam; so os que tem bateria entram
-    # na negociacao de lambda, porque so eles tem variavel a acoplar. Restringir
-    # o ciclo 1 aos que tem bateria tirava 43 dos 68 nos da MVLV75 do mercado, e
-    # com eles quase todo o mercado bilateral.
+    # na negociacao de lambda, porque so eles tem variavel a acoplar. Os demais
+    # continuam no mercado bilateral.
     for node in case.prosumer_nodes:
         if node not in net_demand:
             continue
@@ -225,9 +218,8 @@ def run(config_json, alpha=ALPHA, eps=EPS, max_rounds=MAX_ROUNDS, n_scenarios=1,
               f"{'lambda max':>11} {'V min':>8} {'V max':>8} {'viol':>10} {'s':>6}")
 
     history = []
-    # Programacao de cada rodada, por no: e o que as Figuras 51, 52 e 53 da tese
-    # mostram, e o historico agregado nao guarda. Sao 25 nos x 96 intervalos por
-    # rodada, ou seja alguns megabytes no pior caso.
+    # Programacao de cada rodada, por chave: e o que as figuras da negociacao
+    # rodada a rodada mostram, e o historico agregado nao guarda.
     trilha_ac, trilha_ad = [], []
     for round_ in range(1, max_rounds + 1):
         t_round = time.time()
@@ -296,8 +288,8 @@ def _scenarios(node, demand, price, n):
     """Cenarios de demanda e preco para o modelo do prosumidor.
 
     n = 1 e o caso deterministico (previsao unica, probabilidade 1). n > 1 usa a
-    amostragem e a reducao de Kantorovich de `scenarios.py`, portadas do
-    trabalho original; com n = 3 saem os 9 cenarios de preco-potencia da tese.
+    amostragem e a reducao de Kantorovich de `scenarios.py`; com n = 3 saem os
+    9 cenarios de preco-potencia.
     """
     return build_scenarios(node, n_reduced=n, deterministic_demand=demand,
                            deterministic_price=price)
@@ -306,7 +298,7 @@ def _scenarios(node, demand, price, n):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", required=True,
-                    help="config.json do market-simulation (alocacao de RED)")
+                    help="config.json do caso (alocacao do armazenamento)")
     ap.add_argument("--alpha", type=float, default=ALPHA)
     ap.add_argument("--eps", type=float, default=EPS)
     ap.add_argument("--max-rounds", type=int, default=MAX_ROUNDS)

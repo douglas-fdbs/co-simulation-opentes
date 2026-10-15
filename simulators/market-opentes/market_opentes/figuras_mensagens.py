@@ -1,19 +1,18 @@
-"""Figuras 58 e 59 da tese, a partir do traço de mensagens da nossa execução.
+"""Figuras da comunicação entre os agentes, a partir do traço de mensagens.
 
-A tese analisa a comunicação da fase de OPERAÇÃO com dois pares de gráficos:
+Duas figuras, no formato das que Melo (2022, cap. 6) usa para a fase de
+operação:
 
-  Figura 58  cada mensagem, contra o tempo de co-simulação: (a) tamanho em bytes,
-             (b) tempo de recepção em segundos.
-  Figura 59  a distribuição das mesmas duas grandezas: histograma e acumulada.
+  figura_mensagens               cada mensagem contra o tempo de co-simulação:
+                                 (a) tamanho em bytes, (b) tempo de recepção.
+  figura_mensagens_distribuicao  a distribuição das mesmas duas grandezas:
+                                 histograma e acumulada.
 
-Até aqui produzíamos `ciclos.png`, que é outra coisa: o tempo de rede AGREGADO
-por ciclo contra a fatia de 15 minutos. Serve para responder "cabe na janela?",
-não para comparar forma a forma com a tese. Sem estas quatro vistas não havia
-como dizer em que a nossa comunicação difere da dela.
+Entrada: o `msg_trace.csv` que a camada de rede grava (`NET_TRACE`), com uma
+linha por mensagem enviada. O `figuras.py` chama estas funções; rodar este
+módulo sozinho serve para inspecionar um traço e imprimir o resumo:
 
-Entrada: o CSV que `NET_TRACE` grava, com uma linha por mensagem enviada.
-
-    python -m market_opentes.plot_msgs --trace data/msg_trace.csv --out-dir data
+    python -m market_opentes.figuras_mensagens --trace /app/output/market_omnet/msg_trace.csv
 """
 
 import argparse
@@ -30,15 +29,15 @@ INK = "#0b0b0b"
 MUTED = "#52514e"
 GRID = "0.85"
 
-# Mesma convenção de cor da Figura 58: um tom por ciclo. A tese rotula os ciclos
-# pelo agente que os INICIA, e não pelo remetente de cada mensagem: a nuvem
-# vermelha dela são as propostas dos prosumidores dentro do ciclo aberto pelo AC.
+# Um tom por ciclo. Cada ciclo é rotulado pelo agente que o INICIA, e não pelo
+# remetente de cada mensagem: as propostas dos prosumidores ficam na cor do ciclo
+# aberto pelo AC.
 CICLOS = {
     "ciclo1_AC_AP": ("#d81f1f", "Mens. do ciclo iniciado pelo AC"),
     "ciclo2_AD_AC": ("#1f4fd8", "Mens. do ciclo iniciado pelo AD"),
     "ciclo3_AM_AC_AD": ("#1baf7a", "Mens. do ciclo iniciado pelo AM"),
 }
-# Posição de cada ciclo dentro da janela de 15 min (subseção 6.1.2 da tese).
+# Posição de cada ciclo dentro da janela de 15 min (ver `market_agents.py`).
 INICIO_MIN = {"ciclo1_AC_AP": 1.0, "ciclo2_AD_AC": 5.0, "ciclo3_AM_AC_AD": 10.0}
 JANELA_MIN = 15.0
 
@@ -59,16 +58,15 @@ def _style(ax, xlabel, ylabel, title):
 def carregar(trace_csv):
     """Lê o traço e reconstrói o tempo de co-simulação de cada mensagem.
 
-    A tese põe no eixo x o tempo de execução da co-simulação. Aqui ele é
-    reconstruído do intervalo de 15 min em curso, da posição do ciclo dentro da
-    janela e do atraso da própria mensagem, que é o que produz o rastro
-    ascendente dentro de cada aglomerado.
+    O eixo x é o tempo de co-simulação, reconstruído do intervalo de 15 min em
+    curso, da posição do ciclo dentro da janela e do atraso da própria mensagem,
+    que é o que produz o rastro ascendente dentro de cada aglomerado.
     """
     df = pd.read_csv(trace_csv)
     df = df[df["ciclo"].isin(CICLOS)]
-    # Rede de seguranca para tracos gravados antes de o `network_link` passar a
-    # excluir a instrumentacao: as copias que o PADE manda ao `sniffer` nao sao
-    # trafego da arquitetura e falseiam as duas distribuicoes.
+    # As copias que o PADE manda ao `sniffer` e ao `ams` nao sao trafego da
+    # arquitetura e falseiam as duas distribuicoes. O `network_link` ja as
+    # exclui; o filtro fica para tracos de outra origem.
     antes = len(df)
     df = df[~df["receiver"].astype(str).str.startswith(("sniffer", "ams"))]
     if len(df) < antes:
@@ -76,7 +74,7 @@ def carregar(trace_csv):
               f"(sniffer/ams), que nao sao trafego da arquitetura")
     if "t" not in df or df["t"].isna().all():
         raise SystemExit("traço sem a coluna `t`: rode a fase de operação com "
-                         "NET_TRACE ligado e a versão atual do network_link")
+                         "NET_TRACE ligado")
     df = df[df["t"].notna()].copy()
     df["t"] = df["t"].astype(int)
     df["min"] = (df["t"] * JANELA_MIN
@@ -85,7 +83,7 @@ def carregar(trace_csv):
     return df
 
 
-def figura_58(df, out_png, janelas=None):
+def figura_mensagens(df, out_png, janelas=None):
     """(a) tamanho e (b) tempo de recepção, contra o tempo de co-simulação."""
     if janelas:
         t0 = int(df["t"].min())
@@ -112,11 +110,11 @@ def figura_58(df, out_png, janelas=None):
     print(f"gravado {out_png}")
 
 
-def figura_59(df, out_png):
+def figura_mensagens_distribuicao(df, out_png):
     """Histograma e acumulada de tamanho e de tempo de recepção.
 
-    A acumulada é em CONTAGEM, e não normalizada, para ser lida do mesmo jeito
-    que a da tese: o eixo y termina no total de mensagens analisadas.
+    A acumulada é em CONTAGEM, e não normalizada: o eixo y termina no total de
+    mensagens analisadas.
     """
     fig, axes = plt.subplots(2, 2, figsize=(10.5, 6.6))
     for linha, (coluna, unidade, nome) in enumerate(
@@ -141,7 +139,7 @@ def figura_59(df, out_png):
 
 
 def resumo(df):
-    """Os mesmos números que a tese cita no texto das Figuras 58 e 59."""
+    """Resumo numérico do traço: tamanhos, atrasos e mensagens por ciclo."""
     n = len(df)
     janelas = df["t"].nunique()
     b, d = df["bytes"].to_numpy(), df["delay_s"].to_numpy()
@@ -171,16 +169,13 @@ def resumo(df):
 
 if __name__ == "__main__":
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    p.add_argument("--trace", default="data/msg_trace.csv")
-    p.add_argument("--out-dir", default="data")
+    p.add_argument("--trace", required=True, help="o msg_trace.csv de uma execucao")
+    p.add_argument("--out-dir", default=None, help="padrao: a pasta do traco")
     p.add_argument("--janelas", type=int, default=5,
-                   help="quantas janelas de 15 min a Figura 58 mostra "
-                        "(a tese mostra 5)")
+                   help="quantas janelas de 15 min a figura de mensagens mostra")
     a = p.parse_args()
-    out = Path(a.out_dir)
+    out = Path(a.out_dir) if a.out_dir else Path(a.trace).parent
     df = carregar(a.trace)
-    # O nome de arquivo das duas e o da legenda da tese, dado pelo
-    # `figuras_tese`. Aqui elas so saem com nome curto para inspecao rapida.
-    figura_58(df, out / "mensagens.png", a.janelas)
-    figura_59(df, out / "distribuicoes.png")
+    figura_mensagens(df, out / "mensagens.png", a.janelas)
+    figura_mensagens_distribuicao(df, out / "mensagens_distribuicao.png")
     resumo(df)

@@ -1,12 +1,12 @@
-"""Fase de operacao do sistema transativo (subsecao 6.1.2 da tese).
+"""Fase de operacao do sistema transativo (Melo, 2022, secao 6.1.2).
 
 A fase de programacao (`dual.py`) decide o dia inteiro com base numa PREVISAO.
 Na operacao, a cada 15 minutos e com 15 minutos de antecedencia da entrega, a
 demanda REALIZADA difere do previsto e o DSO precisa verificar se o desvio viola
-alguma restricao. A tese define dois niveis de interferencia:
+alguma restricao. Ha dois niveis de interferencia:
 
   nivel 1  o DSO tenta corrigir usando SO o armazenamento de rede, que ele
-           despacha diretamente (Eq. 6.12 restrita, `fix_prosumer=True`);
+           despacha diretamente (`solve_dso` com `fix_prosumer=True`);
   nivel 2  se nao bastar, o agente de mercado abre um leilao de operacao e a
            decomposicao dual roda sobre UM unico periodo, envolvendo tambem o
            armazenamento dos prosumidores.
@@ -14,13 +14,9 @@ alguma restricao. A tese define dois niveis de interferencia:
 Diferenca de porte em relacao a programacao: cada intervalo e um problema de 1
 periodo, nao de 96. Os mesmos modelos sao usados, com `periods=1`.
 
-DE ONDE VEM O DESVIO
---------------------
-Se a realizacao fosse igual a previsao, a fase de operacao nao teria o que fazer
-e o resultado seria vazio. A realizacao vem de um DIA DIFERENTE do reservatorio
-de cenarios (`scenario_pool.npz`), o mesmo mecanismo que alimenta o modelo
-estocastico do prosumidor. Assim o desvio e realista e reprodutivel, em vez de
-ruido inventado.
+Se a realizacao fosse igual a previsao, a fase de operacao nao teria o que fazer.
+A demanda realizada e a prevista perturbada (ver `REALIZED_MODE`), com semente
+fixa, para que o desvio seja reprodutivel.
 
 Uso:
 
@@ -47,15 +43,13 @@ MAX_ROUNDS = 30
 
 # Como a demanda REALIZADA difere da programada.
 #
-# `perturb` e o mecanismo da tese (subsecao 6.2.3): "um mecanismo de alteracao
-# aleatoria dos valores de demanda liquida dos prosumidores foi implementado
-# podendo alterar os valores programados anteriormente em ate +/- 10%". E o modo
-# que torna os resultados de operacao comparaveis aos dela.
+# `perturb` (padrao) altera aleatoriamente a demanda liquida programada de cada
+# prosumidor em ate +/-10% (`MARKET_REALIZED_SPREAD`), o mecanismo de Melo
+# (2022, secao 6.2.3).
 #
-# `day` toma um dia inteiro diferente do reservatorio de cenarios. Medido, o
-# desvio agregado tem mediana de 9,4 kW e maximo de 51,2 kW sobre uma demanda
-# liquida tipica de 27 kW, varias vezes o que +/-10% produz. Serve como caso
-# severo, nao como reproducao da tese.
+# `day` toma um dia inteiro diferente do reservatorio de cenarios
+# (`scenario_pool.npz`). O desvio e varias vezes maior que o de +/-10%, e serve
+# como caso severo.
 REALIZED_MODE = os.environ.get("MARKET_REALIZED_MODE", "perturb")
 REALIZED_SPREAD = float(os.environ.get("MARKET_REALIZED_SPREAD", "0.10"))
 REALIZED_SEED = int(os.environ.get("MARKET_REALIZED_SEED", "0"))
@@ -66,7 +60,7 @@ def realized_profiles(day=0, mode=None, spread=None, seed=None):
 
     Args:
         day: indice do dia alternativo, usado apenas no modo `day`.
-        mode: `perturb` (padrao, o da tese) ou `day`.
+        mode: `perturb` (padrao) ou `day`.
         spread: amplitude da perturbacao relativa, so no modo `perturb`.
         seed: semente, para que a realizacao seja a mesma entre execucoes.
     """
@@ -83,8 +77,7 @@ def realized_profiles(day=0, mode=None, spread=None, seed=None):
         raise ValueError(f"modo de demanda realizada desconhecido: {mode}")
 
     # A perturbacao e sobre a demanda liquida PROGRAMADA, que e o dia base, e nao
-    # sobre um dia qualquer: e disso que a tese fala ao dizer "os valores
-    # programados anteriormente".
+    # sobre um dia qualquer.
     spread = REALIZED_SPREAD if spread is None else float(spread)
     rng = np.random.default_rng(REALIZED_SEED if seed is None else seed)
     net, _ = load_profiles()

@@ -2,8 +2,8 @@
 # -*- coding: utf-8 -*-
 """Sistema multi-agentes do mercado transativo (fase de programacao da operacao).
 
-Porte dos agentes de `market-simulation` (tese de Lucas S. Melo, 2022, subsecao
-6.1.2) para PADE 3.0 e Mosaik 3. Quatro papeis, mais o solver:
+Os papeis e a sequencia da negociacao sao os de Melo (2022, secao 6.1.2), aqui
+sobre PADE 3.0 e Mosaik 3. Quatro papeis, mais o solver:
 
   AP  ProsumerAgent     um por no de baixa tensao com armazenamento
   AC  ConcentratorAgent um por transformador de distribuicao
@@ -11,27 +11,24 @@ Porte dos agentes de `market-simulation` (tese de Lucas S. Melo, 2022, subsecao
   AM  MarketAgent       um, coordena a decomposicao dual e o preco sombra
       SolverAgent       resolve os modelos fora do reactor do Twisted
 
-O QUE MUDOU EM RELACAO AO ORIGINAL
-----------------------------------
-1. UM simulador Mosaik para todos os agentes. O original subia um simulador por
-   agente (68 prosumidores + 5 concentradores + DSO + mercado = 75 sockets TCP,
-   `start_mosaik_sim.py:344-373`). Aqui um unico `MosaikCon` vive no agente de
-   mercado e os demais agentes sao alcancados pelo registro `AGENTS`. E o padrao
-   que o `agent_example_1_mosaik_updated.py` ja usava no cenario Volt/Var.
+ESCOLHAS DE IMPLEMENTACAO
+-------------------------
+1. UM simulador Mosaik para todos os agentes: um unico `MosaikCon` vive no
+   agente de mercado, e os demais agentes sao alcancados pelo registro
+   `AGENTS`. E o padrao do exemplo `pade/tests/mosaik_example`.
 
-2. API do Mosaik 2.2 -> 3.0: `step(time, inputs, max_advance)`, `init` com
+2. Mosaik API 3.0: `step(time, inputs, max_advance)`, `init` com
    `time_resolution`.
 
-3. Conteudo das mensagens em JSON, nao `pickle` + `literal_eval`. Alem de
-   fragil, o tamanho serializado alimenta o modelo de rede na Fase 5, entao a
-   escolha de serializacao afeta resultado.
+3. Conteudo das mensagens em JSON. O tamanho serializado alimenta o modelo de
+   rede (`network_link.py`), entao a escolha de serializacao afeta o resultado.
 
 4. `handle_all_proposes` so dispara quando TODAS as propostas chegam, e o
-   timeout do `FipaContractNetProtocol` esta comentado no PADE (protocols.py).
-   Aqui cada rodada arma um timeout proprio: sem ele, uma unica mensagem
-   perdida trava a rodada e, como o `step_done` sai de dentro do handler, trava
-   tambem o Mosaik. Isso e inofensivo com comunicacao ideal e essencial na
-   Fase 5, com o OMNeT++ descartando pacotes.
+   timeout do `FipaContractNetProtocol` esta desativado no PADE
+   (protocols.py). Aqui cada rodada arma um timeout proprio: sem ele, uma unica
+   mensagem perdida trava a rodada e, como o `step_done` sai de dentro do
+   handler, trava tambem o Mosaik. Isso e inofensivo com comunicacao ideal e
+   essencial com a rede 6TiSCH descartando pacotes.
 
 SEQUENCIA (fase de programacao, quatro ciclos)
 ----------------------------------------------
@@ -39,7 +36,7 @@ SEQUENCIA (fase de programacao, quatro ciclos)
   ciclo 2  AD pede aos AC as programacoes agregadas
   ciclo 3  AM pede aos AC e ao AD suas analises
   ciclo 4  iterativo: AC e AD reotimizam com o preco sombra corrente, o AM
-           atualiza lambda (Eq. 6.30) e testa a convergencia
+           atualiza lambda (6.30) e testa a convergencia
 
 Quando a rodada fecha, o `step_done` libera o Mosaik e a programacao acordada
 passa a ser publicada como potencia de cada no a cada passo de 15 min.
@@ -105,7 +102,7 @@ def _round_timeout():
 ROUND_TIMEOUT = _round_timeout()
 
 # Posicao dos tres ciclos de troca de mensagens dentro da janela de 15 min
-# (subsecao 6.1.2 da tese): AC com seus AP no minuto 1, AD com os AC no minuto 5,
+# (Melo, 2022, secao 6.1.2): AC com seus AP no minuto 1, AD com os AC no minuto 5,
 # AM com AC e AD no minuto 10. Sao ORCAMENTOS, nao esperas: a negociacao inteira
 # acontece dentro de um passo do Mosaik, com o relogio da co-simulacao parado, e
 # o que interessa e se o tempo de REDE de cada ciclo cabe na fatia dele.
@@ -125,8 +122,8 @@ def begin_cycle(index, t=None):
     """Abre a contabilidade de rede do ciclo dado (0, 1 ou 2).
 
     `t` e o intervalo de 15 min, quando a fase de operacao esta rodando. Sem ele
-    o traco de mensagens nao tem tempo de co-simulacao e nao da para reproduzir
-    a Figura 58 da tese, que e um grafico contra esse tempo.
+    o traco de mensagens nao tem tempo de co-simulacao, que e o eixo da figura
+    de mensagens.
     """
     if LINK is not None:
         LINK.begin_cycle(CYCLE_NAMES[index], t)
@@ -150,27 +147,24 @@ def close_cycle(index, label=""):
 # que a camada de transporte entrega. Com o OMNeT++ descartando pacotes, uma
 # unica mensagem perdida em ~24 por rodada mata a rodada, entao sem isto a
 # negociacao nao sobrevive a nenhuma perda realista.
-# Retransmissoes antes de desistir de um destinatario. Tres bastavam com a rede
-# idealizada; sobre a topologia publicada da tese NAO bastam. O enlace 5-36, por
-# exemplo, e admitido com PER 0,4, que a Tabela 7 aceita por estar abaixo do
-# limiar de 0,5: uma mensagem de 1250 bytes ocupa dez quadros e perde 27,5% dos
-# datagramas mesmo com as retentativas do MAC. Com tres tentativas a negociacao
-# aborta na primeira rodada; com dez ela converge.
+# Retransmissoes antes de desistir de um destinatario. A matriz de adjacencia
+# admite enlaces com PER de ate 0,5: neles, uma mensagem de mil e poucos bytes
+# ocupa dez quadros e perde uma fracao grande dos datagramas mesmo com as
+# retentativas do MAC. Poucas tentativas abortam a negociacao na primeira
+# rodada.
 MAX_RETRIES = int(os.environ.get("MARKET_MAX_RETRIES", "10"))
 # 0 = linha de base: publica a programacao PROPOSTA pelos prosumidores, sem
 # negociacao, para medir o que a rede sofreria sem o mecanismo.
 NEGOTIATE = os.environ.get("MARKET_NEGOTIATE", "1") == "1"
 # Fase de operacao: a cada passo de 15 min o DSO confere o desvio da previsao e,
-# se houver violacao, corrige. Dia realizado = outro dia do reservatorio de
-# cenarios, para que exista desvio.
+# se houver violacao, corrige. A demanda realizada vem de
+# `operation.realized_profiles` (`MARKET_REALIZED_DAY` so vale no modo `day`).
 OPERATION = os.environ.get("MARKET_OPERATION", "1") == "1"
 REALIZED_DAY = int(os.environ.get("MARKET_REALIZED_DAY", "9"))
 # Circuito para o fluxo de potencia da fase de operacao. O agente DSO precisa do
 # ponto de operacao REALIZADO, e nao de uma extrapolacao linear do ponto do dia
 # seguinte: medido, a extrapolacao erra ate 7,2e-3 pu, sete vezes a margem de
-# seguranca. A tese resolve o fluxo de carga na operacao
-# (`analyse_auction_grid_restrictions` chama `run_powerflow_in_pandapower`), e
-# aqui e o mesmo: o solver abre o circuito e resolve.
+# seguranca. Por isso o solver abre o circuito e resolve o fluxo de carga.
 MARKET_CIRCUIT = os.environ.get("MARKET_CIRCUIT",
                                 "/grid-data/13Bus/Master.dss")
 
@@ -180,8 +174,7 @@ _BUS_CACHE = None
 def _bus_name(node):
     """Nome da barra no OpenDSS para um no do mercado.
 
-    As redes geradas pelo repositorio nomeiam as barras como `n{no}`, e essa
-    continua sendo a regra. Uma rede publicada, como a IEEE 13, tem nomes
+    A regra padrao e `n{no}`. Uma rede publicada, como a IEEE 13, tem nomes
     proprios que nao se pode renomear sem perder a correspondencia com a
     referencia: nesse caso o `force.json` traz o nome da barra em cada no.
     Mesma funcao de `sensitivity.py`, que roda no outro container.
@@ -203,8 +196,8 @@ def _bus_name(node):
 # negociado, e a comparacao deixaria de isolar o efeito do mecanismo.
 USE_REALIZED = os.environ.get("MARKET_REALIZED", "1") == "1"
 OP_MAX_ROUNDS = int(os.environ.get("MARKET_OP_MAX_ROUNDS", "30"))
-# O leilao de tempo real liquida em TODA janela, como no original, e nao apenas
-# quando o armazenamento de rede nao basta. Ver `collect_operation`.
+# O leilao de tempo real liquida em TODA janela, e nao apenas quando o
+# armazenamento de rede nao basta. Ver `collect_operation`.
 OP_AUCTION_ALWAYS = os.environ.get("MARKET_OP_AUCTION_ALWAYS", "1") not in ("0", "")
 
 AGENTS = {}          # localname -> instancia, para o simulador Mosaik alcancar
@@ -261,11 +254,9 @@ def _curto(serie, casas=6):
 def _set_content(message, payload):
     """Define o conteudo e ANOTA o tamanho serializado da mensagem.
 
-    O `ACLMessage` do PADE 2.2 tinha `set_message_length`, usado pela integracao
-    com o ns-3 para dimensionar o pacote; o PADE 3.0 removeu isso junto com o
-    modulo `pade.simul`. Como o modelo de rede da Fase 5 precisa do tamanho,
-    guardamos em `message_length` como atributo simples. Quem consumir deve ler
-    com `getattr(msg, "message_length", None)`.
+    O `ACLMessage` do PADE 3.0 nao guarda tamanho de pacote. Como o modelo de
+    rede precisa dele, o tamanho fica em `message_length`, como atributo simples.
+    Quem consumir deve ler com `getattr(msg, "message_length", None)`.
     """
     content = _json(payload)
     message.set_content(content)
@@ -409,9 +400,7 @@ class SolverAgent(Agent):
                 deterministic_demand=self.profiles[node],
                 deterministic_price=self.price)
             # `.get`, e nao `[]`: todo no de baixa tensao e prosumidor e
-            # contrata nos dois mercados; so alguns tem bateria. E o que o
-            # `ReferenceModel.py` do trabalho original faz, com `p_bilateral`
-            # fora do `if has_storage`.
+            # contrata nos dois mercados; so alguns tem bateria.
             decision = solve_prosumer(scenarios, self.case.prosumer_storage.get(node))
             return {"node": node,
                     "schedule": decision["storage"].tolist(),
@@ -465,12 +454,10 @@ class SolverAgent(Agent):
         q_t = {n: np.array(request["q_init"][str(n)]) for n in net}
         lam_t = {n: np.array(request["lam"][str(n)]) for n in pros}
         # Estado de carga do armazenamento de REDE, acumulado ao longo do dia.
-        # Sem isto cada janela resolvia com a bateria de volta a 50%, o que a
-        # tornava uma fonte de energia infinita: 8 kW disponiveis nas 95 janelas
-        # dao 190 kWh de um dispositivo de 20 kWh. Era por isso que o
-        # armazenamento de rede SEMPRE bastava e o leilao nunca abria.
-        # Vem no pedido: quem sabe o que foi de fato APLICADO nos intervalos
-        # anteriores e o agente de mercado, nao o solver.
+        # Sem isto cada janela resolveria com a bateria de volta ao estado
+        # inicial, como uma fonte de energia infinita. Vem no pedido: quem sabe
+        # o que foi de fato APLICADO nos intervalos anteriores e o agente de
+        # mercado, nao o solver.
         soc_rede = {int(k): float(v)
                     for k, v in request.get("soc_rede", {}).items()} or None
 
@@ -533,12 +520,10 @@ class SolverClient(FipaRequestProtocol):
 # ---------------------------------------------------------------------------
 # Despacho da programacao acordada: FIPA-Subscribe
 #
-# Fechada a negociacao, a programacao precisa CHEGAR a quem a executa. No
-# original isso e feito por Subscribe/Publish (`DSOPublisherProtocol`,
-# `BESSPublisherProtocol`, `ProsumerSubscriberProtocol`), e a versao anterior
-# daqui simplesmente aplicava o resultado da otimizacao do DSO sem ato
-# comunicativo nenhum. Alem de infiel a arquitetura, isso SUBESTIMA o trafego que
-# a analise de comunicacao mede.
+# Fechada a negociacao, a programacao precisa CHEGAR a quem a executa, por
+# Subscribe/Publish, como na arquitetura de referencia. Aplicar o resultado da
+# otimizacao sem ato comunicativo SUBESTIMARIA o trafego que a analise de
+# comunicacao mede.
 #
 # A cadeia e: os prosumidores assinam o seu concentrador, os concentradores
 # assinam o DSO. No aceite, o DSO publica aos concentradores, cada concentrador
@@ -780,8 +765,7 @@ class ConcentratorAgent(Agent):
         self.network_keys = case.chaves(network_storage) if case else list(network_storage)
         # `nodes` sao TODOS os prosumidores sob este transformador, que e com
         # quem o ciclo 1 fala. `storage_nodes` sao os que tem bateria, que sao
-        # os unicos com variavel a acoplar na negociacao de lambda. Confundir os
-        # dois tirava 43 dos 68 nos da MVLV75 do mercado e do trafego.
+        # os unicos com variavel a acoplar na negociacao de lambda.
         self.nodes = nodes
         self.storage_nodes = storage_nodes
         self.p_init = {}
@@ -799,7 +783,7 @@ class ConcentratorAgent(Agent):
         self.behaviours.append(ConcentratorParticipant(self))
         self.cycle1 = None
         self.op_t = None            # intervalo, quando o ciclo 1 e de operacao
-        # Papel do AC na tese: acionar os dispositivos de armazenamento de rede
+        # Papel do AC: acionar os dispositivos de armazenamento de rede
         # sob o seu transformador. O DSO decide, o concentrador despacha.
         self.network_storage = network_storage
         self.network_dispatch = None
@@ -842,10 +826,8 @@ class ConcentratorAgent(Agent):
     def request_schedules(self, t=None, on_ready=None):
         """Ciclo 1: pede a programacao aos prosumidores.
 
-        Com `t` a solicitacao e da fase de operacao e pede so aquele intervalo,
-        que e a diferenca que a tese aponta entre as duas fases: "as programacoes
-        enviadas pelos AP e AC sao compostas apenas pelo valor programado para o
-        proximo intervalo de tempo".
+        Com `t` a solicitacao e da fase de operacao e pede so aquele intervalo:
+        na operacao, as programacoes trazem apenas o valor do proximo intervalo.
         """
         self.op_t = t
         if on_ready is not None:
@@ -898,11 +880,9 @@ class ConcentratorAgent(Agent):
             return
         # Mesma politica que o DSO ja aplica no ciclo 2: quem nao respondeu nem
         # apos as retransmissoes entra com programacao NULA. Sem preencher, o
-        # buraco em `p_init` so aparece dois ciclos depois, como um KeyError
+        # buraco em `p_init` so apareceria dois ciclos depois, como um KeyError
         # dentro do `handle_cfp` do ciclo 4, que derruba o processo do agente e
-        # trava a co-simulacao inteira. Foi o que aconteceu na primeira corrida
-        # sobre a rede 6TiSCH da tese: o no 36 perdeu a proposta e a falha
-        # apareceu num ponto sem relacao com a causa.
+        # trava a co-simulacao inteira, num ponto sem relacao com a causa.
         #
         # A escolha nao e neutra e por isso fica registrada: o prosumidor
         # silencioso perde a chance de ser remunerado pelo ajuste, e a rede
@@ -1014,11 +994,9 @@ class DSOAgent(Agent):
     def request_reports(self, names, on_ready, t=None):
         """Solicita a cada concentrador a programacao que ele agregou.
 
-        Este ciclo EXISTIA so no papel: o tratador de `REPORT` estava escrito no
-        concentrador, mas ninguem enviava o CFP, e o agente de mercado lia
-        `p_init` direto da memoria do concentrador. O atalho pulava a rede
-        inteira, e com isso o ciclo 2 nao aparecia em nenhuma medicao de
-        comunicacao. A tese o descreve como ato comunicativo do AD com os AC.
+        E um ato comunicativo do AD com os AC, e passa pela rede como os outros:
+        ler `p_init` direto da memoria do concentrador pularia o ciclo 2 em
+        qualquer medicao de comunicacao.
         """
         self._report_on_ready = on_ready
         self._report_expected = set(names)
@@ -1250,9 +1228,8 @@ class MarketAgent(Agent):
         Quem consome o que, lido dos dois `handle_cfp`: o concentrador usa
         apenas o `lam` DOS NOS DELE, e tira o `p_init` da propria memoria; o DSO
         usa `lam`, `p_init` e `q_init` de todos, porque a restricao de tensao e
-        global. Mandar o pacote inteiro para todos era desperdicio puro, e era o
-        que fazia o CFP nao trafegar na rede da tese: 35.663 bytes em 281
-        quadros, com 99,93% de perda no pior enlace.
+        global. Mandar o pacote inteiro para todos multiplicaria o tamanho do CFP,
+        e numa rede LPWA mensagem grande e mensagem perdida.
 
         As series vao com 6 casas decimais. A tolerancia da negociacao e 1e-4 no
         criterio de parada, quatro ordens de grandeza acima do que se descarta.
@@ -1327,8 +1304,7 @@ class MarketAgent(Agent):
         de depender de `received_qty == cfp_qty` do `FipaContractNetProtocol`.
         Com entrega instantanea os dois coincidem; com atraso, nao: as respostas
         chegam intercaladas e o protocolo do PADE conclui o ciclo com o conjunto
-        incompleto. Foi assim que o ciclo 1 agregou 19 das 25 programacoes com a
-        camada de rede ligada, mesmo sem nenhuma perda.
+        incompleto, mesmo sem nenhuma perda.
         """
         payload = _parse(message.content)
         if payload.get("round") != self.round:
@@ -1366,9 +1342,8 @@ class MarketAgent(Agent):
             "d_lambda_max": float(np.abs(d_lam).max()),
             "residual_max": float(np.abs(residual).max()),
             "lambda_max": float(max(np.abs(v).max() for v in self.lam.values())),
-            # Programacao que cada lado adotou NESTA rodada, por no. E o dado das
-            # Figuras 51 e 52 da tese, que comparam o que o AC propoe com o que o
-            # AD aceita ao longo das iteracoes.
+            # Programacao que cada lado adotou NESTA rodada, por no: o que o AC
+            # propoe e o que o AD aceita ao longo das iteracoes.
             "x": {str(n): self.x[n].tolist() for n in pros if n in self.x},
             "y": {str(n): self.y[n].tolist() for n in pros if n in self.y},
             "cycle3_net_s": c3["max_delay"] if c3 else None,
@@ -1391,16 +1366,11 @@ class MarketAgent(Agent):
     def _decision(self, performative):
         """Fecha a rodada com ACCEPT ou REJECT para todos os participantes.
 
-        A mensagem carrega apenas o numero da rodada. Ela levava tambem o preco
-        sombra dos 25 nos por 96 intervalos, em precisao total, e NINGUEM lia:
-        nao ha `handle_reject_propose` nem `handle_accept_propose` em lugar
-        nenhum, e o preco da rodada seguinte ja vai no proximo CFP.
-
-        Medido, isso custava 51.898 bytes por destinatario POR RODADA, ou 409
-        quadros. No enlace de PER 0,400 da rede da tese a entrega de um
-        datagrama desse tamanho e 0,00%, e sem receber o fecho da rodada o
-        participante nao aceitava o CFP seguinte. Era a maior mensagem da
-        negociacao inteira, maior que o proprio CFP.
+        A mensagem carrega apenas o numero da rodada: o preco da rodada
+        seguinte ja vai no proximo CFP, e nenhum participante le o preco no
+        ACCEPT ou no REJECT. Repetir ali o preco sombra inteiro faria do fecho a
+        maior mensagem da negociacao, e sem recebe-lo o participante nao aceita
+        o CFP seguinte.
         """
         answer = ACLMessage(performative)
         answer.set_protocol(ACLMessage.FIPA_CONTRACT_NET_PROTOCOL)
@@ -1427,7 +1397,7 @@ class MarketAgent(Agent):
 
     # ---- fase de operacao, a cada 15 min ----------------------------------
     def start_operation(self, t):
-        """Fase de operacao do intervalo t (subsecao 6.1.2).
+        """Fase de operacao do intervalo t (Melo, 2022, secao 6.1.2).
 
         Os mesmos tres ciclos da programacao, com a programacao reduzida a UM
         intervalo, e nos mesmos instantes da janela de 15 min: AC com seus AP no
@@ -1515,10 +1485,8 @@ class MarketAgent(Agent):
         """Estado de carga de cada armazenamento de REDE no inicio do intervalo.
 
         Integra o despacho JA APLICADO nos intervalos anteriores, a partir da
-        fracao inicial. Sem isto cada janela resolvia com a bateria de volta ao
-        estado inicial, o que a tornava fonte de energia infinita: 8 kW nas 95
-        janelas dao 190 kWh de um dispositivo de 20 kWh. Era por isso que o
-        armazenamento de rede sempre bastava e o leilao nunca abria.
+        fracao inicial. Sem isto cada janela resolveria com a bateria de volta
+        ao estado inicial, como uma fonte de energia infinita.
         """
         from market_opentes.config import DT_H
         from market_opentes.optimization import INIT_SOC_FRACTION
@@ -1550,19 +1518,11 @@ class MarketAgent(Agent):
             if payload["violations_after"] == 0:
                 self._apply_operation(payload)
             # O leilao de tempo real abre SEMPRE, e nao so quando o
-            # armazenamento de rede nao basta.
-            #
-            # O desenho anterior, de dois niveis com o leilao como contingencia,
-            # era invencao nossa. Medido, ele nunca abria: a correcao de tensao
-            # necessaria e de 0,51 mpu em media e o desvio maximo e de 0,871 kW,
-            # contra 184 kW de capacidade de armazenamento de rede. Ele sobra por
-            # duas ordens de grandeza, entao a contingencia jamais dispara.
-            #
-            # No `market_agent.py` do trabalho original o `MARKET_AUCTION` e
-            # disparado por tempo, uma vez por janela, para todos os
-            # concentradores e o DSO, sem teste de violacao nenhum. Um mercado
-            # spot de tempo real liquida sempre, inclusive quando nao ha o que
-            # corrigir; e o que da conteudo ao ciclo 3 e as Figuras 56 e 57.
+            # armazenamento de rede nao basta: e disparado por tempo, uma vez por
+            # janela, para todos os concentradores e o DSO, como na arquitetura
+            # de referencia. Um mercado spot de tempo real liquida sempre,
+            # inclusive quando nao ha o que corrigir. Com MARKET_OP_AUCTION_ALWAYS=0
+            # ele vira contingencia, so aberto quando ha violacao.
             if OP_AUCTION_ALWAYS or payload["violations_after"]:
                 self._op_next_round()
                 return
@@ -1800,8 +1760,8 @@ def _node_reactive(self, node, t):
     """Reativo do no: fator de potencia 0,9 sobre a demanda, mais o do armazenamento.
 
     Com `MARKET_STORAGE_PF=none`, que e o padrao, o armazenamento nao injeta
-    reativo e sobra a hipotese dQ = 0 da Eq. 6.16 da tese. Com um fator de
-    potencia configurado, o reativo do dispositivo entra AQUI tambem, e nao so no
+    reativo e vale a hipotese dQ = 0 da restricao de tensao (6.16). Com um fator
+    de potencia configurado, o reativo do dispositivo entra AQUI tambem, e nao so no
     modelo do DSO: se entrasse so num lado, a restricao passaria a ser resolvida
     contra uma rede que se comporta de outro jeito, que e pior que ignorar o
     termo nos dois.
@@ -1864,7 +1824,7 @@ def build_agents():
 
 
 def _install_network(agents, case=None):
-    """Camada de rede opcional entre os agentes (Fase 5)."""
+    """Camada de rede opcional entre os agentes (`network_link.py`)."""
     import network_link
     backend = os.environ.get("NET_BACKEND", "ideal")
     if backend == "ideal" and not os.environ.get("NET_TRACE"):
@@ -1928,12 +1888,12 @@ def start_market_loop(agents, case=None):
     O `Agent._send` so entrega a mensagem se o destinatario estiver em
     `agentInstance.table`, e quem preenche essa tabela e o AMS, um processo
     separado que o `pade start-runtime` sobe. Sem AMS, a tabela fica vazia e as
-    mensagens sao DESCARTADAS EM SILENCIO (o aviso so sai com debug=True). Foi
-    exatamente isso que travou a primeira execucao: os CFP saiam e nada voltava.
+    mensagens sao DESCARTADAS EM SILENCIO (o aviso so sai com debug=True): os
+    CFP saem e nada volta.
 
     Como aqui o conjunto de agentes e fixo e conhecido no arranque, a tabela e
     semeada direto. Isso dispensa o AMS, e tambem evita que o trafego de
-    registro e de keep-alive dele polua a medicao de comunicacao da Fase 5.
+    registro e de keep-alive dele polua a medicao de comunicacao.
     """
     reactor.suggestThreadPoolSize(30)
     for agent in agents:
@@ -1958,8 +1918,8 @@ def start_market_loop(agents, case=None):
             "before", "shutdown",
             lambda: (print(f"[rede] {link.summary()}", flush=True), link.close()))
 
-    # O historico e o registro da operacao so existiam na memoria do agente e
-    # morriam com o processo. Sao a fonte das Figuras 51, 52 e 58 da tese.
+    # O historico da negociacao e o registro da operacao vivem na memoria do
+    # agente: sao gravados no `run.json` antes que o processo termine.
     market = agents[0]
     reactor.addSystemEventTrigger("before", "shutdown",
                                   lambda: _dump_run(market, link))

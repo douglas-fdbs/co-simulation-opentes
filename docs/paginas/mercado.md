@@ -137,9 +137,9 @@ fase-neutro `Port_<barra>_<fase>` no circuito. Quatro regras completam o modelo:
 
 Com as regras 3 e 4, numa rede equilibrada a formulação por fase reproduz a por
 barra rodada a rodada, com λ igual nas três fases e igual ao λ da barra
-(verificado numa rede de teste equilibrada: mesmas 39 rodadas e mesma trajetória
-de λ, desde que as duas usem a mesma matriz). A formulação da tese é, portanto,
-um caso particular desta.
+(verificado numa rede de teste equilibrada: mesmo número de rodadas e mesma
+trajetória de λ, desde que as duas usem a mesma matriz). A formulação por barra
+da referência é, portanto, um caso particular desta.
 
 ### O inversor: quatro fios ou três fios
 

@@ -51,7 +51,7 @@ Todas têm valor padrão no `docker-compose.yaml`.
 | `MARKET_REGULADOR` | `previsao` | derivações do regulador fixadas pelo ponto da previsão; `neutro` as deixa em 0 |
 | `NET_BACKEND` | `ideal` | rede entre os agentes: `ideal`, `lossy` ou `omnet` (6TiSCH) |
 | `NET_TIME_SCALE` | `1.0` | quanto do atraso nominal da rede vira espera de relógio; com `omnet`, use `0.02`, senão cada rodada leva minutos reais |
-| `MARKET_SCENARIOS` | `1` | cenários por prosumidor; `1` é determinístico, `3` gera os nove da tese |
+| `MARKET_SCENARIOS` | `1` | cenários por prosumidor; `1` é determinístico, `3` gera nove cenários de preço e potência |
 | `MARKET_V_BACKOFF` | `1e-3` | margem nos limites de tensão, contra o erro da linearização |
 | `MARKET_MAX_ROUNDS` | `150` | teto de rodadas da negociação |
 | `MARKET_STORAGE_PF` | `none` | fator de potência do armazenamento; `none` é a hipótese ΔQ = 0 |
@@ -74,7 +74,7 @@ Em `output/market/`, ou em `output/market_por_no/` com `MARKET_FASE=0`:
 | `figuras.npz`, `history.json` | `centralizado` | tensões, programações, λ e a trilha de cada rodada |
 | `dlmp.csv`, `flexibility.csv` | `centralizado` | preço por porta e intervalo, e quanto cada prosumidor cedeu |
 | `transactions.csv`, `market_series.csv` | `centralizado` | energia nos mercados bilateral e spot |
-| `figuras/` | `figuras` | as figuras no formato da tese |
+| `figuras/` | `figuras` | as figuras: tensão, demanda líquida, preço sombra, negociação, mercados e comunicação |
 
 Por fase, o `dlmp.csv` e o `flexibility.csv` têm uma coluna `fase`, e as chaves do
 armazenamento são as portas, `"671.A"`. As colunas de preço saem com o sufixo

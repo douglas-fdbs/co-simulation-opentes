@@ -1,23 +1,25 @@
-"""Figuras do mercado no formato das Figuras 42 a 59 da tese de referência.
+"""Figuras de uma execução do mercado: tensões, demandas, preço sombra, a
+negociação rodada a rodada, os dois mercados e a comunicação.
 
-Cada figura usa o formato da figura correspondente da tese de Lucas S. Melo
-(2022): os mesmos eixos, o mesmo tipo de gráfico (superfície ou barra em 3D onde
-a tese usa 3D) e o mesmo título interno. O arquivo recebe o nome da legenda da
-figura, para que a correspondência seja lida sem tabela auxiliar. No modo por
-fase, as figuras de tensão e de preço sombra têm um painel por fase.
+O formato de cada figura (eixos, tipo de gráfico e título interno) segue o das
+figuras de resultados de Melo (2022, cap. 6), para que os resultados possam ser
+postos lado a lado com os da formulação de referência. No modo por fase, as
+figuras de tensão, de preço sombra e do armazenamento de rede têm um painel por
+fase.
 
 Todas as entradas saem da mesma pasta de resultados, a que `./run.sh market`
 grava (`output/market/`, ou `output/market_por_no/` com MARKET_FASE=0):
 
   figuras.npz            a negociação centralizada (`./run.sh centralizado`)
   market_series.csv      as transações por intervalo (idem)
-  result_negociado.csv   a fase de operação na co-simulação (Figuras 54 e 55)
-  msg_trace.csv          o traço de mensagens, com NET_TRACE (Figuras 58 e 59)
+  result_negociado.csv   a fase de operação na co-simulação
+  msg_trace.csv          o traço de mensagens, com NET_TRACE
   run.json               o registro da negociação distribuída
 
-e a Figura 42 lê o `tisch_links.csv` que o servidor 6TiSCH grava junto do caso.
+e a figura de PER lê o `tisch_links.csv` que o servidor 6TiSCH grava junto do
+caso.
 
-    python -m market_opentes.figuras_tese --resultados /app/output/market
+    python -m market_opentes.figuras --resultados /app/output/market
 """
 
 import argparse
@@ -34,77 +36,35 @@ import numpy as np  # noqa: E402
 
 from .config import DT_H, GRID_DIR, PERIODS  # noqa: E402
 
-# A tese usa o mapa `jet` em todas as figuras 3D, com barra de cor à direita.
+# Mapa de cor de todas as figuras 3D, com barra de cor à direita.
 CMAPA = "jet"
-PER_THRESHOLD = 0.5
 
-# Legenda de cada figura, que vira o nome do arquivo. Mantida literal para que a
-# correspondência com o documento seja direta.
-LEGENDAS = {
-    42: "PER versus distancia usando o modelo de propagacao de Pister-Hack",
-    43: "Niveis de tensao na rede para cada um dos nos",
-    44: "Demanda liquida em kW para cada um dos nos e para os nos 17 a 21",
-    45: "Preco adicional encontrado no processo de programacao da operacao",
-    46: "Programacao dos dispositivos de armazenamento de rede definida pelo AD",
-    47: "Niveis de tensao na rede apos insercao dos dispositivos de armazenamento",
-    48: "Demanda liquida em kW apos a insercao dos dispositivos de armazenamento",
-    49: "Niveis de tensoes em pu com e sem armazenamento ao longo dos nos da rede",
-    50: "Graficos de composicao de demandas em kW e de tensoes em pu para o no 74",
-    51: "Programacoes de demanda em kW ao longo do tempo para o no 74",
-    52: "Programacoes de demanda em kW ao longo do tempo para o no 25",
-    53: "Programacoes de demanda em kW para os nos 74 e 25 ao longo da negociacao",
-    54: "Niveis de tensao na rede para cada um dos nos na fase de operacao",
-    55: "Demanda liquida em kW obtida no processo de co-simulacao para a fase de operacao",
-    56: "Valores de energia adquiridos no mercado futuro bilateral e no mercado SPOT "
-        "para quatro nos da rede eletrica 15 24 32 e 52",
-    57: "Valores de energia no mercado SPOT de tempo real e no mercado de futuro bilateral",
-    58: "Graficos representando cada uma das mensagens trocadas pelos agentes durante a co-simulacao",
-    59: "Graficos de analise das mensagens trocadas pelos agentes durante a co-simulacao",
+# Nome do arquivo de cada figura, sem extensão. As que detalham um nó recebem o
+# número dele no fim: `composicao_no_671.png`.
+ARQUIVOS = {
+    "per": "per_distancia",
+    "tensao_base": "tensao_sem_armazenamento",
+    "demanda_base": "demanda_sem_armazenamento",
+    "preco_sombra": "preco_sombra",
+    "armazenamento_rede": "armazenamento_rede",
+    "tensao_negociada": "tensao_negociada",
+    "demanda_negociada": "demanda_negociada",
+    "tensao_horarios": "tensao_dois_horarios",
+    "composicao": "composicao_no",
+    "negociacao": "negociacao_no",
+    "convergencia": "convergencia",
+    "tensao_operacao": "tensao_operacao",
+    "demanda_operacao": "demanda_operacao",
+    "mercados": "mercados_por_no",
+    "precos": "precos_mercados",
+    "mensagens": "mensagens",
+    "mensagens_dist": "mensagens_distribuicao",
 }
 
 
-# Legendas cujo texto NOMEIA nos da MVLV75. Numa rede diferente os nos sao
-# outros, e deixar o nome do arquivo dizendo "no 74" quando a figura mostra o no
-# 671 e pior do que nao ter nome nenhum. `LEGENDAS_NOS` guarda o mesmo texto com
-# um campo de formatacao no lugar dos numeros.
-LEGENDAS_NOS = {
-    44: "Demanda liquida em kW para cada um dos nos e para os nos {destaque}",
-    48: "Demanda liquida em kW apos a insercao dos dispositivos de armazenamento",
-    50: "Graficos de composicao de demandas em kW e de tensoes em pu para o no {a}",
-    51: "Programacoes de demanda em kW ao longo do tempo para o no {a}",
-    52: "Programacoes de demanda em kW ao longo do tempo para o no {b}",
-    53: "Programacoes de demanda em kW para os nos {a} e {b} ao longo da negociacao",
-    56: "Valores de energia adquiridos no mercado futuro bilateral e no mercado "
-        "SPOT para quatro nos da rede eletrica {mercado}",
-}
-_SUBS = {}
-
-
-def definir_nos(destaque=None, detalhe=None, mercado=None):
-    """Fixa os nos que entram nas legendas desta execucao."""
-    _SUBS.clear()
-    if destaque:
-        _SUBS["destaque"] = " ".join(str(x) for x in sorted(destaque))
-    if detalhe:
-        _SUBS["a"] = str(detalhe[0])
-        if len(detalhe) > 1:
-            _SUBS["b"] = str(detalhe[1])
-    if mercado:
-        _SUBS["mercado"] = " ".join(str(x) for x in mercado)
-
-
-def legenda(n):
-    modelo = LEGENDAS_NOS.get(n)
-    if modelo is None or not _SUBS:
-        return LEGENDAS[n]
-    try:
-        return modelo.format(**_SUBS)
-    except KeyError:
-        return LEGENDAS[n]
-
-
-def arquivo(out_dir, n):
-    return Path(out_dir) / (legenda(n).lower().replace(" ", "_") + ".png")
+def arquivo(out_dir, chave, no=None):
+    nome = ARQUIVOS[chave] if no is None else f"{ARQUIVOS[chave]}_{no}"
+    return Path(out_dir) / f"{nome}.png"
 
 
 def hhmm(t):
@@ -112,9 +72,9 @@ def hhmm(t):
     return f"{m // 60:02d}:{m % 60:02d}"
 
 
-# Angulo de camera das figuras 3D. No quadro (a), que mostra a rede inteira, a
-# tese poe o eixo dos nos a esquerda quase de perfil e o do tempo raso ao longo
-# da base, o que corresponde a azim=-28. Os quadros seguintes, que destacam
+# Angulo de camera das figuras 3D. No quadro (a), que mostra a rede inteira, o
+# eixo dos nos fica a esquerda quase de perfil e o do tempo raso ao longo da
+# base, o que corresponde a azim=-28. Os quadros seguintes, que destacam
 # poucos nos ou poucas janelas, ficam melhores no angulo mais aberto: com o eixo
 # dos nos de perfil, um recorte de cinco nos vira uma parede estreita.
 ELEV, AZIM, AZIM_SEC = 28, -28, -58
@@ -127,18 +87,18 @@ def _eixo_tempo(ax, t0, t1, passo, eixo="y"):
 
 
 # ---------------------------------------------------------------------------
-# Superfície e barra em 3D, que é o formato dominante da tese
+# Pontos, hastes e barras em 3D
 # ---------------------------------------------------------------------------
 
 def _eixo_nos(ax, nos):
     """Posiciona os nós no eixo x.
 
-    Na MVLV75 os nós são 1 a 75, densos, e o número serve de coordenada: o eixo
-    numérico é o que a tese desenha. Numa rede cujos nós herdam os nomes das
-    barras, como a IEEE 13 (611, 632, 633, 645, ...), o mesmo eixo abre vãos de
-    dezenas de posições vazias entre nós vizinhos e as marcas caem em números
-    que não existem. Quando os nomes são esparsos, o eixo passa a ser
-    CATEGÓRICO: uma posição por nó, rotulada com o número real.
+    Quando os nós são numerados densamente (1, 2, 3, ...), o número serve de
+    coordenada. Numa rede cujos nós herdam os nomes das barras, como a IEEE 13
+    (611, 632, 633, 645, ...), o eixo numérico abriria vãos de dezenas de
+    posições vazias entre nós vizinhos, e as marcas cairiam em números que não
+    existem. Com nomes esparsos o eixo é CATEGÓRICO: uma posição por nó,
+    rotulada com o número real.
 
     Devolve as coordenadas x a usar, na ordem de `nos`.
     """
@@ -172,7 +132,7 @@ def hastes(ax, nos, t0, t1, Z, rotulo_z, titulo, passo_tempo=None,
            azim=AZIM):
     """Uma haste vertical por par (nó, intervalo), do zero até o valor.
 
-    É o formato das Figuras 44, 48 e 55 da tese, e não uma superfície. A
+    É o formato das figuras de demanda líquida, e não uma superfície. A
     diferença não é estética: a superfície INTERPOLA entre nós vizinhos em
     número, que não são vizinhos elétricos, e entre intervalos de 15 minutos,
     onde não há dado. O que resulta é uma malha contínua que sugere valores que
@@ -202,7 +162,7 @@ def pontos(ax, nos, t0, t1, Z, rotulo_z, titulo, passo_tempo=None,
            azim=AZIM):
     """Um marcador por par (nó, intervalo).
 
-    É o formato das Figuras 43, 47 e 54 da tese. Cada intervalo de 15 minutos é
+    É o formato das figuras de tensão. Cada intervalo de 15 minutos é
     uma fileira de pontos separada, sem nada desenhado entre elas, que é o que
     deixa visível quantos pontos existem de fato.
     """
@@ -220,12 +180,12 @@ def pontos(ax, nos, t0, t1, Z, rotulo_z, titulo, passo_tempo=None,
 
 def barras3d(ax, nos, Z, rotulo_z, titulo, corte=1e-9, so_positivo=False,
              norm=None, zlim=None):
-    """Barras verticais valor(nó, tempo). Formato das Figuras 45 e 46, em que o
-    dado é esparso e uma superfície esconderia os picos.
+    """Barras verticais valor(nó, tempo). Formato das figuras de preço sombra
+    e do armazenamento de rede, em que o dado é esparso e uma superfície
+    esconderia os picos.
 
-    `so_positivo` reproduz a convenção da Figura 46, que mostra a potência de
-    SAÍDA do armazenamento de rede ("valores de potência de saída dos
-    dispositivos", subseção 6.2.2) e portanto omite os intervalos de carga.
+    `so_positivo` mostra só a potência de SAÍDA, omitindo os intervalos de
+    carga, que é como a figura do armazenamento de rede é lida.
     """
     ii, jj = np.nonzero((Z > corte) if so_positivo else (np.abs(Z) > corte))
     if len(ii) == 0:
@@ -234,7 +194,7 @@ def barras3d(ax, nos, Z, rotulo_z, titulo, corte=1e-9, so_positivo=False,
         return None
     v = Z[ii, jj]
     # `norm` e `zlim` vem de fora quando varios paineis precisam da MESMA escala,
-    # como os tres da Figura 45 por fase: com escala propria por painel, uma
+    # como os tres do preco sombra por fase: com escala propria por painel, uma
     # barra de 200 numa fase e uma de 1000 noutra teriam a mesma cor.
     norm = plt.Normalize(v.min(), v.max()) if norm is None else norm
     cores = matplotlib.colormaps[CMAPA](norm(v))
@@ -242,11 +202,9 @@ def barras3d(ax, nos, Z, rotulo_z, titulo, corte=1e-9, so_positivo=False,
     ax.bar3d(xs[ii], jj.astype(float),
              np.zeros_like(v), 0.8, 0.8, v, color=cores, shade=True)
     # O `bar3d` nao estende o eixo z para baixo de zero, e as barras negativas
-    # saiam penduradas abaixo do piso da caixa. Na MVLV75 isso nunca aparece,
-    # porque o preco sombra dela nao fica negativo; numa rede com sobretensao
-    # fica (ver a analise de sinal de lambda), e a Figura 45 precisa mostrar os
-    # dois lados. So se mexe no limite quando ha valor negativo, para nao alterar
-    # as figuras que ja existem.
+    # sairiam penduradas abaixo do piso da caixa. Com sobretensao o preco sombra
+    # fica negativo, e a figura precisa mostrar os dois lados. So se mexe no
+    # limite quando ha valor negativo.
     if zlim is not None:
         ax.set_zlim(*zlim)
     elif float(v.min()) < 0.0:
@@ -294,7 +252,7 @@ def _por_no(chaves, M, eixo=0):
 
 
 def _barras_por_fase(chaves, Z, rotulo_z, titulo, out, corte=1e-9, so_positivo=False):
-    """Figuras 45 e 46 em tres paineis, um por fase, com a MESMA escala de cor
+    """Barras 3D em tres paineis, um por fase, com a MESMA escala de cor
     e o mesmo eixo vertical, para que valores iguais tenham a mesma cor."""
     Z = np.asarray(Z)
     sel = (Z > corte) if so_positivo else (np.abs(Z) > corte)
@@ -317,7 +275,7 @@ def _barras_por_fase(chaves, Z, rotulo_z, titulo, out, corte=1e-9, so_positivo=F
 
 
 def _figura_tensao_fases(rows, V, out, titulo="Níveis de Tensão ao longo da rede elétrica"):
-    """Figuras 43, 47 e 54 por fase: um painel por fase, o dia inteiro, mesma
+    """Tensao por fase: um painel por fase, o dia inteiro, mesma
     escala de cor nos tres."""
     V = np.asarray(V)
     norm_lo, norm_hi = float(V.min()), float(V.max())
@@ -340,17 +298,16 @@ def _figura_tensao_fases(rows, V, out, titulo="Níveis de Tensão ao longo da re
 
 
 # ---------------------------------------------------------------------------
-# Figura 42
+# PER dos enlaces de rádio
 # ---------------------------------------------------------------------------
 
-def figura_42(links_csv, out, max_distance=1000.0):
-    """PER por distância.
+def figura_per(links_csv, out, max_distance=1000.0):
+    """PER por distância, para os enlaces do modelo 6TiSCH.
 
-    A tese desenha uma LINHA ligando os pares ordenados por distância, e não uma
-    nuvem de pontos. Como o PER de dois pares vizinhos em distância salta entre
-    valores muito distintos, por causa do desvio de 0 a 40 dB sorteado por enlace
-    no Pister-Hack, a linha vira um traço quase vertical em cada par. É essa a
-    aparência da figura dela, e com pontos o gráfico fica ilegível.
+    Uma LINHA liga os pares ordenados por distância, e não uma nuvem de pontos.
+    Como o PER de dois pares vizinhos em distância salta entre valores muito
+    distintos, por causa do desvio de 0 a 40 dB sorteado por enlace no
+    Pister-Hack, a linha vira um traço quase vertical em cada par.
     """
     d, per = [], []
     for r in csv.DictReader(open(links_csv)):
@@ -378,7 +335,7 @@ def figura_42(links_csv, out, max_distance=1000.0):
 
 
 # ---------------------------------------------------------------------------
-# Figuras 43, 47 e 54: tensão em 3D
+# Tensão e demanda líquida em 3D
 # ---------------------------------------------------------------------------
 
 def _figura_tensao(nos, V, janelas, out, titulo="Níveis de Tensão ao longo da rede elétrica"):
@@ -412,10 +369,10 @@ def _figura_demanda(nos, D, quadros, out):
 
 
 # ---------------------------------------------------------------------------
-# Figura 49: barras por nó, em dois horários
+# Tensão por nó em dois horários, com e sem armazenamento
 # ---------------------------------------------------------------------------
 
-def figura_49(nos, v_sem, v_com, out, horarios=(71, 40)):
+def figura_tensao_dois_horarios(nos, v_sem, v_com, out, horarios):
     # Mesmo motivo do eixo 3D: com nomes de barra esparsos (611, 632, 645, ...) o
     # eixo numérico espalha as barras por vãos vazios. Uma posição por nó.
     nos = list(nos)
@@ -444,17 +401,17 @@ def figura_49(nos, v_sem, v_com, out, horarios=(71, 40)):
 
 
 # ---------------------------------------------------------------------------
-# Figura 50: composição do nó 74
+# Composição da demanda e tensão de um nó
 # ---------------------------------------------------------------------------
 
-def figura_50(no, carga, armaz, v_sem, v_com, out, fases=None):
+def figura_composicao(no, carga, armaz, v_sem, v_com, out, fases=None):
     t = np.arange(PERIODS)
     fig, axes = plt.subplots(2, 1, figsize=(9.6, 6.0))
     ax = axes[0]
     ax.bar(t, carga, width=0.85, color="#1f77b4", label="Demanda de carga + geração")
     # A parcela do armazenamento EMPILHA sobre a de carga, para cima ou para
     # baixo: e o que faz o topo da barra coincidir com a linha da demanda
-    # liquida, como na figura da tese.
+    # liquida.
     ax.bar(t, armaz, width=0.85, bottom=carga,
            color="#ff7f0e", label="Demanda de armazenamento")
     ax.plot(t, carga + armaz, color="black", linewidth=1.2, label="Demanda Líquida")
@@ -492,7 +449,7 @@ def figura_50(no, carga, armaz, v_sem, v_com, out, fases=None):
 
 
 # ---------------------------------------------------------------------------
-# Figuras 51 e 52: a programação de um nó, rodada a rodada
+# A programação de um nó, rodada a rodada
 # ---------------------------------------------------------------------------
 
 def figura_iteracoes(no, base, trilha_ad, trilha_ac, out, n_iter=8):
@@ -516,10 +473,10 @@ def figura_iteracoes(no, base, trilha_ad, trilha_ac, out, n_iter=8):
 
 
 # ---------------------------------------------------------------------------
-# Figura 53: convergência num instante
+# Convergência num instante
 # ---------------------------------------------------------------------------
 
-def figura_53(casos, out):
+def figura_convergencia(casos, out):
     fig, axes = plt.subplots(len(casos), 1, figsize=(8.6, 2.9 * len(casos)))
     axes = np.atleast_1d(axes)
     for ax, (no, t, ac, ad) in zip(axes, casos):
@@ -540,12 +497,12 @@ def figura_53(casos, out):
 
 
 # ---------------------------------------------------------------------------
-# Figuras 56 e 57: os dois mercados
+# Os dois mercados
 # ---------------------------------------------------------------------------
 
-def figura_56(series_csv, out, nodes=(15, 24, 32, 52)):
-    """Energia negociada em cada mercado, por intervalo, para os quatro nós que
-    a tese destaca. Positivo é compra, negativo é venda; o bilateral só compra."""
+def figura_mercados_por_no(series_csv, out, nodes):
+    """Energia negociada em cada mercado, por intervalo, para quatro nós.
+    Positivo é compra, negativo é venda; o bilateral só compra."""
     import pandas as pd
     df = pd.read_csv(series_csv)
     fig, axes = plt.subplots(2, 2, figsize=(11.0, 6.4), sharex=True)
@@ -570,7 +527,7 @@ def figura_56(series_csv, out, nodes=(15, 24, 32, 52)):
     print(f"gravado {out.name}")
 
 
-def figura_57(series_csv, out):
+def figura_precos(series_csv, out):
     """Preço spot ao longo do dia contra o preço fixo do mercado bilateral."""
     import pandas as pd
     df = pd.read_csv(series_csv).drop_duplicates("t").sort_values("t")
@@ -598,12 +555,10 @@ def figura_57(series_csv, out):
 def _operacao(result_csv, por_tensao_fase=False):
     """Tensão e demanda líquida por nó, da co-simulação da operação.
 
-    Duas generalizações em relação à MVLV75. As barras dela se chamam `n5`, e o
-    coletor grava `Bus-n5-V1_pu`; uma rede publicada mantém o nome próprio da
-    barra, e sai `Bus-611-V1_pu`, então o `n` é opcional. E a tensão do nó passa
-    a ser a MÉDIA das fases presentes, e não a fase 1: numa rede equilibrada dá
-    no mesmo, numa desequilibrada a fase 1 não representa a barra, e é a média
-    que corresponde ao que o modelo do DSO enxerga.
+    O coletor grava `Bus-611-V1_pu` (ou `Bus-n5-V1_pu`, em redes cujas barras
+    se chamam `n<no>`). Por barra, a tensão do nó é a MÉDIA das fases presentes,
+    que é o que o modelo do DSO enxerga nessa formulação; com `por_tensao_fase`,
+    cada fase sai separada.
     """
     linhas = list(csv.reader(open(result_csv)))
     cab, dados = linhas[0], [l for l in linhas[1:] if l]
@@ -635,13 +590,9 @@ def _operacao(result_csv, por_tensao_fase=False):
 # ---------------------------------------------------------------------------
 # Escolha de nos e janelas
 # ---------------------------------------------------------------------------
-# A tese destaca nos e horarios especificos da MVLV75: os nos 17 a 21 nos quadros
-# (b), o 74 e o 25 nas figuras por no, o 15/24/32/52 nas de mercado, e as 17:45 e
-# as 10:00 na Figura 49. Numa rede que nao e a dela esses numeros nao existem, ou
-# existem e nao querem dizer nada. As funcoes abaixo mantem a escolha da tese
-# quando ela cabe, e derivam dos DADOS quando nao cabe, sempre por um criterio
-# declarado. Assim a MVLV75 continua saindo identica e uma rede nova sai com os
-# nos que de fato importam nela.
+# Os nos e horarios em destaque saem dos DADOS de cada execucao, sempre por um
+# criterio declarado em cada funcao, para que as figuras mostrem o que de fato
+# importa na rede simulada.
 
 def _mais_ativos(nos, matriz, quantos):
     """Os `quantos` nos de maior amplitude na matriz (nos x periodos)."""
@@ -650,25 +601,20 @@ def _mais_ativos(nos, matriz, quantos):
 
 
 def escolher_destaque(nos, demanda):
-    """Nos do quadro (b) das Figuras 44, 48 e 55, fora da rede da tese."""
+    """Nos do quadro (b) das figuras de demanda: os de maior amplitude."""
     return set(_mais_ativos(nos, demanda, min(5, len(nos))))
 
 
 def escolher_detalhe(pros, y, quantos=2):
-    """Nos das Figuras 50 a 53, fora da rede da tese: os que mais mexem no
-    proprio armazenamento."""
+    """Nos das figuras de detalhe (composicao, negociacao e convergencia): os
+    que mais mexem no proprio armazenamento."""
     ordem = np.argsort(-np.abs(np.asarray(y)).sum(axis=1))
     return [pros[i] for i in ordem[:quantos]]
 
 
 def escolher_horarios(v_base):
-    """Horarios da Figura 49: onde a tensao base bate no minimo e no maximo.
-
-    So e chamada quando a rede NAO e a da tese. Nela os horarios sao os 17:45 e
-    10:00 que ela destaca, e derivar daria 12:00 no lugar de 10:00: o maximo da
-    tensao base da MVLV75 cai as 12:00, mas a tese escolheu as 10:00. Quem manda
-    e a tese, entao a escolha e feita pela REDE e nao pelos numeros.
-    """
+    """Horarios da figura de tensao em dois horarios: onde a tensao base bate
+    no minimo e no maximo."""
     v = np.asarray(v_base)
     t_min = int(np.unravel_index(np.argmin(v), v.shape)[0])
     t_max = int(np.unravel_index(np.argmax(v), v.shape)[0])
@@ -676,12 +622,8 @@ def escolher_horarios(v_base):
 
 
 def escolher_janelas(v_base, largura=7):
-    """Janelas de destaque dos quadros (b) e (c) das Figuras 43, 47 e 54.
-
-    A tese destaca 17:45 a 19:15 e 10:00 a 11:00, que são o vale e o pico da
-    MVLV75. Noutra rede o aperto está noutro horário: aqui as janelas saem dos
-    instantes em que a tensão base bate no máximo e no mínimo.
-    """
+    """Janelas de destaque dos quadros (b) e (c) das figuras de tensão: em
+    torno dos instantes em que a tensão base bate no máximo e no mínimo."""
     v = np.asarray(v_base)
     t_max = int(np.unravel_index(np.argmax(v), v.shape)[0])
     t_min = int(np.unravel_index(np.argmin(v), v.shape)[0])
@@ -692,8 +634,7 @@ def escolher_janelas(v_base, largura=7):
 
 
 def escolher_mercado(series_csv, quantos=4):
-    """Nos da Figura 56, fora da rede da tese: os que mais energia movimentam
-    nos dois mercados."""
+    """Nos da figura dos mercados: os que mais energia movimentam nos dois."""
     import pandas as pd
     df = pd.read_csv(series_csv)
     total = (df.assign(e=df["bilateral_kw"].abs() + df["spot_kw"].abs())
@@ -721,7 +662,7 @@ def main():
     demanda, y, q, lam = d["demanda"], d["y"], d["q"], d["lam"]
     ac, ad = d["trilha_ac"], d["trilha_ad"]              # (rodadas, chaves, 96)
     # Modo por fase: as tensoes sao por (no, fase) e as chaves do armazenamento
-    # sao portas "671.A". As figuras por no (44, 48, 50 a 53) usam o total do
+    # sao portas "671.A". As figuras por no (demanda e detalhe) usam o total do
     # dispositivo, somando as portas; as de tensao e de preco sombra mostram as
     # tres fases.
     fase = bool(d["fase"]) if "fase" in d.files else False
@@ -740,54 +681,53 @@ def main():
         y_no, q_no, ac_no, ad_no = y, q, ac, ad
 
     # Nos e horarios em destaque: saem dos dados, por um criterio declarado em
-    # cada `escolher_*` (a tese fixava os da MVLV75, que aqui nao existem).
+    # cada `escolher_*`.
     DIA = (0, PERIODS, 24)
     DESTAQUE = escolher_destaque(nos, demanda)
     DETALHE = escolher_detalhe(pros, y_no)
     MERCADO = escolher_mercado(a.series) if Path(a.series).exists() else tuple(DETALHE)
-    definir_nos(DESTAQUE, DETALHE, MERCADO)
     HORARIOS = escolher_horarios(v_base)
     NOITE, MANHA = escolher_janelas(v_base)
     print(f"  quadro (b) com {sorted(DESTAQUE)}, figuras por no {DETALHE}, mercado "
-          f"{list(MERCADO)}, Figura 49 em {[hhmm(t) for t in HORARIOS]}, janelas em "
+          f"{list(MERCADO)}, dois horarios em {[hhmm(t) for t in HORARIOS]}, janelas em "
           f"{hhmm(NOITE[0])}-{hhmm(NOITE[1] - 1)} e {hhmm(MANHA[0])}-{hhmm(MANHA[1] - 1)}")
 
     if Path(a.links).exists():
-        figura_42(a.links, arquivo(out, 42))
+        figura_per(a.links, arquivo(out, "per"))
     if fase:
-        _figura_tensao_fases(rows, v_base, arquivo(out, 43))
+        _figura_tensao_fases(rows, v_base, arquivo(out, "tensao_base"))
     else:
-        _figura_tensao(nos, v_base, [DIA, NOITE], arquivo(out, 43))
+        _figura_tensao(nos, v_base, [DIA, NOITE], arquivo(out, "tensao_base"))
     _figura_demanda(nos, demanda, [(None, 0, PERIODS, 24),
                                    (DESTAQUE, 0, PERIODS, 24)],
-                    arquivo(out, 44))
-    # A tese exclui os nos de shadow price nulo (Tabela 8). O nosso lambda nao
-    # zera exatamente em lugar nenhum, entao o corte e relativo, de 1% do maximo,
-    # e fica declarado aqui: e limiar de EXIBICAO, o dado continua denso.
+                    arquivo(out, "demanda_base"))
+    # Nos de preco sombra nulo ficam fora da figura. O lambda nao zera exatamente
+    # em lugar nenhum, entao o corte e relativo, de 1% do maximo: e limiar de
+    # EXIBICAO, o dado continua denso.
     if fase:
         _barras_por_fase(chaves_p, lam, "Valor", "Shadow Price",
-                         arquivo(out, 45), corte=0.01 * np.abs(lam).max())
+                         arquivo(out, "preco_sombra"), corte=0.01 * np.abs(lam).max())
         _barras_por_fase(chaves_q, -q, "Potência em kW",
                          "Programação do armazenamento de rede",
-                         arquivo(out, 46), so_positivo=True)
+                         arquivo(out, "armazenamento_rede"), so_positivo=True)
     else:
         fig = plt.figure(figsize=(6.4, 5.0)); ax = fig.add_subplot(111, projection="3d")
         _barra_cor(fig, ax, barras3d(ax, pros, lam, "Valor", "Shadow Price",
                                      corte=0.01 * np.abs(lam).max()))
-        fig.tight_layout(); fig.savefig(arquivo(out, 45), dpi=160); plt.close(fig)
-        print(f"gravado {arquivo(out, 45).name}")
+        fig.tight_layout(); fig.savefig(arquivo(out, "preco_sombra"), dpi=160); plt.close(fig)
+        print(f"gravado {arquivo(out, 'preco_sombra').name}")
 
         fig = plt.figure(figsize=(6.4, 5.0)); ax = fig.add_subplot(111, projection="3d")
         _barra_cor(fig, ax, barras3d(ax, rede, -q, "Potência em kW",
                                      "Programação do armazenamento de rede",
                                      so_positivo=True))
-        fig.tight_layout(); fig.savefig(arquivo(out, 46), dpi=160); plt.close(fig)
-        print(f"gravado {arquivo(out, 46).name}")
+        fig.tight_layout(); fig.savefig(arquivo(out, "armazenamento_rede"), dpi=160); plt.close(fig)
+        print(f"gravado {arquivo(out, 'armazenamento_rede').name}")
 
     if fase:
-        _figura_tensao_fases(rows, v_final, arquivo(out, 47))
+        _figura_tensao_fases(rows, v_final, arquivo(out, "tensao_negociada"))
     else:
-        _figura_tensao(nos, v_final, [DIA, NOITE, MANHA], arquivo(out, 47))
+        _figura_tensao(nos, v_final, [DIA, NOITE, MANHA], arquivo(out, "tensao_negociada"))
 
     idx = {n: i for i, n in enumerate(nos)}
     dep = demanda.copy()
@@ -797,33 +737,33 @@ def main():
         dep[idx[n]] += q_no[k]
     _figura_demanda(nos, dep, [(None, 0, PERIODS, 24),
                                (DESTAQUE, 0, PERIODS, 24)],
-                    arquivo(out, 48))
-    figura_49(rotulos if fase else nos, v_base, v_final, arquivo(out, 49),
-              horarios=HORARIOS)
+                    arquivo(out, "demanda_negociada"))
+    figura_tensao_dois_horarios(rotulos if fase else nos, v_base, v_final,
+                                arquivo(out, "tensao_horarios"), horarios=HORARIOS)
 
     no50 = DETALHE[0]
     i50 = idx[no50]
     arm = y_no[pros.index(no50)] if no50 in pros else np.zeros(PERIODS)
     if fase:
         cols = [i for i, (n, _) in enumerate(rows) if n == no50]
-        figura_50(no50, demanda[i50], arm, v_base[:, cols], v_final[:, cols],
-                  arquivo(out, 50), fases=["ABC"[rows[i][1] - 1] for i in cols])
+        figura_composicao(no50, demanda[i50], arm, v_base[:, cols], v_final[:, cols],
+                          arquivo(out, "composicao", no50),
+                          fases=["ABC"[rows[i][1] - 1] for i in cols])
     else:
-        figura_50(no50, demanda[i50], arm, v_base[:, i50], v_final[:, i50],
-                  arquivo(out, 50))
+        figura_composicao(no50, demanda[i50], arm, v_base[:, i50], v_final[:, i50],
+                          arquivo(out, "composicao", no50))
 
-    for fign, no in zip((51, 52), DETALHE):
+    for no in DETALHE:
         if no not in pros:
-            print(f"  no {no} nao tem armazenamento aqui; pulando a Figura {fign}")
+            print(f"  no {no} nao tem armazenamento aqui; pulando a figura da negociacao")
             continue
         k = pros.index(no)
         figura_iteracoes(no, demanda[idx[no]], ad_no[:, k], ac_no[:, k],
-                         arquivo(out, fign))
+                         arquivo(out, "negociacao", no))
 
     casos = []
     # Cada no e mostrado no instante em que o proprio armazenamento dele mais
-    # trabalha, que e onde AC e AD mais discordam. Na MVLV75 isso recai nos
-    # 17:45 e 19:15 que a tese usa.
+    # trabalha, que e onde AC e AD mais discordam.
     for no, t in zip(DETALHE, [int(np.argmax(np.abs(y_no[pros.index(nn)])))
                                if nn in pros else 0 for nn in DETALHE]):
         if no in pros:
@@ -831,41 +771,41 @@ def main():
             base = demanda[idx[no]][t]
             casos.append((no, t, base + ac_no[:, k, t], base + ad_no[:, k, t]))
     if casos:
-        figura_53(casos, arquivo(out, 53))
+        figura_convergencia(casos, arquivo(out, "convergencia"))
 
     if Path(a.operacao).exists():
         vop, pop = _operacao(a.operacao, por_tensao_fase=fase)
         if fase:
             linhas_op = [r for r in rows if r in vop]
             V = np.array([vop[r] for r in linhas_op]).T
-            _figura_tensao_fases(linhas_op, V, arquivo(out, 54))
+            _figura_tensao_fases(linhas_op, V, arquivo(out, "tensao_operacao"))
         else:
             nos_op = sorted(n for n in vop if n in idx)
             V = np.array([vop[n] for n in nos_op]).T
-            _figura_tensao(nos_op, V, [DIA, NOITE, MANHA], arquivo(out, 54))
+            _figura_tensao(nos_op, V, [DIA, NOITE, MANHA], arquivo(out, "tensao_operacao"))
         if pop:
             nos_p = sorted(pop)
             P = np.array([pop[n] for n in nos_p])
             _figura_demanda(nos_p, P, [(None, 0, PERIODS, 24),
                                        (DESTAQUE, 0, PERIODS, 24)],
-                            arquivo(out, 55))
+                            arquivo(out, "demanda_operacao"))
     else:
-        print(f"sem {a.operacao}; pulando as Figuras 54 e 55")
+        print(f"sem {a.operacao}; pulando as figuras da operacao")
 
     if Path(a.series).exists():
-        figura_56(a.series, arquivo(out, 56), nodes=MERCADO)
-        figura_57(a.series, arquivo(out, 57))
+        figura_mercados_por_no(a.series, arquivo(out, "mercados"), nodes=MERCADO)
+        figura_precos(a.series, arquivo(out, "precos"))
     else:
-        print(f"sem {a.series}; pulando as Figuras 56 e 57")
+        print(f"sem {a.series}; pulando as figuras dos mercados")
 
-    # As Figuras 58 e 59 saem do traco por mensagem, que e outro produto: elas
-    # ficam em `plot_msgs`, e aqui so recebem o nome da legenda da tese.
+    # As figuras de comunicacao saem do traco por mensagem, que e outro produto:
+    # ficam em `figuras_mensagens`.
     if Path(a.trace).exists():
-        from .plot_msgs import carregar, figura_58, figura_59
-        # As Figuras 58 e 59 da tese sao de tamanhos DECLARADOS: ela plota o que
-        # o `set_message_length()` informa ao ns-3, e nao o conteudo. Gerar as
-        # nossas a partir de um traco em modo `real` compara duas grandezas
-        # diferentes e destroi a semelhanca de forma. Ja aconteceu.
+        from .figuras_mensagens import (carregar, figura_mensagens,
+                                        figura_mensagens_distribuicao)
+        # As figuras de referencia sao de tamanhos DECLARADOS, e nao do conteudo
+        # serializado. Comparar com elas um traco em modo `real` compara duas
+        # grandezas diferentes.
         cfg = {}
         rj = Path(a.run_json)
         if rj.exists():
@@ -874,21 +814,20 @@ def main():
             except Exception:
                 cfg = {}
         if cfg.get("message_size") == "real":
-            print("  ATENCAO: o traco e de NET_MESSAGE_SIZE=real. As Figuras 58 "
-                  "e 59 da tese sao de tamanhos declarados; para comparar forma "
-                  "a forma, rode com NET_MESSAGE_SIZE=thesis.")
+            print("  nota: traco com NET_MESSAGE_SIZE=real (tamanho do conteudo). "
+                  "Para comparar com as figuras de referencia, que usam tamanhos "
+                  "declarados, rode com NET_MESSAGE_SIZE=declarado.")
         df = carregar(a.trace)
-        # As duas analisam o MESMO conjunto de mensagens. A tese usa 5 janelas
-        # de 15 min nas duas (775 mensagens na acumulada da Figura 59); passar o
-        # dia inteiro so para a 59 punha as duas em escalas diferentes e
-        # inflava a contagem por um fator de 19.
+        # As duas analisam o MESMO conjunto de mensagens: as 5 primeiras janelas
+        # de 15 min da operacao. Passar o dia inteiro so para a distribuicao
+        # poria as duas em escalas diferentes.
         janelas = 5
         t0 = int(df["t"].min())
         recorte = df[df["t"] < t0 + janelas]
-        figura_58(recorte, arquivo(out, 58))
-        figura_59(recorte, arquivo(out, 59))
+        figura_mensagens(recorte, arquivo(out, "mensagens"))
+        figura_mensagens_distribuicao(recorte, arquivo(out, "mensagens_dist"))
     else:
-        print(f"sem {a.trace}; pulando as Figuras 58 e 59")
+        print(f"sem {a.trace}; pulando as figuras de comunicacao")
 
 
 if __name__ == "__main__":

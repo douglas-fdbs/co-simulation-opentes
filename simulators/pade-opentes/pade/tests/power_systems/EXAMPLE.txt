@@ -49,9 +49,6 @@ mygrid/util.py
 README.md
 - Summarizes the correct way to run the example.
 
-changelogs.md and changelogs_en.md
-- Record what changed during the migration.
-
 
 3. HOW TO INTERPRET THE TERMINAL
 

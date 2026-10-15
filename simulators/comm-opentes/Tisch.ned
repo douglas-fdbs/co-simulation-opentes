@@ -1,5 +1,5 @@
 //
-// Rede LPWA 6TiSCH da tese (subsecao 6.1.5), como servidor de roteamento.
+// Rede LPWA 6TiSCH (modelo de Melo, 2022, secao 6.1.5), como servidor de rotas.
 //
 // Modelo multi-salto com PER por distancia, que responde consultas de rota
 // vindas dos agentes PADE em vez de participar do passo do Mosaik.
@@ -10,7 +10,7 @@ simple TischServer
         // Porta ZMQ das consultas de rota.
         int port = default(5556);
         string positions_file = default("nodes_xy.csv");
-        // Matriz de adjacencia da tese (Apendice C). Vazia = gerar pelo limiar
+        // Matriz de adjacencia publicada, se houver. Vazia = gerar pelo limiar
         // de PER, o que exige supor o orcamento de enlace do radio.
         string adjacency_file = default("adjacency.txt");
 
@@ -29,14 +29,13 @@ simple TischServer
         // 101 timeslots, 4,04 s por slotframe. Um cell dedicado por enlace por
         // slotframe e o padrao minimo do 6TiSCH.
         double slotframe_s = default(4.04);
-        // Cells alocados por enlace por slotframe. A tese NAO informa este valor,
-        // e ele e o que mais mexe no tempo de entrega. O padrao aqui e
-        // CALIBRADO: com 2 cells sobre a topologia publicada, os tempos ficam
-        // entre 6 e 74 s, dentro dos 10 a 90 s que a tese reporta. Com 1 cell,
-        // que e a configuracao minima do 6TiSCH, eles dobram. Fica registrado
-        // como calibracao, e nao como previsao do modelo.
+        // Cells alocados por enlace por slotframe. A referencia NAO informa este
+        // valor, e ele e o que mais mexe no tempo de entrega. O padrao e
+        // CALIBRADO: com 2 cells, os tempos de entrega ficam na faixa de 10 a
+        // 90 s reportada na referencia. Com 1 cell, que e a configuracao minima
+        // do 6TiSCH, eles dobram. E uma calibracao, e nao uma previsao do modelo.
         int cells_per_slotframe = default(2);
-        // Frame maximo do IEEE 802.15.4. E o numero da tese; uma pilha real
+        // Frame maximo do IEEE 802.15.4, como na referencia; uma pilha real
         // gasta parte disso em cabecalho 802.15.4, 6LoWPAN e UDP, e sobram cerca
         // de 80 bytes uteis, o que aumenta os tempos em cerca de 60%.
         int frame_bytes = default(127);
