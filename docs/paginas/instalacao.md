@@ -17,14 +17,41 @@ export CPLEX_HOME=$HOME/IBM/CPLEX_Studio2211/cplex
 
 O primeiro `build` compila o OMNeT++ e leva alguns minutos.
 
+## O console
+
+```bash
+./run.sh
+```
+
+Sem argumentos, num terminal, o `run.sh` abre o console (`cli/console.sh`). Ele
+mostra o estado do ambiente (Docker, imagens, CPLEX, matrizes do caso), a
+configuração atual e um menu:
+
+| Tecla | O que faz |
+|---|---|
+| `1` a `5` | co-simulação, negociação centralizada, figuras, fluxo completo, regenerar o caso |
+| `c` | configurar: formulação, inversor, regulador, rede entre agentes (ideal, com perda, 6TiSCH), critério e tolerância, cenários, caminho do CPLEX |
+| `r` | refazer o último comando |
+| `s`, `l`, `f` | resumo dos resultados, log da última execução, pasta das figuras |
+| `b`, `x` | construir as imagens; derrubar contêineres presos |
+
+Durante uma execução, a tela mostra a etapa, a rodada da negociação com o
+desacordo relativo e, na operação, a hora do dia. A saída completa vai para
+`output/console/`. Ctrl+C interrompe e limpa os contêineres.
+
+A configuração fica em `.opentes.env` (fora do git) e vale para a próxima
+sessão. Cada configuração grava numa pasta própria: `output/market`,
+`market_por_no`, `market_equilibrado`, `market_omnet`, `market_perda` e as
+combinações. Fora do console, a variável `OPENTES_SAIDA` faz o mesmo.
+
 ## Os comandos
 
-Tudo passa pelo `run.sh`:
+O console só chama o `run.sh`, que também funciona direto:
 
 | Comando | O que faz | Tempo |
 |---|---|---|
 | `./run.sh centralizado` | a negociação sem agentes nem Mosaik, mais a liquidação | cerca de 1 min |
-| `./run.sh market` | a co-simulação completa, linha de base e negociada | 10 a 20 min |
+| `./run.sh market` | a co-simulação completa, linha de base e negociada | cerca de 1 min; 15 a 20 com a 6TiSCH |
 | `./run.sh figuras` | as figuras, a partir das saídas dos dois comandos acima | segundos |
 | `./run.sh caso` | regenera o caso IEEE 13 e as matrizes de sensibilidade | cerca de 1 min |
 
@@ -51,6 +78,7 @@ Todas têm valor padrão no `docker-compose.yaml`.
 | `MARKET_REGULADOR` | `previsao` | derivações do regulador fixadas pelo ponto da previsão; `neutro` as deixa em 0 |
 | `NET_BACKEND` | `ideal` | rede entre os agentes: `ideal`, `lossy` ou `omnet` (6TiSCH) |
 | `NET_TIME_SCALE` | `1.0` | quanto do atraso nominal da rede vira espera de relógio; com `omnet`, use `0.02`, senão cada rodada leva minutos reais |
+| `NET_DROP_PROBABILITY` | `0.0` | com `NET_BACKEND=lossy`, a probabilidade de cada mensagem se perder |
 | `MARKET_SCENARIOS` | `1` | cenários por prosumidor; `1` é determinístico, `3` gera nove cenários de preço e potência |
 | `MARKET_V_BACKOFF` | `1e-3` | margem nos limites de tensão, contra o erro da linearização |
 | `MARKET_CRITERIO` | `relativo` | critério de parada: `relativo` à potência de cada dispositivo, ou `absoluto` (variação de λ até `MARKET_EPS`, o da tese) |

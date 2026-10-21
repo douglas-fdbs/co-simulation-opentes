@@ -2,6 +2,7 @@
 #
 # run.sh - ponto de entrada unico do OpenTES: mercado transativo sobre a IEEE 13.
 #
+#   ./run.sh               console interativo (cli/console.sh)
 #   ./run.sh --help        lista os comandos
 #   ./run.sh market        co-simulacao completa (o comando do dia a dia)
 #
@@ -19,7 +20,8 @@ usage() {
 OpenTES - mercado transativo sobre a IEEE 13 barras
 (agentes PADE + OpenDSS + OMNeT++, orquestrados pelo Mosaik)
 
-Uso: ./run.sh <comando>
+Uso: ./run.sh            console interativo, com menu
+     ./run.sh <comando>
 
 Comandos:
   market          Co-simulacao completa, em duas passadas sobre a mesma demanda
@@ -53,8 +55,19 @@ Exemplos:
 EOF
 }
 
+# Sem argumentos, num terminal interativo, abre o console.
+if [ $# -eq 0 ] && [ -t 0 ] && [ -t 1 ]; then
+    exec bash cli/console.sh
+fi
+if [ "${1:-}" = "console" ]; then
+    exec bash cli/console.sh
+fi
+
 # --- pasta de resultados ----------------------------------------------------
-if [ "${MARKET_FASE:-1}" = "1" ]; then SAIDA=market; else SAIDA=market_por_no; fi
+# OPENTES_SAIDA escolhe outra pasta dentro de output/ (o console usa uma pasta
+# por configuracao, para uma execucao nao apagar a outra).
+if [ -n "${OPENTES_SAIDA:-}" ]; then SAIDA="$OPENTES_SAIDA"
+elif [ "${MARKET_FASE:-1}" = "1" ]; then SAIDA=market; else SAIDA=market_por_no; fi
 export MOSAIK_OUTPUT_DIR="/app/output/$SAIDA"
 export MARKET_RUN_DIR="/app/output/$SAIDA"
 mkdir -p "output/$SAIDA"

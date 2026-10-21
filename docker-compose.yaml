@@ -131,6 +131,8 @@ services:
       # (perda e atraso sorteados) ou `omnet` (a rede 6TiSCH do servico comm).
       - NET_BACKEND=${NET_BACKEND:-ideal}
       - NET_TIME_SCALE=${NET_TIME_SCALE:-1.0}
+      # Probabilidade de perda por mensagem no backend `lossy`.
+      - NET_DROP_PROBABILITY=${NET_DROP_PROBABILITY:-0.0}
       - NET_TRACE=${NET_TRACE:-}
       # Tamanho informado a rede: `real` usa o conteudo serializado;
       # `declarado`, as classes de tamanho fixas da implementacao de referencia.

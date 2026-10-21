@@ -67,9 +67,21 @@ host em tempo de execução).
 
 ```bash
 docker compose build
+./run.sh
+```
+
+Sem argumentos, o `run.sh` abre um console com o logo, o estado do ambiente
+(Docker, imagens, CPLEX, caso) e um menu: executar, refazer o último comando,
+mudar a configuração, ver resultados, log e figuras, reconstruir as imagens e
+reiniciar o ambiente. A configuração escolhida fica em `.opentes.env`, e cada
+uma grava numa pasta própria de `output/`, para uma execução não apagar a outra.
+
+Os mesmos comandos funcionam direto, para scripts:
+
+```bash
 export CPLEX_HOME=$HOME/IBM/CPLEX_Studio2211/cplex
 ./run.sh centralizado     # a negociação sem agentes, mais a liquidação (~1 min)
-./run.sh market           # a co-simulação completa (10 a 20 min)
+./run.sh market           # a co-simulação completa (~1 min; 15 a 20 min com a 6TiSCH)
 ./run.sh figuras          # as figuras, em output/market/figuras/
 ```
 
@@ -82,6 +94,7 @@ export CPLEX_HOME=$HOME/IBM/CPLEX_Studio2211/cplex
 
 ```
 run.sh                  ponto de entrada: market, centralizado, figuras, caso
+cli/                    o console interativo que o ./run.sh abre, e o logo
 docker-compose.yaml     os cinco contêineres e todas as variáveis, comentadas
 simulators/
   grid-opentes/         rede elétrica: OpenDSS, o caso IEEE 13 e as matrizes de sensibilidade

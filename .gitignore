@@ -13,6 +13,9 @@ dist/
 output/
 logs/
 
+# Configuracao salva pelo console (cli/console.sh)
+.opentes.env
+
 # OMNeT++: artefatos de compilacao e de execucao do comm-opentes
 out/
 sim_exec
