@@ -64,7 +64,8 @@ sys.path.insert(0, MARKET_PKG)
 
 from market_opentes.config import (PERIODS, REGULADOR, STORAGE_TAN_PHI,  # noqa: E402
                                    load_case)
-from market_opentes.dual import load_profiles, load_sensitivity, load_taps  # noqa: E402
+from market_opentes.dual import (criterio_parada, load_profiles,  # noqa: E402
+                                 load_sensitivity, load_taps)
 from market_opentes.optimization import (solve_concentrator, solve_dso,  # noqa: E402
                                          solve_prosumer)
 from market_opentes.operation import realized_profiles, voltage_at  # noqa: E402
@@ -94,9 +95,14 @@ def _round_timeout():
     escala = float(os.environ.get("NET_TIME_SCALE", "1.0"))
     if os.environ.get("NET_BACKEND", "ideal") == "ideal":
         return 120.0
-    # Folga de cinco vezes sobre o pior caso plausivel de entrega nesta rede,
-    # cerca de 200 s nominais por mensagem, com piso para nao ficar curto demais.
-    return max(20.0, 5.0 * 200.0 * escala)
+    # Uma rodada e um CFP descendo e uma proposta subindo. Com a analise por
+    # fase, cada um leva de 300 a 540 s nominais na rede 6TiSCH, e a ida e volta
+    # chega a cerca de 1000 s: um limite pensado para 200 s por mensagem
+    # disparava retransmissoes sem perda nenhuma. A referencia passa a ser a
+    # janela de 15 min: so se retransmite o que nao chegou em tres janelas de
+    # tempo de rede.
+    janela = float(os.environ.get("MARKET_WINDOW_S", "900"))
+    return max(20.0, 3.0 * janela * escala)
 
 
 ROUND_TIMEOUT = _round_timeout()
@@ -282,6 +288,56 @@ def _reply(message, performative, payload):
 
 
 # ---------------------------------------------------------------------------
+# Partida dos agentes
+#
+# Dois comportamentos do PADE, juntos, produziam uma corrida no inicio da
+# negociacao:
+#   - `FipaProtocol.execute` faz `self.message = message` em TODO comportamento
+#     do agente, a cada mensagem recebida, inclusive nos iniciadores;
+#   - `Agent.on_start` agenda para 2 s depois um `on_start()` em todos os
+#     comportamentos, e o `on_start` de um iniciador envia `self.message`.
+# Se a negociacao comecava antes desses 2 s, um iniciador reenviava a ultima
+# mensagem RECEBIDA, com o proprio agente como remetente e como destinatario:
+# o DSO respondia a um CFP falso para si mesmo, a proposta da rodada nunca
+# chegava ao agente de mercado, e a rodada esperava o tempo limite inteiro.
+#
+# A correcao tem duas partes. `_AgenteMercado` lanca os comportamentos uma
+# vez, por `lancar_comportamentos`, que o `start_market_loop` chama antes de
+# anunciar que os agentes estao prontos, e portanto antes de qualquer
+# negociacao. E `_SoEnviaOProprio` impede um iniciador de reenviar mensagem
+# que veio de outro agente, qualquer que seja o caminho que chame o `on_start`.
+# ---------------------------------------------------------------------------
+
+class _AgenteMercado(Agent):
+    """Agente do mercado: sem o lancamento adiado de comportamentos do PADE."""
+
+    def on_start(self):
+        for system_behaviour in self.system_behaviours:
+            system_behaviour.on_start()
+        AGENTS[self.aid.localname] = self
+
+    def lancar_comportamentos(self):
+        for behaviour in self.behaviours:
+            behaviour.on_start()
+
+
+class _SoEnviaOProprio:
+    """Iniciador que so envia mensagem montada pelo proprio agente.
+
+    Mensagem nova tem remetente vazio; a que o agente ja enviou (numa
+    retransmissao) tem o proprio agente como remetente. Qualquer outro
+    remetente significa que `self.message` foi sobrescrita por uma mensagem
+    recebida, e reenvia-la seria o erro descrito acima.
+    """
+
+    def on_start(self):
+        remetente = getattr(getattr(self.message, "sender", None), "localname", None)
+        if remetente is not None and remetente != self.agent.aid.localname:
+            return
+        super().on_start()
+
+
+# ---------------------------------------------------------------------------
 # Solver: roda os modelos em thread separada, para nao travar o reactor
 # ---------------------------------------------------------------------------
 
@@ -299,7 +355,7 @@ class SolverProtocol(FipaRequestProtocol):
         self.agent.send(_reply(message, ACLMessage.INFORM, result))
 
 
-class SolverAgent(Agent):
+class SolverAgent(_AgenteMercado):
     """Resolve os modelos Pyomo sob demanda (papel do `solver_agent.py`)."""
 
     def __init__(self, aid, case, profiles, price, sensitivity):
@@ -386,10 +442,6 @@ class SolverAgent(Agent):
         base_kw = {n: np.array([float(self.realized[n][t])])
                    for n in self.case.lv_nodes if n in self.realized}
         return self.v0_real[t], base_kw, float(sum(deviation.values()))
-
-    def on_start(self):
-        super().on_start()
-        AGENTS[self.aid.localname] = self
 
     def dispatch(self, request):
         kind = request["kind"]
@@ -496,7 +548,7 @@ class SolverAgent(Agent):
                 "q": {str(n): v.tolist() for n, v in q.items()}}
 
 
-class SolverClient(FipaRequestProtocol):
+class SolverClient(_SoEnviaOProprio, FipaRequestProtocol):
     """Lado iniciador: quem precisa de um modelo resolvido usa isto."""
 
     def __init__(self, agent):
@@ -580,6 +632,17 @@ class DispatchSubscriber(FipaSubscribeProtocol):
         _set_content(message, {"subscribe": agent.aid.localname})
         super().__init__(agent, message, is_initiator=True)
         self._on_dispatch = on_dispatch
+        # O `execute` do PADE sobrescreve `self.message` a cada mensagem
+        # recebida; a assinatura fica guardada a parte e e enviada uma vez.
+        self._assinatura = message
+        self._assinou = False
+
+    def on_start(self):
+        if self._assinou:
+            return
+        self._assinou = True
+        self.message = self._assinatura
+        super().on_start()
 
     def handle_agree(self, message):
         pass
@@ -628,7 +691,7 @@ class ProsumerParticipant(FipaContractNetProtocol):
                        {"node": self.agent.node, "schedule": result["schedule"]})))
 
 
-class ProsumerAgent(Agent):
+class ProsumerAgent(_AgenteMercado):
     def __init__(self, aid, node, concentrator_name):
         super().__init__(aid=aid, debug=False)
         self.node = node
@@ -657,16 +720,12 @@ class ProsumerAgent(Agent):
             self.dispatched = np.array(series)
         confirm()
 
-    def on_start(self):
-        super().on_start()
-        AGENTS[self.aid.localname] = self
-
 
 # ---------------------------------------------------------------------------
 # AC: Agente Concentrador
 # ---------------------------------------------------------------------------
 
-class ConcentratorInitiator(FipaContractNetProtocol):
+class ConcentratorInitiator(_SoEnviaOProprio, FipaContractNetProtocol):
     """Ciclo 1: pede aos prosumidores a programacao proposta.
 
     A conclusao do ciclo e decidida por CONTAGEM PROPRIA, e nao pelo
@@ -753,7 +812,7 @@ class ConcentratorParticipant(FipaContractNetProtocol):
                                          for k, v in result["schedule"].items()}})))
 
 
-class ConcentratorAgent(Agent):
+class ConcentratorAgent(_AgenteMercado):
     def __init__(self, aid, name, nodes, storage_nodes, on_ready,
                  network_storage=(), case=None):
         super().__init__(aid=aid, debug=False)
@@ -818,10 +877,6 @@ class ConcentratorAgent(Agent):
         if self._confirm_to_dso:
             self._confirm_to_dso()
             self._confirm_to_dso = None
-
-    def on_start(self):
-        super().on_start()
-        AGENTS[self.aid.localname] = self
 
     def request_schedules(self, t=None, on_ready=None):
         """Ciclo 1: pede a programacao aos prosumidores.
@@ -961,7 +1016,7 @@ class DSOParticipant(FipaContractNetProtocol):
                            dict(result, round=request.get("round")))))
 
 
-class ReportInitiator(FipaContractNetProtocol):
+class ReportInitiator(_SoEnviaOProprio, FipaContractNetProtocol):
     """Ciclo 2: o AD pede as programacoes agregadas aos AC."""
 
     def __init__(self, agent, message):
@@ -972,7 +1027,7 @@ class ReportInitiator(FipaContractNetProtocol):
         self.agent.collect_report(message)
 
 
-class DSOAgent(Agent):
+class DSOAgent(_AgenteMercado):
     def __init__(self, aid, on_dispatch_done=None):
         super().__init__(aid=aid, debug=False)
         self.solver = SolverClient(self)
@@ -1073,16 +1128,12 @@ class DSOAgent(Agent):
             "prosumer": {str(n): v for n, v in prosumer_schedule.items()},
             "network": {str(n): v for n, v in network_schedule.items()}}})
 
-    def on_start(self):
-        super().on_start()
-        AGENTS[self.aid.localname] = self
-
 
 # ---------------------------------------------------------------------------
 # AM: Agente Mercado, que tambem hospeda a conexao com o Mosaik
 # ---------------------------------------------------------------------------
 
-class OperationInitiator(FipaContractNetProtocol):
+class OperationInitiator(_SoEnviaOProprio, FipaContractNetProtocol):
     """Ciclo da fase de operacao: um intervalo, dois niveis."""
 
     def __init__(self, agent, message):
@@ -1093,7 +1144,7 @@ class OperationInitiator(FipaContractNetProtocol):
         self.agent.collect_operation(message)
 
 
-class MarketInitiator(FipaContractNetProtocol):
+class MarketInitiator(_SoEnviaOProprio, FipaContractNetProtocol):
     """Ciclo 4: uma rodada de negociacao com os AC e o AD."""
 
     def __init__(self, agent, message):
@@ -1108,7 +1159,7 @@ class MarketInitiator(FipaContractNetProtocol):
         self.agent.try_close_round()
 
 
-class MarketAgent(Agent):
+class MarketAgent(_AgenteMercado):
     def __init__(self, aid, case, profiles, price, sensitivity):
         super().__init__(aid=aid, debug=False)
         self.case = case
@@ -1135,6 +1186,11 @@ class MarketAgent(Agent):
         self.y = {}
         self.q = {}
         self.round = 0
+        # Ultima rodada ja fechada. Com retransmissao, uma resposta duplicada
+        # chega com o numero de uma rodada que ja fechou e nao pode fecha-la de
+        # novo: depois do aceite, isso reabria a negociacao em paralelo com a
+        # fase de operacao.
+        self._rodada_fechada = 0
         self.expected = ({f"concentrator_{c.name}" for c in case.concentrators}
                          | {"dso"})
         self.replied = set()
@@ -1157,10 +1213,6 @@ class MarketAgent(Agent):
         self.op_result = None
         self.operation_log = []
         self.op_v_min_before = None
-
-    def on_start(self):
-        super().on_start()
-        AGENTS[self.aid.localname] = self
 
     # ---- ciclo 1: cada AC pede aos seus AP ---------------------------------
     def start_negotiation(self):
@@ -1231,8 +1283,8 @@ class MarketAgent(Agent):
         global. Mandar o pacote inteiro para todos multiplicaria o tamanho do CFP,
         e numa rede LPWA mensagem grande e mensagem perdida.
 
-        As series vao com 6 casas decimais. A tolerancia da negociacao e 1e-4 no
-        criterio de parada, quatro ordens de grandeza acima do que se descarta.
+        As series vao com 6 casas decimais (1e-6 kW), muito abaixo da tolerancia
+        do criterio de parada, de 0,1% da potencia de cada dispositivo.
         """
         base = {"action": "REOPTIMIZE", "round": self.round}
         if receiver != "dso":
@@ -1307,9 +1359,10 @@ class MarketAgent(Agent):
         incompleto, mesmo sem nenhuma perda.
         """
         payload = _parse(message.content)
-        if payload.get("round") != self.round:
-            # Resposta de uma rodada anterior: ignorar, senao o lambda seria
-            # atualizado com um residuo que mistura duas rodadas.
+        if payload.get("round") != self.round or self._rodada_fechada == self.round:
+            # Resposta de uma rodada anterior, ou duplicata de uma ja fechada:
+            # ignorar, senao o lambda seria atualizado com um residuo que mistura
+            # duas rodadas.
             return
         sender = getattr(message.sender, "localname", "?")
         self.replied.add(sender)
@@ -1330,6 +1383,7 @@ class MarketAgent(Agent):
         if self._timeout_call is not None and self._timeout_call.active():
             self._timeout_call.cancel()
         self.replied = set()
+        self._rodada_fechada = self.round
 
         c3 = close_cycle(2, f" (rodada {self.round})")
         residual = np.array([self.x[n] - self.y[n] for n in pros])
@@ -1341,6 +1395,8 @@ class MarketAgent(Agent):
             "round": self.round,
             "d_lambda_max": float(np.abs(d_lam).max()),
             "residual_max": float(np.abs(residual).max()),
+            "residual_rel_max": float((np.abs(residual)
+                                       / self.case.potencia_ref(pros)).max()),
             "lambda_max": float(max(np.abs(v).max() for v in self.lam.values())),
             # Programacao que cada lado adotou NESTA rodada, por no: o que o AC
             # propoe e o que o AD aceita ao longo das iteracoes.
@@ -1351,9 +1407,10 @@ class MarketAgent(Agent):
         extra = f" rede={c3['max_delay']:.0f} s" if c3 else ""
         display_message(self.aid.localname,
                         f"rodada {self.round}: |dlambda|={np.abs(d_lam).max():.3e} "
-                        f"|x-y|={np.abs(residual).max():.4f} kW{extra}")
+                        f"|x-y|={np.abs(residual).max():.4f} kW "
+                        f"({self.history[-1]['residual_rel_max']:.1e} de Pmax){extra}")
 
-        if np.abs(d_lam).max() <= EPS:
+        if criterio_parada(self.case, pros, residual, d_lam, EPS)[0]:
             self.converged = True
             self._accept()
         elif self.round >= MAX_ROUNDS:
@@ -1554,7 +1611,7 @@ class MarketAgent(Agent):
         for i, n in enumerate(pros):
             self.op_lam[n] = self.op_lam[n] + d_lam[i]
 
-        if (np.abs(d_lam).max() <= EPS
+        if (criterio_parada(self.case, pros, residual, d_lam, EPS)[0]
                 or self.op_round >= OP_MAX_ROUNDS
                 or self.op_result["violations_after"] == 0):
             self._apply_operation(self.op_result)
@@ -1905,14 +1962,21 @@ def start_market_loop(agents, case=None):
     for agent in agents:
         agent.agentInstance.table.update(directory)
 
-    # Sinal de prontidao: so agora as portas estao abertas. Quem espera por este
-    # processo (o run.sh, o Mosaik) deve esperar por ESTA linha, e nao pela que
-    # anuncia a criacao dos agentes, que sai antes do listenTCP.
-    print(f"[market-mas] pronto: {len(agents)} agentes ouvindo a partir da porta "
-          f"{BASE_PORT}", flush=True)
-
+    # A camada de rede entra antes dos comportamentos, para que as assinaturas
+    # do despacho tambem passem pelo modelo de rede.
     link = _install_network(agents, case)
     globals()["LINK"] = link
+
+    # Os comportamentos sao lancados aqui, com a tabela de enderecos preenchida
+    # e antes de qualquer negociacao (ver `_AgenteMercado`).
+    for agent in agents:
+        agent.lancar_comportamentos()
+
+    # Sinal de prontidao: so agora as portas estao abertas e os comportamentos
+    # iniciados. Quem espera por este processo (o run.sh, o Mosaik) deve
+    # esperar por ESTA linha, e nao pela que anuncia a criacao dos agentes.
+    print(f"[market-mas] pronto: {len(agents)} agentes ouvindo a partir da porta "
+          f"{BASE_PORT}", flush=True)
     if link is not None:
         reactor.addSystemEventTrigger(
             "before", "shutdown",

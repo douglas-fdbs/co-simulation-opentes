@@ -24,9 +24,9 @@ OpenDSS, e não o modelo linear.
 | Formulação | Passada | > 1,03 pu | < 0,97 pu | fora da ANSI A | rodadas |
 |---|---|---:|---:|---:|---:|
 | por barra (`MARKET_FASE=0`) | base | 472 | 65 | 95 | |
-| | negociada | **134** | 18 | 3 | 82 |
+| | negociada | **134** | 18 | 3 | 48 |
 | por fase (padrão) | base | 522 | 96 | 105 | |
-| | negociada | **9** | 28 | **0** | 66 |
+| | negociada | **9** | 28 | **0** | 42 |
 
 A formulação por barra cumpre o que promete: na **média** das fases, a negociada
 tem zero leituras acima de 1,03 pu. Só que a média esconde 134 leituras de fase
@@ -77,29 +77,36 @@ linear é conferido com as derivações do regulador fixadas pela previsão:
 
 | Formulação | > 1,03 pu | < 0,97 pu | fora da ANSI A | rodadas | energia deslocada |
 |---|---:|---:|---:|---:|---:|
-| por barra | 151 | 18 | 1 | 81 | 6.904 kWh |
-| por fase, inversor de quatro fios | 9 | 28 | 0 | 66 | 7.528 kWh |
-| por fase, inversor de três fios | 5 | 26 | 0 | — | 8.990 kWh |
+| por barra | 151 | 18 | 1 | 48 | 6.903 kWh |
+| por fase, inversor de quatro fios | 9 | 28 | 0 | 42 | 7.527 kWh |
+| por fase, inversor de três fios | 5 | 26 | 0 | 63 | 8.987 kWh |
 
 Corrigir por fase custa 9% mais energia deslocada que corrigir a média, e
 converge em menos rodadas. Com o inversor de três fios
 (`MARKET_DISPOSITIVO=equilibrado`), o excesso cai um pouco mais, mas exige 19% mais energia que
 o de quatro fios para o mesmo efeito, porque uma injeção igual nas três fases
 mexe também nas fases que já estavam dentro da faixa. Na co-simulação, o de três
-fios fica em 11 leituras acima e 26 abaixo, sem sair da ANSI A, e leva 108
-rodadas contra 66.
+fios fica em 11 leituras acima e 26 abaixo, sem sair da ANSI A, e leva 63
+rodadas contra 42.
+
+As rodadas são as do critério de parada relativo (`MARKET_EPS_REL = 1e-3`, ver
+[O modelo de mercado](mercado.md)). Com o critério absoluto da tese, eram 81, 66
+e 108, para as mesmas contagens de tensão.
 
 ## Sobre a rede 6TiSCH
 
 Com `NET_BACKEND=omnet NET_TIME_SCALE=0.02`, as mensagens atravessam a rede
-6TiSCH do OMNeT++. O resultado elétrico é o mesmo da rede ideal: 66 rodadas, 9
+6TiSCH do OMNeT++. O resultado elétrico é o mesmo da rede ideal: 42 rodadas, 9
 leituras acima de 1,03 pu, 28 abaixo de 0,97 e nenhuma fora da ANSI A. Nenhuma
-das 3.101 mensagens se perdeu, e houve uma retransmissão por timeout.
+das 2.978 mensagens se perdeu, e não houve retransmissão. O despacho da
+programação acordada, por FIPA-Subscribe, faz parte do tráfego: o DSO publica ao
+concentrador, que publica aos 10 prosumidores, e as confirmações sobem.
 
 O custo aparece no tempo. As mensagens do DSO, do concentrador e do agente de
 mercado com λ e programação por porta têm de 20 a 34 kB, e o ciclo 3 de cada
 rodada gastou de 474 a 541 s de rede, acima do orçamento de 300 s em **todas** as
-66 rodadas. Somadas, são 9,1 h de rede para fechar a negociação do dia seguinte.
+42 rodadas. Somadas, são 5,8 h de rede para fechar a negociação do dia seguinte;
+com o critério de parada absoluto, que pedia 66 rodadas, eram 9,1 h.
 Na fase de operação, com uma rodada por janela, o ciclo fica em 22 s.
 
 ## Onde ficam os arquivos

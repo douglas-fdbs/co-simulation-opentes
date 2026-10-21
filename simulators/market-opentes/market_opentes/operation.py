@@ -33,7 +33,7 @@ from pathlib import Path
 import numpy as np
 
 from .config import DATA_DIR, PERIODS, V_MAX, V_MIN, V_TOL, load_case
-from .dual import load_profiles, load_sensitivity, run
+from .dual import criterio_parada, load_profiles, load_sensitivity, run
 from .optimization import solve_concentrator, solve_dso
 
 ALPHA = 0.6
@@ -183,7 +183,7 @@ def run_operation(config_json, schedule, first=0, count=PERIODS, alpha=ALPHA,
                         d_lam = d_lam * np.array([float(case.mult(n)) for n in pros])[:, None]
                     for i, n in enumerate(pros):
                         lam_t[n] = lam_t[n] + d_lam[i]
-                    if np.abs(d_lam).max() <= eps:
+                    if criterio_parada(case, pros, residual, d_lam, eps)[0]:
                         break
                 v_after = voltage_at(case, v0_t, s[t], p_new, q_new)
                 level = "leilao"

@@ -108,6 +108,21 @@ REGULADOR = os.environ.get("MARKET_REGULADOR", "previsao")
 if REGULADOR not in ("previsao", "neutro"):
     raise ValueError(f"MARKET_REGULADOR desconhecido: {REGULADOR}")
 
+# Criterio de parada da decomposicao dual.
+#   relativo  (padrao) para quando, em toda variavel de armazenamento e em todo
+#             intervalo, o desacordo entre concentrador e DSO, |x - y|, fica
+#             abaixo de MARKET_EPS_REL vezes a potencia maxima do proprio
+#             dispositivo (por porta, Pmax/|F|). O rigor e o mesmo numa bateria
+#             de 2 kW ou de 800 kW.
+#   absoluto  o criterio de (6.30), |lambda_w+1 - lambda_w| <= MARKET_EPS. Como
+#             o incremento e o passo vezes o desacordo em kW, o mesmo eps e
+#             tanto mais exigente quanto maiores os dispositivos. Fica para
+#             comparacao.
+CRITERIO = os.environ.get("MARKET_CRITERIO", "relativo")
+if CRITERIO not in ("relativo", "absoluto"):
+    raise ValueError(f"MARKET_CRITERIO desconhecido: {CRITERIO}")
+EPS_REL = float(os.environ.get("MARKET_EPS_REL", "1e-3"))
+
 # Pesos das funcoes objetivo, com os valores da formulacao de referencia.
 CK = 1.0           # concentrador, (6.25)
 A_PROSUMER = 0.2   # DSO, peso do armazenamento de prosumidor, (6.27)
@@ -184,6 +199,15 @@ class Case:
     def mult(self, key):
         """Quantas variaveis o dispositivo da chave tem (|F| por porta, 1 por no)."""
         return len(self._portas_do_no(self.node_of(key))) if self.por_porta else 1
+
+    def potencia_ref(self, keys):
+        """Potencia maxima de cada chave, em kW, como coluna (n, 1).
+
+        E a escala do criterio de parada relativo: a do dispositivo inteiro no
+        modo por no e no equilibrado, Pmax/|F| por porta no modo independente.
+        """
+        return np.array([self.prosumer_storage[self.node_of(k)].max_flow_kw
+                         / self.mult(k) for k in keys])[:, None]
 
     def columns(self, key):
         """[(coluna, peso)] da chave na matriz de sensibilidade em uso.

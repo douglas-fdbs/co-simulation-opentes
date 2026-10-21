@@ -13,10 +13,12 @@ de la):
   3. o Agente Mercado atualiza o preco sombra pelo subgradiente (6.30) e
      testa a convergencia.
 
-O criterio de parada e |lambda_w - lambda_w+1| <= eps. Como esse incremento e
-alpha vezes o residuo primal, o criterio e um residuo primal escalado por alpha:
-com alpha pequeno ele afrouxa. Por isso os dois residuos sao reportados lado a
-lado.
+O criterio de parada padrao e relativo: o desacordo |x - y| de cada variavel de
+armazenamento, em todo intervalo, abaixo de uma fracao (MARKET_EPS_REL) da
+potencia maxima do proprio dispositivo. O criterio de (6.30),
+|lambda_w - lambda_w+1| <= eps, fica disponivel com MARKET_CRITERIO=absoluto;
+como esse incremento e alpha vezes o residuo em kW, ele afrouxa com alpha
+pequeno e aperta com dispositivos grandes. Ver `criterio_parada`.
 
 Uso:
 
@@ -31,8 +33,8 @@ from pathlib import Path
 
 import numpy as np
 
-from .config import (DATA_DIR, FASE, PERIODS, STORAGE_TAN_PHI, V_MAX, V_MIN,
-                     V_TOL, load_case)
+from .config import (CRITERIO, DATA_DIR, EPS_REL, FASE, PERIODS,
+                     STORAGE_TAN_PHI, V_MAX, V_MIN, V_TOL, load_case)
 from .optimization import solve_concentrator, solve_dso, solve_prosumer
 from .scenarios import build_scenarios
 from .settlement import settle
@@ -41,9 +43,9 @@ from .settlement import settle
 # melhor numa varredura de passos; um passo pensado para residuo em W, como 5e-4,
 # deixa lambda praticamente parado.
 ALPHA = float(os.environ.get("MARKET_ALPHA", "0.6"))
-# Precisao desejada em lambda. E um residuo primal escalado pelo passo, entao o
-# mesmo numero significa coisas diferentes sob passos diferentes. O
-# docker-compose.yaml fixa 1e-3 (MARKET_EPS).
+# Precisao desejada em lambda, so no criterio absoluto. E um residuo primal
+# escalado pelo passo, entao o mesmo numero significa coisas diferentes sob
+# passos diferentes. O docker-compose.yaml fixa 1e-3 (MARKET_EPS).
 EPS = float(os.environ.get("MARKET_EPS", "1e-4"))
 MAX_ROUNDS = 30
 
@@ -146,6 +148,23 @@ def violations(v):
     return int((v < V_MIN - V_TOL).sum()), int((v > V_MAX + V_TOL).sum())
 
 
+def criterio_parada(case, keys, residual, d_lam, eps=EPS):
+    """A rodada fecha a negociacao? Devolve (parou, medida, descricao).
+
+    `residual` e `d_lam` sao arrays (chaves, periodos) na ordem de `keys`.
+
+    No criterio relativo, a medida e o maior |x - y| / Pmax entre todas as
+    variaveis e todos os intervalos: o desacordo, em fracao da potencia do
+    proprio dispositivo. No absoluto, e o maior |dlambda|.
+    """
+    if CRITERIO == "absoluto":
+        medida = float(np.abs(d_lam).max())
+        return medida <= eps, medida, f"|dlambda| = {medida:.2e} <= {eps:.0e}"
+    medida = float((np.abs(residual) / case.potencia_ref(keys)).max())
+    return (medida <= EPS_REL, medida,
+            f"|x-y|/Pmax = {medida:.2e} <= {EPS_REL:.0e}")
+
+
 def step_size(alpha, round_, rule):
     """Passo do subgradiente na rodada `round_`.
 
@@ -214,7 +233,8 @@ def run(config_json, alpha=ALPHA, eps=EPS, max_rounds=MAX_ROUNDS, n_scenarios=1,
               f"violacoes {violations(v_base)}")
         print(f"  + program. proposta  : V {v_prop.min():.4f} a {v_prop.max():.4f} pu, "
               f"violacoes {violations(v_prop)}")
-        print(f"\n{'rodada':>6} {'|dlambda|max':>13} {'|x-y| max':>11} {'|x-y| rms':>11} "
+        print(f"\ncriterio de parada: {CRITERIO}")
+        print(f"\n{'rodada':>6} {'|dlambda|max':>13} {'|x-y| max':>11} {'|x-y|/Pmax':>11} "
               f"{'lambda max':>11} {'V min':>8} {'V max':>8} {'viol':>10} {'s':>6}")
 
     history = []
@@ -243,6 +263,7 @@ def run(config_json, alpha=ALPHA, eps=EPS, max_rounds=MAX_ROUNDS, n_scenarios=1,
         for i, n in enumerate(pros):
             lam[n] = lam[n] + d_lam[i]
 
+        parou, _, motivo = criterio_parada(case, pros, residual, d_lam, eps)
         trilha_ac.append({n: np.array(x[n]) for n in pros})
         trilha_ad.append({n: np.array(y[n]) for n in pros})
 
@@ -254,6 +275,8 @@ def run(config_json, alpha=ALPHA, eps=EPS, max_rounds=MAX_ROUNDS, n_scenarios=1,
             "d_lambda_max": float(np.abs(d_lam).max()),
             "residual_max": float(np.abs(residual).max()),
             "residual_rms": float(np.sqrt((residual ** 2).mean())),
+            "residual_rel_max": float((np.abs(residual)
+                                       / case.potencia_ref(pros)).max()),
             "lambda_max": float(lam_max),
             "v_min": float(v_now.min()),
             "v_max": float(v_now.max()),
@@ -263,14 +286,13 @@ def run(config_json, alpha=ALPHA, eps=EPS, max_rounds=MAX_ROUNDS, n_scenarios=1,
         if verbose:
             h = history[-1]
             print(f"{round_:>6} {h['d_lambda_max']:>13.3e} {h['residual_max']:>11.4f} "
-                  f"{h['residual_rms']:>11.4f} {h['lambda_max']:>11.3e} "
+                  f"{h['residual_rel_max']:>11.2e} {h['lambda_max']:>11.3e} "
                   f"{h['v_min']:>8.4f} {h['v_max']:>8.4f} "
                   f"{str(h['violations']):>10} {dt:>6.1f}")
 
-        if np.abs(d_lam).max() <= eps:
+        if parou:
             if verbose:
-                print(f"\nconvergiu em {round_} rodadas "
-                      f"(|dlambda| = {np.abs(d_lam).max():.2e} <= {eps:.0e})")
+                print(f"\nconvergiu em {round_} rodadas ({motivo})")
             break
     else:
         if verbose:

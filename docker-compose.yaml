@@ -94,10 +94,17 @@ services:
       # Regulador: `previsao` aplica as derivacoes do ponto de operacao da
       # previsao (as da matriz de sensibilidade); `neutro` as deixa em 0.
       - MARKET_REGULADOR=${MARKET_REGULADOR:-previsao}
-      # Teto de rodadas da decomposicao dual. Por no a IEEE 13 converge em 81
-      # rodadas e por fase em 66; o teto fica com folga.
+      # Teto de rodadas da decomposicao dual. Com o criterio relativo, a IEEE 13
+      # converge em 48 rodadas por barra, 42 por fase e 63 com o inversor de tres
+      # fios; o teto fica com folga.
       - MARKET_MAX_ROUNDS=${MARKET_MAX_ROUNDS:-150}
       - MARKET_ALPHA=${MARKET_ALPHA:-0.6}
+      # Criterio de parada: `relativo` para quando o desacordo entre
+      # concentrador e DSO, em toda variavel e intervalo, fica abaixo de
+      # MARKET_EPS_REL vezes a potencia do proprio dispositivo; `absoluto` e o
+      # |dlambda| <= MARKET_EPS da formulacao de referencia, para comparacao.
+      - MARKET_CRITERIO=${MARKET_CRITERIO:-relativo}
+      - MARKET_EPS_REL=${MARKET_EPS_REL:-1e-3}
       - MARKET_EPS=${MARKET_EPS:-1e-3}
       - MARKET_SCENARIOS=${MARKET_SCENARIOS:-1}
       - MARKET_NEGOTIATE=${MARKET_NEGOTIATE:-1}

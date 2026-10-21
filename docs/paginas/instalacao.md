@@ -53,6 +53,8 @@ Todas têm valor padrão no `docker-compose.yaml`.
 | `NET_TIME_SCALE` | `1.0` | quanto do atraso nominal da rede vira espera de relógio; com `omnet`, use `0.02`, senão cada rodada leva minutos reais |
 | `MARKET_SCENARIOS` | `1` | cenários por prosumidor; `1` é determinístico, `3` gera nove cenários de preço e potência |
 | `MARKET_V_BACKOFF` | `1e-3` | margem nos limites de tensão, contra o erro da linearização |
+| `MARKET_CRITERIO` | `relativo` | critério de parada: `relativo` à potência de cada dispositivo, ou `absoluto` (variação de λ até `MARKET_EPS`, o da tese) |
+| `MARKET_EPS_REL` | `1e-3` | desacordo máximo entre concentrador e DSO, em fração da potência do dispositivo |
 | `MARKET_MAX_ROUNDS` | `150` | teto de rodadas da negociação |
 | `MARKET_STORAGE_PF` | `none` | fator de potência do armazenamento; `none` é a hipótese ΔQ = 0 |
 

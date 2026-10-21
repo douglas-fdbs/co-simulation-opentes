@@ -41,6 +41,7 @@ Variaveis mais usadas (todas em docker-compose.yaml):
   MARKET_FASE           1 (padrao): tensao e preco sombra por fase; 0: por barra
   MARKET_DISPOSITIVO    independente (padrao, quatro fios) ou equilibrado
   MARKET_REGULADOR      previsao (padrao) ou neutro
+  MARKET_CRITERIO       relativo (padrao, MARKET_EPS_REL=1e-3) ou absoluto
   NET_BACKEND           ideal (padrao), lossy ou omnet (rede 6TiSCH)
   NET_TIME_SCALE        fracao do atraso nominal esperada em relogio (0.02 com omnet)
 

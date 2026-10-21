@@ -79,8 +79,27 @@ de Lagrange, e o agente de mercado atualiza o preço sombra por subgradiente:
 λ(t,l) ← λ(t,l) + α · ( ACP_result(t,l) − ADP_result(t,l) )
 ```
 
-até `|Δλ| ≤ ε`. Esse critério é um resíduo primal escalado pelo passo; por isso
-a convergência é comparada também pelo resíduo primal, que é reportado ao lado.
+até o critério de parada.
+
+**O critério de parada é relativo ao tamanho dos dispositivos.** A negociação
+termina quando, em toda variável de armazenamento e em todo intervalo, o
+desacordo entre concentrador e DSO fica abaixo de uma fração da potência máxima
+do próprio dispositivo (por porta, Pmax/|F|):
+
+```
+max |ACP_result − ADP_result| / Pmax  ≤  ε_rel        (MARKET_EPS_REL = 1e-3)
+```
+
+O critério da tese, `|Δλ| ≤ ε`, continua disponível com `MARKET_CRITERIO=absoluto`.
+Como `Δλ = α · (ACP − ADP)`, ele limita o desacordo a ε/α kW, o mesmo valor
+absoluto para uma bateria de 2 kW ou de 800 kW. Com α = 0,6 e ε = 10⁻³, são
+1,7 W: cerca de 0,1% da potência na rede da tese, de bancos de 2 kW, e 0,001% ou
+menos na IEEE 13, de bancos de 150 a 800 kW, um rigor que não muda a solução e
+custa rodadas.
+Com ε_rel = 10⁻³, o rigor da IEEE 13 passa a ser o mesmo que o ε absoluto dava
+na rede da tese, e as rodadas caem de 82 para 48 por barra, de 66 para 42 por
+fase e de 108 para 63 com o inversor de três fios, sem mudar nenhuma contagem
+de tensão no fluxo não linear.
 
 ### A restrição de tensão (Eq. 6.15 a 6.17)
 
@@ -227,6 +246,14 @@ qualquer rede:
 - O FIPA não define retransmissão. Cada ciclo tem timeout com reenvio só aos
   faltantes, e uma política explícita para quem nunca responde: entra com
   programação nula.
+- O PADE sobrescreve a mensagem guardada de todo comportamento a cada mensagem
+  recebida e, 2 s depois da partida, manda todo iniciador enviar a mensagem
+  guardada. Se a negociação começa antes disso, um iniciador reenvia a última
+  mensagem recebida para si mesmo: o DSO respondia a um CFP falso, a proposta
+  da rodada não chegava ao mercado e a rodada esperava o timeout inteiro, e as
+  assinaturas do despacho nunca saíam. Os agentes do mercado lançam os
+  comportamentos uma vez, antes de anunciar que estão prontos, e um iniciador
+  não envia mensagem que veio de outro agente.
 
 ## λ não está em unidade monetária
 
@@ -242,6 +269,7 @@ EUR/(kW²·h)). Sem calibração, as colunas de preço do `dlmp.csv` saem com o 
 | Original | Aqui | Motivo |
 |---|---|---|
 | PySP para o modelo estocástico | forma extensiva em Pyomo | PySP saiu do Pyomo 6; com 9 cenários não há o que decompor |
+| parada pela variação absoluta de λ | desacordo relativo à potência do dispositivo | o mesmo rigor em dispositivos de qualquer porte |
 | `J⁻¹₂₁` do pandapower | `∂V/∂P` por perturbação no OpenDSS | um simulador só, e vale para rede desequilibrada |
 | uma tensão e um λ por barra | por (barra, fase) | a IEEE 13 é desequilibrada |
 | restrição de corrente por matriz de incidência | carregamento do transformador | é a Eq. 6.13 e a que tem limite conhecido |
