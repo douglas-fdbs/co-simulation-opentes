@@ -10,7 +10,7 @@
 # output/market_por_no/ (MARKET_FASE=0, analise por barra, para comparacao).
 
 set -euo pipefail
-cd "$(dirname "$0")"
+cd "$(dirname "$(readlink -f "$0")")"   # segue o link de ~/.local/bin/opentes
 
 CASO=simulators/grid-opentes/src/data/13Bus
 RESULT=""

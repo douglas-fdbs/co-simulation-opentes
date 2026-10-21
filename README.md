@@ -76,6 +76,12 @@ mudar a configuração, ver resultados, log e figuras, reconstruir as imagens e
 reiniciar o ambiente. A configuração escolhida fica em `.opentes.env`, e cada
 uma grava numa pasta própria de `output/`, para uma execução não apagar a outra.
 
+Para chamar de qualquer pasta como `opentes` (`opentes`, `opentes market`...):
+
+```bash
+ln -s "$PWD/run.sh" ~/.local/bin/opentes
+```
+
 Os mesmos comandos funcionam direto, para scripts:
 
 ```bash
