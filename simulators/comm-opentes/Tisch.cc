@@ -73,6 +73,7 @@ class TischServer : public cSimpleModule {
 
     std::vector<std::vector<double>> per;      // PER por enlace, ja com Pister-Hack
     std::vector<std::vector<bool>> adjacent;   // PER < limiar
+    std::vector<std::vector<bool>> colocated;  // mesma coordenada (distancia zero)
     std::vector<std::vector<int>> nextHop;     // roteamento por menor custo ETX
     int routedFrames = -1;                     // tamanho para o qual nextHop vale
 
@@ -90,6 +91,7 @@ class TischServer : public cSimpleModule {
 
     double slotframe, sensitivity, txPower, txGain, rxGain, frequency, shiftDb, threshold;
     int frameBytes, maxRetries, cells;
+    bool colocatedWired;
 
     void loadPositions(const std::string& path);
     bool loadAdjacency(const std::string& path);
@@ -175,6 +177,7 @@ bool TischServer::loadAdjacency(const std::string& path) {
 void TischServer::buildLinks(const std::string& csvPath) {
     size_t n = names.size();
     per.assign(n, std::vector<double>(n, 1.0));
+    colocated.assign(n, std::vector<bool>(n, false));
 
     // Uma matriz de adjacencia publicada, quando informada, e usada como esta,
     // em vez de ser reconstruida: reconstruir exige supor o orcamento de enlace
@@ -199,6 +202,7 @@ void TischServer::buildLinks(const std::string& csvPath) {
                 // Enlace perfeito, sem radio no meio.
                 rssi = 0.0;
                 p = 0.0;
+                colocated[i][j] = colocated[j][i] = true;
             } else {
                 // Friis em dB, com o termo de espaco livre invertido, como no
                 // Simulador 6TiSCH.
@@ -319,9 +323,13 @@ double TischServer::hopDelay(int i, int j, int frames, bool& lost) {
     // Em TSCH o quadro so sai no cell alocado para o enlace. O primeiro espera
     // uma fracao qualquer do slotframe; os seguintes esperam um slotframe cheio,
     // um por cell disponivel. Cada retransmissao gasta mais um cell.
+    lost = false;
+    // Agentes na mesma coordenada (na IEEE 13, o AM, o AD e o concentrador, todos
+    // na subestacao) estao no mesmo equipamento ou na mesma rede local. Com
+    // `colocated_wired`, a troca entre eles nao passa pelo radio.
+    if (colocatedWired && colocated[i][j]) return 0.0;
     double spacing = slotframe / std::max(1, cells);
     double delay = uniform(0.0, slotframe);
-    lost = false;
     for (int f = 0; f < frames; ++f) {
         if (f > 0) delay += spacing;
         int attempt = 0;
@@ -468,6 +476,7 @@ void TischServer::initialize() {
     frameBytes = par("frame_bytes").intValue();
     maxRetries = par("max_retries").intValue();
     threshold = par("link_per_threshold").doubleValue();
+    colocatedWired = par("colocated_wired").boolValue();
 
     loadPositions(par("positions_file").stdstringValue());
     buildLinks(par("links_csv").stdstringValue());

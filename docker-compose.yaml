@@ -29,7 +29,7 @@ services:
     command: >-
       bash -lc "source /root/omnetpp/setenv &&
       opp_makemake -f --deep -O out -o sim_exec -lzmq && make -j4 &&
-      ./sim_exec -u Cmdenv -c General"
+      ./sim_exec -u Cmdenv -c General ${TISCH_ARGS:-}"
     networks:
       - opentes-net
 
@@ -98,6 +98,9 @@ services:
       # converge em 48 rodadas por barra, 42 por fase e 63 com o inversor de tres
       # fios; o teto fica com folga.
       - MARKET_MAX_ROUNDS=${MARKET_MAX_ROUNDS:-150}
+      # Tempo limite de relogio de cada ciclo antes de retransmitir. Vazio: 120 s
+      # com entrega ideal e tres janelas de tempo de rede nos outros backends.
+      - MARKET_ROUND_TIMEOUT=${MARKET_ROUND_TIMEOUT:-}
       - MARKET_ALPHA=${MARKET_ALPHA:-0.6}
       # Criterio de parada: `relativo` para quando o desacordo entre
       # concentrador e DSO, em toda variavel e intervalo, fica abaixo de

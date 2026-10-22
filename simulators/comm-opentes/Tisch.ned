@@ -42,6 +42,10 @@ simple TischServer
         // macMaxFrameRetries do IEEE 802.15.4.
         int max_retries = default(3);
 
+        // Agentes na mesma coordenada trocam mensagens por cabo, sem radio.
+        // Desligado, o par paga o escalonamento TSCH como qualquer enlace.
+        bool colocated_wired = default(false);
+
         // Um enlace so existe se o PER estiver abaixo deste valor.
         double link_per_threshold = default(0.5);
 

@@ -109,6 +109,36 @@ rodada gastou de 474 a 541 s de rede, acima do orçamento de 300 s em **todas** 
 com o critério de parada absoluto, que pedia 66 rodadas, eram 9,1 h.
 Na fase de operação, com uma rodada por janela, o ciclo fica em 22 s.
 
+### De onde vem esse tempo
+
+O atraso é o que o escalonamento TSCH prevê: com 2 *cells* por enlace num
+*slotframe* de 4,04 s, um enlace escoa um quadro de 127 bytes a cada 2,02 s
+(cerca de 63 B/s), e uma mensagem de 24 kB, com 190 quadros, leva 384 s num
+salto, a mediana medida. O backend `lossy` transmite a 50 kbps contínuos, cem
+vezes mais, e por isso não serve de comparação direta.
+
+Dois experimentos (por fase, quatro fios, 22/10/2026) separam o que é do rádio e
+o que é do caso; nos dois o resultado elétrico é idêntico ao da rede ideal:
+
+| Variação | Ciclo 3 por rodada | Co-simulação |
+|---|---|---|
+| 6TiSCH, padrão | 474 a 541 s | ~18 min |
+| agentes na mesma coordenada por cabo (`TISCH_ARGS=--**.tisch.colocated_wired=true`) | 0 s | 105 s |
+| tamanhos declarados da referência (`NET_MESSAGE_SIZE=declarado`) | 18 a 26 s | 262 s |
+
+No IEEE 13 o concentrador fica no transformador da subestação, na mesma
+coordenada do DSO e do agente de mercado, e todo o tráfego dos ciclos 2 e 3
+acontece entre esses três. O padrão continua tratando essa troca como rádio. A
+mensagem mais lenta que sobra no rádio é o despacho: o concentrador manda a cada
+prosumidor a programação inteira (24 kB, até 779 s), embora ele use só as suas
+portas.
+
+Com o backend `lossy` a 1% e 5% de perda (e `MARKET_ROUND_TIMEOUT=3`), a
+negociação fecha nas mesmas 42 rodadas, com 3 e 18 retransmissões, e o resultado
+elétrico é idêntico ao da rede ideal. Esse teste achou uma falha, já corrigida: a
+primeira troca da verificação de operação (AM para AD) não era retransmitida, e
+com 5% de perda 8 das 95 janelas ficavam sem correção.
+
 ## Onde ficam os arquivos
 
 Cada execução grava em `output/market/` (por fase) ou `output/market_por_no/`

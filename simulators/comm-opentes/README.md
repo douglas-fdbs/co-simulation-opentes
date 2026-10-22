@@ -51,3 +51,12 @@ docker compose up comm      # a primeira vez compila e leva alguns minutos
 ```
 
 O servidor anuncia `[6TiSCH] pronto` no log quando aceita consultas.
+
+Os parâmetros do `Tisch.ned` podem ser trocados sem editar o arquivo, pela
+variável `TISCH_ARGS`, que vai para a linha de comando do OMNeT++. Por exemplo,
+para ligar por cabo os agentes que dividem a mesma coordenada (na IEEE 13, o
+DSO, o agente de mercado e o concentrador):
+
+```bash
+TISCH_ARGS='--**.tisch.colocated_wired=true' NET_BACKEND=omnet NET_TIME_SCALE=0.02 ./run.sh market
+```

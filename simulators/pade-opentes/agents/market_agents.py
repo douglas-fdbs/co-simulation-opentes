@@ -1525,7 +1525,10 @@ class MarketAgent(_AgenteMercado):
         correcao nenhuma, ou, antes da correcao do cancelamento acima, travava a
         co-simulacao.
         """
-        faltando = sorted(self.expected - self.replied) if self.op_round else []
+        # No primeiro nivel (op_round 0) o pedido vai so ao DSO, e a chegada da
+        # resposta cancela este timeout: se ele disparou, a resposta se perdeu.
+        # Antes, a lista ficava vazia e a janela passava sem correcao.
+        faltando = sorted(self.expected - self.replied) if self.op_round else ["dso"]
         if faltando and self.op_retries < MAX_RETRIES:
             self.op_retries += 1
             display_message(self.aid.localname,
