@@ -20,8 +20,10 @@ usage() {
 OpenTES - mercado transativo sobre a IEEE 13 barras
 (agentes PADE + OpenDSS + OMNeT++, orquestrados pelo Mosaik)
 
-Uso: ./run.sh            console interativo, com menu
-     ./run.sh <comando>
+Uso: opentes             console interativo, com menu
+     opentes <comando>
+     (opentes e um link para este run.sh; sem ele, use ./run.sh na pasta do projeto.
+      Para criar: ln -s "$PWD/run.sh" ~/.local/bin/opentes)
 
 Comandos:
   market          Co-simulacao completa, em duas passadas sobre a mesma demanda
@@ -49,9 +51,9 @@ Variaveis mais usadas (todas em docker-compose.yaml):
 
 Exemplos:
   export CPLEX_HOME=$HOME/IBM/CPLEX_Studio2211/cplex
-  ./run.sh centralizado && ./run.sh market && ./run.sh figuras
-  MARKET_FASE=0 ./run.sh market
-  NET_BACKEND=omnet NET_TIME_SCALE=0.02 ./run.sh market
+  opentes centralizado && opentes market && opentes figuras
+  MARKET_FASE=0 opentes market
+  NET_BACKEND=omnet NET_TIME_SCALE=0.02 opentes market
 EOF
 }
 
@@ -181,7 +183,7 @@ COMMAND="${1:-}"
 case "$COMMAND" in
     ""|-h|--help|help) usage; exit 0 ;;
     market|centralizado|figuras|caso) ;;
-    *) echo "!! comando desconhecido: '${COMMAND}' (use ./run.sh --help)" >&2; exit 1 ;;
+    *) echo "!! comando desconhecido: '${COMMAND}' (use opentes --help)" >&2; exit 1 ;;
 esac
 
 _cleanup

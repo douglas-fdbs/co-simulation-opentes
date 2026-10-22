@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
-# Console interativo do OpenTES. Abre com `./run.sh` (sem argumentos) ou
-# `./run.sh console`.
+# Console interativo do OpenTES. Abre com `opentes` ou `./run.sh` (sem
+# argumentos), ou com `opentes console`.
 #
 # Tudo o que ele executa passa pelo proprio run.sh, com as variaveis da
 # configuracao escolhida; a saida completa de cada execucao vai para um log em
@@ -452,13 +452,19 @@ documentacao() {
 
 ajuda() {
     titulo "Atalhos de linha de comando"
-    printf '   %s./run.sh%s                        este console\n' "$CIANO" "$NORMAL"
-    printf '   %s./run.sh market%s                 co-simulação completa\n' "$CIANO" "$NORMAL"
-    printf '   %s./run.sh centralizado%s           negociação sem agentes\n' "$CIANO" "$NORMAL"
-    printf '   %s./run.sh figuras%s                figuras da última execução\n' "$CIANO" "$NORMAL"
-    printf '   %s./run.sh caso%s                   regenera o caso IEEE 13\n' "$CIANO" "$NORMAL"
-    printf '   %sMARKET_FASE=0 ./run.sh market%s   qualquer variável vale na frente\n' "$CIANO" "$NORMAL"
-    nota "Tudo o que o console faz é chamar o run.sh com a configuração escolhida."
+    local c
+    for c in "opentes|este console" "opentes market|co-simulação completa" \
+             "opentes centralizado|negociação sem agentes" "opentes figuras|figuras da última execução" \
+             "opentes caso|regenera o caso IEEE 13" "opentes --help|todos os comandos e variáveis" \
+             "MARKET_FASE=0 opentes market|qualquer variável vale na frente"; do
+        printf '   %s%s%s %s\n' "$CIANO" "$(pad "${c%%|*}" 31)" "$NORMAL" "${c#*|}"
+    done
+    if ! command -v opentes >/dev/null 2>&1; then
+        printf '\n %s!! O comando opentes ainda não está instalado nesta máquina. Para instalar:%s\n' "$AMARELO" "$NORMAL"
+        printf '     %sln -s "%s/run.sh" ~/.local/bin/opentes%s\n' "$CIANO" "$RAIZ" "$NORMAL"
+        nota "Até lá, ./run.sh na pasta do projeto faz o mesmo."
+    fi
+    nota "O console só chama o opentes (o run.sh) com a configuração escolhida."
 }
 
 # --------------------------------------------------------------------------
