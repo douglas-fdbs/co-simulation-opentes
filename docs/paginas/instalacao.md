@@ -30,7 +30,7 @@ configuração atual e um menu:
 | Tecla | O que faz |
 |---|---|
 | `1` a `5` | co-simulação, negociação centralizada, figuras, fluxo completo, regenerar o caso |
-| `c` | configurar: formulação, inversor, regulador, rede entre agentes (ideal, com perda, 6TiSCH), critério e tolerância, cenários, caminho do CPLEX |
+| `c` | configurar: formulação, inversor, regulador, rede entre agentes (ideal, 6TiSCH com 1 a 20 fatias por enlace, Wi-SUN FAN a 50, 150 ou 300 kbps, com perda), critério e tolerância, cenários, caminho do CPLEX |
 | `r` | refazer o último comando |
 | `s`, `l`, `f` | resumo dos resultados, log da última execução, pasta das figuras |
 | `b`, `x` | construir as imagens; derrubar contêineres presos |
@@ -41,8 +41,8 @@ desacordo relativo e, na operação, a hora do dia. A saída completa vai para
 
 A configuração fica em `.opentes.env` (fora do git) e vale para a próxima
 sessão. Cada configuração grava numa pasta própria: `output/market`,
-`market_por_no`, `market_equilibrado`, `market_omnet`, `market_perda` e as
-combinações. Fora do console, a variável `OPENTES_SAIDA` faz o mesmo.
+`market_por_no`, `market_equilibrado`, `market_omnet` (com `_c5`, `_c20`... quando
+a 6TiSCH não usa 2 fatias), `market_wisun_50k`, `market_perda` e as combinações. Fora do console, a variável `OPENTES_SAIDA` faz o mesmo.
 
 ## Os comandos
 
@@ -78,6 +78,9 @@ Todas têm valor padrão no `docker-compose.yaml`.
 | `MARKET_REGULADOR` | `previsao` | derivações do regulador fixadas pelo ponto da previsão; `neutro` as deixa em 0 |
 | `NET_BACKEND` | `ideal` | rede entre os agentes: `ideal`, `lossy` ou `omnet` (6TiSCH) |
 | `NET_TIME_SCALE` | `1.0` | quanto do atraso nominal da rede vira espera de relógio; com `omnet`, use `0.02`, senão cada rodada leva minutos reais |
+| `TISCH_MAC` | `tsch` | com `omnet`, o acesso ao meio: `tsch` (6TiSCH, a rede da tese) ou `wisun` (Wi-SUN FAN, mesmo rádio, acesso por disputa) |
+| `TISCH_CELLS` | `2` | na 6TiSCH, fatias por enlace a cada *slotframe* de 4,04 s; cada uma leva um quadro de 127 bytes |
+| `TISCH_RATE_BPS` | `50000` | no Wi-SUN, a taxa do rádio: `50000`, `150000` ou `300000`; taxas maiores encurtam o alcance |
 | `NET_DROP_PROBABILITY` | `0.0` | com `NET_BACKEND=lossy`, a probabilidade de cada mensagem se perder |
 | `MARKET_SCENARIOS` | `1` | cenários por prosumidor; `1` é determinístico, `3` gera nove cenários de preço e potência |
 | `MARKET_V_BACKOFF` | `1e-3` | margem nos limites de tensão, contra o erro da linearização |

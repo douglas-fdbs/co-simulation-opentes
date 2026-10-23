@@ -93,8 +93,14 @@ def _round_timeout():
     if explicito:
         return float(explicito)
     escala = float(os.environ.get("NET_TIME_SCALE", "1.0"))
-    if os.environ.get("NET_BACKEND", "ideal") == "ideal":
+    backend = os.environ.get("NET_BACKEND", "ideal")
+    if backend == "ideal":
         return 120.0
+    if backend == "lossy":
+        # O canal com perda entrega em segundos (34 kB a 50 kbps sao 5,4 s): 60 s
+        # nominais ja sao mais de dez vezes a maior entrega. Tres janelas, como na
+        # 6TiSCH, fariam cada mensagem perdida esperar 45 min de relogio a escala 1.
+        return max(3.0, 60.0 * escala)
     # Uma rodada e um CFP descendo e uma proposta subindo. Com a analise por
     # fase, cada um leva de 300 a 540 s nominais na rede 6TiSCH, e a ida e volta
     # chega a cerca de 1000 s: um limite pensado para 200 s por mensagem

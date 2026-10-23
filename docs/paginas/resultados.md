@@ -139,6 +139,38 @@ elétrico é idêntico ao da rede ideal. Esse teste achou uma falha, já corrigi
 primeira troca da verificação de operação (AM para AD) não era retransmitida, e
 com 5% de perda 8 das 95 janelas ficavam sem correção.
 
+### Comparação de redes: 6TiSCH com mais fatias e Wi-SUN FAN
+
+Mesmo cenário (por fase, quatro fios, 22/10/2026), mesmo rádio da tese (IEEE
+802.15.4g a 0 dBm, mesmo modelo de propagação e mesma regra de enlace). Em todas
+as linhas a negociação fecha em 42 rodadas, sem perda nem retransmissão, e o
+resultado elétrico é idêntico ao da rede ideal, tensão a tensão.
+
+| Rede (`TISCH_MAC`, parâmetro) | Ciclo 3 por rodada | Rodadas acima de 300 s | Rede somada na negociação | Despacho, maior atraso | Ciclo 3 na operação | Co-simulação |
+|---|---|---|---|---|---|---|
+| 6TiSCH, 1 fatia | 945 a 1.081 s | 42 | 11,6 h | 1.550 s | 44 s | 33 min |
+| 6TiSCH, 2 fatias (padrão) | 474 a 541 s | 42 | 5,8 h | 779 s | 24 s | 17 min |
+| 6TiSCH, 5 fatias | 192 a 218 s | 0 | 2,3 h | 316 s | 12 s | 8 min |
+| 6TiSCH, 10 fatias | 97 a 110 s | 0 | 1,2 h | 161 s | 8 s | 5 min |
+| 6TiSCH, 20 fatias | 50 a 56 s | 0 | 0,6 h | 84 s | 6 s | 3 min |
+| Wi-SUN FAN, 50 kbps | 5 a 6 s | 0 | 4 min | 8 s | 0,4 s | 1,2 min |
+| Wi-SUN FAN, 150 kbps | 2 s | 0 | 1 min | 4,5 s | 0,2 s | 1 min |
+| Wi-SUN FAN, 300 kbps | não fecha | | | | | |
+
+- Na 6TiSCH o tempo cai na proporção das fatias, como a conta prevê. O ciclo 3
+  cabe no orçamento a partir de 4 ou 5 fatias por enlace.
+- O Wi-SUN a 50 kbps, com o mesmo rádio da tese, fica duas ordens de grandeza
+  abaixo: transmite quando quer, sem esperar fatia, e em quadros de 1.280 bytes.
+- A 300 kbps a sensibilidade cai 7,8 dB, a rede fica com 51 enlaces (contra 74),
+  e a ligação da subestação ao resto do alimentador passa a depender de enlaces
+  com erro de 0,81 por quadro de 1.280 bytes. Mensagens de 24 kB não atravessam,
+  o concentrador esgota as retentativas e prosumidores entram com programação
+  zero. Mais taxa só ajuda enquanto o alcance continua cobrindo o alimentador.
+- Os dois modelos não têm disputa pelo meio. No Wi-SUN ela existe de verdade (o
+  concentrador tem um rádio só e mandaria os 10 despachos em sequência, uns 80 s
+  no total); na 6TiSCH as fatias são reservadas por enlace, então o modelo é
+  menos otimista ali.
+
 ## Onde ficam os arquivos
 
 Cada execução grava em `output/market/` (por fase) ou `output/market_por_no/`

@@ -42,6 +42,31 @@ simple TischServer
         // macMaxFrameRetries do IEEE 802.15.4.
         int max_retries = default(3);
 
+        // --- MAC: "tsch" (6TiSCH, a rede da referencia) ou "wisun" (Wi-SUN FAN) --
+        // Os dois usam o mesmo radio, o mesmo modelo de propagacao e a mesma
+        // topologia gerada pelo limiar de PER; muda o acesso ao meio.
+        string mac = default("tsch");
+
+        // --- Wi-SUN FAN: so valem com mac = "wisun" --------------------------
+        // Taxa da camada fisica. 50 kbps e o modo 1 do 802.15.4g, o mesmo da
+        // referencia; 150 kbps e o modo FSK 3; 300 kbps, o modo FSK 5 do Wi-SUN.
+        // A sensibilidade sobe 10 log10(R / 50 kbps) dB, o que encurta o alcance.
+        double phy_rate_bps = default(50000);
+        // Carga do quadro. O SUN PHY aceita PSDU de ate 2047 bytes; 1280 e o MTU
+        // minimo do IPv6, que cabe inteiro em um quadro, sem fragmentar.
+        int wisun_frame_bytes = default(1280);
+        // CSMA/CA nao sincronizado do IEEE 802.15.4 (macMinBE, macMaxBE). A
+        // unidade de recuo e a reversao mais o CCA: cerca de 1,16 ms no SUN FSK.
+        int min_be = default(3);
+        int max_be = default(5);
+        double unit_backoff_s = default(0.00116);
+        // Tempo de reversao entre transmitir e receber (aTurnaroundTime do SUN).
+        double turnaround_s = default(0.001);
+        // Preambulo (8), SFD (2) e cabecalho fisico (2) de cada quadro SUN FSK.
+        int shr_phr_bytes = default(12);
+        // ACK estendido com os elementos de informacao do Wi-SUN.
+        int ack_bytes = default(30);
+
         // Agentes na mesma coordenada trocam mensagens por cabo, sem radio.
         // Desligado, o par paga o escalonamento TSCH como qualquer enlace.
         bool colocated_wired = default(false);

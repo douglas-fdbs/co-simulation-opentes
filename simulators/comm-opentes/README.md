@@ -50,7 +50,23 @@ o modelo e sobe o servidor, que fica esperando consultas:
 docker compose up comm      # a primeira vez compila e leva alguns minutos
 ```
 
-O servidor anuncia `[6TiSCH] pronto` no log quando aceita consultas.
+O servidor anuncia `[6TiSCH] pronto` no log quando aceita consultas, com o MAC em
+uso.
+
+## Dois MACs sobre o mesmo rádio
+
+| `TISCH_MAC` | O que é | Parâmetro principal |
+|---|---|---|
+| `tsch` (padrão) | 6TiSCH, a rede da tese: cada enlace transmite um quadro de 127 bytes em cada fatia reservada do *slotframe* de 4,04 s | `TISCH_CELLS`, fatias por enlace (padrão 2, calibrado com os tempos da tese) |
+| `wisun` | Wi-SUN FAN: mesmo rádio IEEE 802.15.4g, mesma propagação e mesma regra de enlace, mas acesso por CSMA/CA com salto de canal assíncrono, sem fatia reservada, e quadros de 1.280 bytes | `TISCH_RATE_BPS`: 50 kbps (o rádio da tese), 150 ou 300 kbps |
+
+No Wi-SUN, a sensibilidade piora 10·log₁₀(R / 50 kbps) dB com a taxa, então
+taxas maiores têm menos enlaces e mais saltos; a topologia de cada taxa vai para
+`tisch_links_wisun_<taxa>k.csv`, sem sobrescrever a da 6TiSCH. O erro de quadro
+cresce com o tamanho, PER(L) = 1 − (1 − PER₁₂₇)^(L/127). Os parâmetros do MAC
+(recuo do CSMA/CA, reversão, ACK) são os padrões do IEEE 802.15.4 e estão no
+`Tisch.ned`. Nenhum dos dois modelos tem disputa entre enlaces: cada mensagem é
+calculada sozinha, o que é otimista nos dois.
 
 Os parâmetros do `Tisch.ned` podem ser trocados sem editar o arquivo, pela
 variável `TISCH_ARGS`, que vai para a linha de comando do OMNeT++. Por exemplo,

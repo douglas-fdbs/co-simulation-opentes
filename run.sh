@@ -48,12 +48,16 @@ Variaveis mais usadas (todas em docker-compose.yaml):
   MARKET_CRITERIO       relativo (padrao, MARKET_EPS_REL=1e-3) ou absoluto
   NET_BACKEND           ideal (padrao), lossy ou omnet (rede 6TiSCH)
   NET_TIME_SCALE        fracao do atraso nominal esperada em relogio (0.02 com omnet)
+  TISCH_MAC             com omnet: tsch (6TiSCH, padrao) ou wisun (Wi-SUN FAN)
+  TISCH_CELLS           fatias por enlace a cada slotframe na 6TiSCH (padrao 2)
+  TISCH_RATE_BPS        taxa do Wi-SUN: 50000 (padrao), 150000 ou 300000
 
 Exemplos:
   export CPLEX_HOME=$HOME/IBM/CPLEX_Studio2211/cplex
   opentes centralizado && opentes market && opentes figuras
   MARKET_FASE=0 opentes market
   NET_BACKEND=omnet NET_TIME_SCALE=0.02 opentes market
+  NET_BACKEND=omnet NET_TIME_SCALE=0.02 TISCH_MAC=wisun OPENTES_SAIDA=market_wisun_50k opentes market
 EOF
 }
 

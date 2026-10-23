@@ -42,12 +42,15 @@ pausa() { printf '\n %sEnter para voltar ao menu%s ' "$CINZA" "$NORMAL"; read -r
 # Configuracao: valores padrao, leitura e gravacao de .opentes.env
 # --------------------------------------------------------------------------
 CHAVES=(MARKET_FASE MARKET_DISPOSITIVO MARKET_REGULADOR NET_BACKEND NET_TIME_SCALE
-        NET_DROP_PROBABILITY MARKET_CRITERIO MARKET_EPS_REL MARKET_EPS
-        MARKET_SCENARIOS CPLEX_HOME)
+        NET_DROP_PROBABILITY TISCH_MAC TISCH_CELLS TISCH_RATE_BPS MARKET_CRITERIO
+        MARKET_EPS_REL MARKET_EPS MARKET_SCENARIOS CPLEX_HOME)
 
 padroes() {
     MARKET_FASE=1; MARKET_DISPOSITIVO=independente; MARKET_REGULADOR=previsao
     NET_BACKEND=ideal; NET_TIME_SCALE=1.0; NET_DROP_PROBABILITY=0.0
+    # rede de radio do OMNeT++: TSCH (6TiSCH) com 2 fatias por enlace, como na
+    # referencia, ou Wi-SUN FAN a 50 kbps
+    TISCH_MAC=tsch; TISCH_CELLS=2; TISCH_RATE_BPS=50000
     MARKET_CRITERIO=relativo; MARKET_EPS_REL=1e-3; MARKET_EPS=1e-3
     MARKET_SCENARIOS=1
     CPLEX_HOME="${CPLEX_HOME:-}"
@@ -90,7 +93,14 @@ saida() {
     local s=market
     [ "$MARKET_FASE" = "0" ] && s=market_por_no
     [ "$MARKET_FASE" = "1" ] && [ "$MARKET_DISPOSITIVO" = "equilibrado" ] && s="${s}_equilibrado"
-    [ "$NET_BACKEND" = "omnet" ] && s="${s}_omnet"
+    if [ "$NET_BACKEND" = "omnet" ]; then
+        if [ "$TISCH_MAC" = "wisun" ]; then
+            s="${s}_wisun_$(( TISCH_RATE_BPS / 1000 ))k"
+        else
+            s="${s}_omnet"
+            [ "$TISCH_CELLS" != "2" ] && s="${s}_c${TISCH_CELLS}"
+        fi
+    fi
     [ "$NET_BACKEND" = "lossy" ] && s="${s}_perda"
     echo "$s"
 }
@@ -104,7 +114,11 @@ desc_rede() {
     case "$NET_BACKEND" in
         ideal) echo "ideal" ;;
         lossy) echo "com perda ($(awk "BEGIN{printf \"%g\", $NET_DROP_PROBABILITY*100}")%)" ;;
-        omnet) echo "6TiSCH (OMNeT++)" ;;
+        omnet) if [ "$TISCH_MAC" = "wisun" ]; then
+                   echo "Wi-SUN FAN (OMNeT++), $(( TISCH_RATE_BPS / 1000 )) kbps"
+               else
+                   echo "6TiSCH (OMNeT++), $TISCH_CELLS fatia(s) por enlace"
+               fi ;;
         *) echo "$NET_BACKEND" ;;
     esac
 }
@@ -362,6 +376,38 @@ perguntar() {   # $1 = pergunta, $2 = valor atual; devolve em RESPOSTA
     [ -z "$RESPOSTA" ] && RESPOSTA="$2"
 }
 
+# Inteiro dentro de [min, max]; senao, fica o valor atual.
+inteiro_em() {   # $1 = texto, $2 = min, $3 = max, $4 = atual
+    case "$1" in ''|*[!0-9]*) echo "$4"; return ;; esac
+    if [ "$1" -ge "$2" ] && [ "$1" -le "$3" ]; then echo "$1"; else echo "$4"; fi
+}
+
+escolher_rede() {
+    titulo "Rede entre os agentes"
+    item 1 "Ideal" "entrega imediata, sem perda"
+    item 2 "6TiSCH (OMNeT++)" "a rede da tese: TSCH, fatias reservadas por enlace"
+    item 3 "Wi-SUN FAN (OMNeT++)" "mesmo rádio, acesso por disputa, sem fatias"
+    item 4 "Com perda" "canal de 50 kbps com perda sorteada por mensagem"
+    printf '\n %srede ›%s ' "$VERDE_CLARO" "$NORMAL"; read -r r || return
+    case "$r" in
+        1) NET_BACKEND=ideal; NET_TIME_SCALE=1.0 ;;
+        2) NET_BACKEND=omnet; NET_TIME_SCALE=0.02; TISCH_MAC=tsch
+           nota "Cada fatia leva um quadro de 127 bytes a cada slotframe de 4,04 s. A tese"
+           nota "não informa o número; 2 é a calibração com os tempos dela. Menos fatias,"
+           nota "execução mais longa: com 2, cerca de 18 min; com 1, o dobro; com 20, 3 min."
+           perguntar "Fatias por enlace, de 1 a 20" "$TISCH_CELLS"
+           TISCH_CELLS=$(inteiro_em "$RESPOSTA" 1 20 "$TISCH_CELLS") ;;
+        3) NET_BACKEND=omnet; NET_TIME_SCALE=0.02; TISCH_MAC=wisun
+           nota "50 kbps é o mesmo rádio da tese; taxas maiores encurtam o alcance"
+           nota "(menos enlaces, mais saltos)."
+           perguntar "Taxa em kbps: 50, 150 ou 300" "$(( TISCH_RATE_BPS / 1000 ))"
+           case "$RESPOSTA" in 50|150|300) TISCH_RATE_BPS=$(( RESPOSTA * 1000 )) ;; esac ;;
+        4) NET_BACKEND=lossy; NET_TIME_SCALE=0.02
+           perguntar "Perda por mensagem, em %" "$(awk "BEGIN{printf \"%g\", $NET_DROP_PROBABILITY*100}")"
+           NET_DROP_PROBABILITY=$(awk "BEGIN{printf \"%g\", $RESPOSTA/100}") ;;
+    esac
+}
+
 configurar() {
     while true; do
         clear; cabecalho
@@ -384,13 +430,7 @@ configurar() {
                    [ "$MARKET_DISPOSITIVO" = independente ] && MARKET_DISPOSITIVO=equilibrado || MARKET_DISPOSITIVO=independente
                fi ;;
             3) [ "$MARKET_REGULADOR" = previsao ] && MARKET_REGULADOR=neutro || MARKET_REGULADOR=previsao ;;
-            4) case "$NET_BACKEND" in
-                   ideal) NET_BACKEND=omnet; NET_TIME_SCALE=0.02 ;;
-                   omnet) NET_BACKEND=lossy; NET_TIME_SCALE=1.0
-                          perguntar "Perda por mensagem, em %" "$(awk "BEGIN{printf \"%g\", $NET_DROP_PROBABILITY*100}")"
-                          NET_DROP_PROBABILITY=$(awk "BEGIN{printf \"%g\", $RESPOSTA/100}") ;;
-                   *) NET_BACKEND=ideal; NET_TIME_SCALE=1.0 ;;
-               esac ;;
+            4) escolher_rede ;;
             5) [ "$MARKET_CRITERIO" = relativo ] && MARKET_CRITERIO=absoluto || MARKET_CRITERIO=relativo ;;
             6) if [ "$MARKET_CRITERIO" = relativo ]; then
                    perguntar "Desacordo máximo, em fração da potência" "$MARKET_EPS_REL"; MARKET_EPS_REL=$RESPOSTA
@@ -472,7 +512,7 @@ ajuda() {
 # --------------------------------------------------------------------------
 menu() {
     titulo "Executar"
-    item 1 "Co-simulação completa" "agentes, rede elétrica e operação · 1 a 20 min"
+    item 1 "Co-simulação completa" "agentes, rede elétrica e operação · 1 a 40 min"
     item 2 "Negociação centralizada" "sem agentes, com liquidação · ~1 min"
     item 3 "Figuras" "a partir dos resultados · segundos"
     item 4 "Fluxo completo" "2, depois 1, depois 3"

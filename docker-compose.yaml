@@ -29,7 +29,11 @@ services:
     command: >-
       bash -lc "source /root/omnetpp/setenv &&
       opp_makemake -f --deep -O out -o sim_exec -lzmq && make -j4 &&
-      ./sim_exec -u Cmdenv -c General ${TISCH_ARGS:-}"
+      ./sim_exec -u Cmdenv -c General
+      --**.tisch.mac='\"${TISCH_MAC:-tsch}\"'
+      --**.tisch.cells_per_slotframe=${TISCH_CELLS:-2}
+      --**.tisch.phy_rate_bps=${TISCH_RATE_BPS:-50000}
+      ${TISCH_ARGS:-}"
     networks:
       - opentes-net
 

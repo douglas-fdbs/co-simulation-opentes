@@ -27,6 +27,21 @@
  * atraso sai da propria simulacao e nao de uma tabela pre-calculada. O numero
  * de frames vem do tamanho da mensagem FIPA que o agente informa.
  *
+ * DOIS MACS SOBRE O MESMO RADIO
+ * ------------------------------
+ * `mac = "tsch"` e a rede da referencia: TSCH, um quadro de 127 bytes por cell
+ * alocado ao enlace, `cells_per_slotframe` cells por slotframe de 4,04 s.
+ *
+ * `mac = "wisun"` e o Wi-SUN FAN (IEEE 802.15.4g com salto de canal
+ * assincrono): o mesmo radio e o mesmo modelo de propagacao, mas o acesso ao
+ * meio e por CSMA/CA, sem fatia reservada. O remetente transmite no canal em
+ * que o receptor esta ouvindo, quando quiser, e o quadro pode ter ate 2047
+ * bytes (PSDU do SUN PHY). O atraso por quadro e recuo aleatorio + tempo no ar
+ * + reversao + ACK + espacamento. A sensibilidade piora com a taxa na
+ * proporcao do ruido termico, 10 log10(R / 50 kbps), o que encurta o alcance e
+ * muda a topologia. Nenhum dos dois modelos tem disputa entre enlaces: cada
+ * mensagem e calculada sozinha, o que e otimista nos dois.
+ *
  * POR QUE UM SERVIDOR DE ROTAS E NAO UM PASSO DO MOSAIK
  * ---------------------------------------------------
  * A negociacao inteira acontece DENTRO de um passo de 15 min do Mosaik, com o
@@ -92,6 +107,12 @@ class TischServer : public cSimpleModule {
     double slotframe, sensitivity, txPower, txGain, rxGain, frequency, shiftDb, threshold;
     int frameBytes, maxRetries, cells;
     bool colocatedWired;
+    // Wi-SUN FAN
+    bool wisun = false;
+    double phyRate, unitBackoff, turnaround, lifs;
+    int minBE, maxBE, shrPhrBytes, ackBytes;
+    double perQuadro(int i, int j) const;   // PER do quadro do MAC em uso
+    double wisunHopDelay(int i, int j, int frames, bool& lost);
 
     void loadPositions(const std::string& path);
     bool loadAdjacency(const std::string& path);
@@ -283,7 +304,7 @@ void TischServer::buildRoutes(int frames) {
                 if (!adjacent[u][v]) continue;
                 // Perda do datagrama neste enlace, ja com as retentativas do MAC,
                 // e custo esperado de transmissoes para entrega-lo.
-                double pQuadro = std::pow(per[u][v], maxRetries + 1);
+                double pQuadro = std::pow(perQuadro(u, v), maxRetries + 1);
                 double pDatagrama = 1.0 - std::pow(1.0 - pQuadro, frames);
                 double etx = frames / std::max(1e-9, 1.0 - pDatagrama);
                 if (dist[u] + etx < dist[v] - 1e-12) {
@@ -319,6 +340,43 @@ std::vector<int> TischServer::route(int src, int dst, int frames) {
 // Transporte
 // ---------------------------------------------------------------------------
 
+double TischServer::perQuadro(int i, int j) const {
+    // A tabela de PER (Prando et al., 2019) e de um quadro de 127 bytes. Um
+    // quadro maior tem mais bits para errar: com erro de bit independente,
+    // PER(L) = 1 - (1 - PER(127))^(L/127). No TSCH, L = 127 e nada muda.
+    if (frameBytes <= 127) return per[i][j];
+    return 1.0 - std::pow(1.0 - per[i][j], frameBytes / 127.0);
+}
+
+double TischServer::wisunHopDelay(int i, int j, int frames, bool& lost) {
+    // Por quadro: recuo do CSMA/CA (uniforme em 0 .. 2^BE - 1 unidades), tempo
+    // no ar do quadro com preambulo, SFD e PHR, reversao, ACK e espacamento
+    // longo entre quadros. Uma falha dobra a janela de recuo, ate maxBE, e
+    // gasta mais uma tentativa. O canal esta sempre livre: sem disputa.
+    lost = false;
+    double ar = (frameBytes + shrPhrBytes) * 8.0 / phyRate;
+    double ack = turnaround + (ackBytes + shrPhrBytes) * 8.0 / phyRate;
+    double p = perQuadro(i, j);
+    double delay = 0.0;
+    for (int f = 0; f < frames; ++f) {
+        int be = minBE;
+        for (int tentativa = 0;; ++tentativa) {
+            delay += intuniform(0, (1 << be) - 1) * unitBackoff + ar;
+            if (uniform(0.0, 1.0) >= p) {
+                delay += ack + lifs;
+                break;
+            }
+            delay += turnaround + (ackBytes + shrPhrBytes) * 8.0 / phyRate;  // espera do ACK
+            if (tentativa >= maxRetries) {
+                lost = true;
+                return delay;
+            }
+            be = std::min(be + 1, maxBE);
+        }
+    }
+    return delay;
+}
+
 double TischServer::hopDelay(int i, int j, int frames, bool& lost) {
     // Em TSCH o quadro so sai no cell alocado para o enlace. O primeiro espera
     // uma fracao qualquer do slotframe; os seguintes esperam um slotframe cheio,
@@ -328,6 +386,7 @@ double TischServer::hopDelay(int i, int j, int frames, bool& lost) {
     // na subestacao) estao no mesmo equipamento ou na mesma rede local. Com
     // `colocated_wired`, a troca entre eles nao passa pelo radio.
     if (colocatedWired && colocated[i][j]) return 0.0;
+    if (wisun) return wisunHopDelay(i, j, frames, lost);
     double spacing = slotframe / std::max(1, cells);
     double delay = uniform(0.0, slotframe);
     for (int f = 0; f < frames; ++f) {
@@ -478,8 +537,35 @@ void TischServer::initialize() {
     threshold = par("link_per_threshold").doubleValue();
     colocatedWired = par("colocated_wired").boolValue();
 
+    std::string mac = par("mac").stdstringValue();
+    if (mac != "tsch" && mac != "wisun")
+        throw cRuntimeError("mac desconhecido: '%s' (use tsch ou wisun)", mac.c_str());
+    wisun = (mac == "wisun");
+    phyRate = par("phy_rate_bps").doubleValue();
+    if (wisun) {
+        frameBytes = par("wisun_frame_bytes").intValue();
+        unitBackoff = par("unit_backoff_s").doubleValue();
+        turnaround = par("turnaround_s").doubleValue();
+        minBE = par("min_be").intValue();
+        maxBE = par("max_be").intValue();
+        shrPhrBytes = par("shr_phr_bytes").intValue();
+        ackBytes = par("ack_bytes").intValue();
+        // Espacamento longo (LIFS): 40 simbolos; no FSK, um simbolo por bit.
+        lifs = 40.0 / phyRate;
+        // Mesmo Eb/N0 a uma taxa maior pede mais potencia recebida.
+        sensitivity += 10.0 * std::log10(phyRate / 50000.0);
+    }
+
     loadPositions(par("positions_file").stdstringValue());
-    buildLinks(par("links_csv").stdstringValue());
+    // A topologia do Wi-SUN depende da taxa (a sensibilidade muda), entao vai
+    // para um arquivo proprio e nao sobrescreve a da 6TiSCH.
+    std::string links = par("links_csv").stdstringValue();
+    if (wisun && !links.empty()) {
+        auto ponto = links.rfind(".csv");
+        std::string sufixo = "_wisun_" + std::to_string((int)(phyRate / 1000)) + "k";
+        links = ponto == std::string::npos ? links + sufixo : links.substr(0, ponto) + sufixo + ".csv";
+    }
+    buildLinks(links);
     buildRoutes(1);
 
     std::string endpoint = "tcp://*:" + std::to_string(par("port").intValue());
@@ -487,7 +573,14 @@ void TischServer::initialize() {
     EV << "[6TiSCH] servidor de rotas em " << endpoint << "\n";
     // A saida padrao e o que o `docker compose logs` mostra; o EV do Cmdenv nao
     // aparece sem verbosidade alta.
-    std::printf("[6TiSCH] pronto: %zu nos, servidor em %s\n", names.size(), endpoint.c_str());
+    // O prefixo "[6TiSCH] pronto" e o que o run.sh espera no log, nos dois MACs.
+    if (wisun)
+        std::printf("[6TiSCH] pronto: %zu nos, servidor em %s (Wi-SUN FAN, %.0f kbps, "
+                    "quadro de %d bytes, sensibilidade %.2f dBm)\n", names.size(),
+                    endpoint.c_str(), phyRate / 1000.0, frameBytes, sensitivity);
+    else
+        std::printf("[6TiSCH] pronto: %zu nos, servidor em %s (TSCH, %d cells por "
+                    "slotframe de %.2f s)\n", names.size(), endpoint.c_str(), cells, slotframe);
     std::fflush(stdout);
 
     serve();
