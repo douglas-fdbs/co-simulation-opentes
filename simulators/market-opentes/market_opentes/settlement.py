@@ -1,25 +1,15 @@
 """Registro de transacoes e preco locacional (DLMP).
 
-Porte do `save_transactions_data` do `market_agent.py` original, mais a parte
-economica que a tese descreve e nao liquida.
-
-O QUE A TESE FAZ E O QUE ELA NAO FAZ
-------------------------------------
-A tese propoe dois ambientes de contratacao (subsecao 6.1.1): um mercado futuro
+O DESENHO DE MERCADO
+--------------------
+Dois ambientes de contratacao (Melo, 2022, secao 6.1.1): um mercado futuro
 bilateral, de preco fixo, em que o prosumidor so pode COMPRAR, e um mercado spot
-de tempo real, em que pode comprar e vender. O agente de mercado grava as
-transacoes num `transactions_data.hdf5`.
+de tempo real, em que pode comprar e vender. Este modulo registra a energia de
+cada um, por no e por intervalo, com o preco de cada contrato.
 
-Duas coisas do original merecem registro. O preco do bilateral **nao e gravado**:
-`save_transactions_data` e chamado sem `value_um`, entao o valor fica no default
-`-1.0`. E o spot e registrado ao preco spot PURO, sem qualquer adicional vindo da
-negociacao.
-
-Sobre o DLMP, a tese e explicita (subsecao 6.1.4.4): "Este trabalho nao entrara no
-merito da questao de como tratar os valores encontrados para lambda(t,l) como
-valores financeiros reais. Os valores de precos encontrados serao interpretados
-apenas como uma variavel de controle". A Figura 45 mostra lambda como "preco
-adicional", sem unidade monetaria e sem aplicacao a nenhuma transacao.
+Na formulacao de referencia, lambda e lido como variavel de controle, e nao
+como valor financeiro (secao 6.1.4.4 da referencia). Aqui a conversao em preco e
+feita, mas so tem significado monetario com a calibracao abaixo.
 
 A UNIDADE DE LAMBDA
 -------------------
@@ -28,18 +18,17 @@ otimo do concentrador, derivando `Ck (x - x_init)^2 + lambda x` em x:
 
     2 Ck (x - x_init) + lambda = 0   =>   lambda = 2 Ck (x_init - x)
 
-ou seja, lambda tem unidade de `Ck` vezes potencia. Com o `Ck = 1` adimensional
-da tese, lambda e numericamente um desvio de potencia, nao um preco.
+ou seja, lambda tem unidade de `Ck` vezes potencia. Com o `Ck = 1`
+adimensional, lambda e numericamente um desvio de potencia, nao um preco.
 
 Para virar preco, o peso da funcao objetivo precisa ser calibrado em moeda:
 `Ck` em EUR/(kW^2 . h). Dai lambda sai em EUR/(kW.h) e o DLMP e
 
     DLMP(t,l) = preco_spot(t) + lambda(t,l) / dt * 1000     [EUR/MWh]
 
-`CK_EUR` expoe essa calibracao. Com o default (None) o DLMP e reportado com a
-conversao aplicada sobre o `Ck = 1` da tese, e o resultado deve ser lido como
-SINAL, na mesma condicao em que a tese o le, e nao como dinheiro. O aviso e
-emitido no cabecalho do CSV.
+`CK_EUR` expoe essa calibracao. Com o padrao (None) o DLMP e reportado com a
+conversao aplicada sobre `Ck = 1`, e o resultado deve ser lido como SINAL, e nao
+como dinheiro. As colunas de preco saem com o sufixo `_signal`.
 """
 
 import csv
@@ -50,8 +39,8 @@ import numpy as np
 
 from .config import DT_H, PERIODS
 
-BILATERAL_PRICE = 38.0     # EUR/MWh, do stochastic_model/config.json
-# Calibracao do peso da funcao objetivo em moeda. None = usar o Ck = 1 da tese,
+BILATERAL_PRICE = 38.0     # EUR/MWh, preco do contrato bilateral
+# Calibracao do peso da funcao objetivo em moeda. None = Ck = 1 adimensional,
 # caso em que o DLMP e sinal e nao preco.
 CK_EUR = os.environ.get("MARKET_CK_EUR")
 CK_EUR = float(CK_EUR) if CK_EUR else None
@@ -63,7 +52,7 @@ def dlmp(spot_price, lam, ck_eur=None):
     Args:
         spot_price: array[96] com o preco spot do sistema.
         lam: {no: array[96]} multiplicador de Lagrange da negociacao.
-        ck_eur: calibracao de Ck em EUR/(kW^2.h). None usa o Ck = 1 da tese.
+        ck_eur: calibracao de Ck em EUR/(kW^2.h). None usa Ck = 1, adimensional.
 
     Returns:
         ({no: array[96]}, calibrado) com o preco por no e um sinalizador dizendo
@@ -105,8 +94,8 @@ def flexibility(p_init, y, prices, calibrado=False):
 
     A negociacao move a programacao do armazenamento de `p_init`, proposta pelo
     prosumidor, para `y`, aceita pelo DSO. A diferenca e o servico prestado. Ela
-    e valorada ao preco locacional do proprio no, que e o mecanismo que a tese
-    descreve: o sinal de preco e o que remunera quem cede flexibilidade.
+    e valorada ao preco locacional do proprio no: o sinal de preco e o que
+    remunera quem cede flexibilidade.
     """
     u = "eur" if calibrado else "signal"
     rows = []
@@ -114,7 +103,7 @@ def flexibility(p_init, y, prices, calibrado=False):
         delta = np.asarray(y[node]) - np.asarray(p_init[node])
         price = np.asarray(prices[node])
         rows.append({
-            "node": node,
+            **_no_fase(node),
             "energy_shifted_kwh": float(np.sum(np.abs(delta)) * DT_H),
             "net_shift_kwh": float(np.sum(delta) * DT_H),
             f"value_{u}": float(np.sum(-delta * price * DT_H) / 1000.0),
@@ -122,6 +111,15 @@ def flexibility(p_init, y, prices, calibrado=False):
             f"dlmp_max_{u}": float(np.max(price)),
         })
     return rows
+
+
+def _no_fase(key):
+    """Colunas de identificacao de uma chave: so `node` por no; `node` e `fase`
+    por porta ("671.A"). O modo por no mantem o formato de sempre."""
+    if isinstance(key, str) and "." in key:
+        no, fase = key.split(".")
+        return {"node": int(no), "fase": fase}
+    return {"node": key}
 
 
 def write_csv(rows, path):
@@ -151,7 +149,7 @@ def settle(result, out_dir, ck_eur=None):
         print(f"[liquidacao] DLMP calibrado com Ck = {ck_eur or CK_EUR} "
               "EUR/(kW^2.h): as colunas estao em EUR.")
     else:
-        print("[liquidacao] ATENCAO: com o Ck = 1 da tese, lambda NAO esta em "
+        print("[liquidacao] ATENCAO: com Ck = 1, lambda NAO esta em "
               "unidade monetaria. As colunas de preco saem como '_signal' e "
               "devem ser lidas como SINAL, nao como dinheiro. Calibre com "
               "MARKET_CK_EUR para obter preco.")
@@ -159,9 +157,8 @@ def settle(result, out_dir, ck_eur=None):
     write_csv(transactions(result["contracts"], spot_price),
               out_dir / "transactions.csv")
 
-    # Serie por intervalo, que e o que a Figura 56 da tese mostra. O
-    # `transactions.csv` so tem o total do dia por no, e com ele nao da para
-    # reproduzir a figura nem ver em que horario cada mercado e usado.
+    # Serie por intervalo. O `transactions.csv` so tem o total do dia por no, e
+    # com ele nao da para ver em que horario cada mercado e usado.
     serie = []
     for node, decision in sorted(result["contracts"].items()):
         bil = np.asarray(decision["bilateral"], dtype=float)
@@ -178,7 +175,7 @@ def settle(result, out_dir, ck_eur=None):
     dlmp_rows = []
     for node, series in sorted(prices.items()):
         for t, value in enumerate(series):
-            dlmp_rows.append({"node": node, "t": t,
+            dlmp_rows.append({**_no_fase(node), "t": t,
                               f"dlmp_{u}": float(value),
                               "spot_eur_mwh": float(spot_price[t]),
                               f"adder_{u}": float(value - spot_price[t])})
@@ -192,12 +189,12 @@ def settle(result, out_dir, ck_eur=None):
 
 
 def _dump_figuras(result, out_dir):
-    """Grava, num npz, tudo o que as figuras da tese consomem.
+    """Grava, num npz, tudo o que as figuras da negociacao consomem.
 
     Sem isto cada figura teria de reexecutar a negociacao inteira. O arquivo tem
     as tres tensoes (base, proposta e negociada), a demanda liquida, as
     programacoes dos dois armazenamentos, o preco sombra e a trilha de cada
-    rodada por no, que e o que as Figuras 51 a 53 mostram.
+    rodada por chave.
     """
     case = result["case"]
     nos = list(result["nodes"])
@@ -205,8 +202,8 @@ def _dump_figuras(result, out_dir):
         chaves = nos if chaves is None else chaves
         return np.array([np.asarray(d.get(n, np.zeros(PERIODS)), dtype=float)
                          for n in chaves])
-    pros = case.prosumer_storage_nodes
-    rede = case.network_storage_nodes
+    pros = case.prosumer_keys
+    rede = case.network_keys
     np.savez_compressed(
         Path(out_dir) / "figuras.npz",
         nodes=np.array(nos),
@@ -222,5 +219,9 @@ def _dump_figuras(result, out_dir):
         preco=np.asarray(result["price"]),
         trilha_ac=np.array([[r[n] for n in pros] for r in result["trilha_ac"]]),
         trilha_ad=np.array([[r[n] for n in pros] for r in result["trilha_ad"]]),
+        # Modo por fase: as tensoes sao por (no, fase), uma coluna por linha de
+        # `rows`, e as chaves do armazenamento sao portas "671.A".
+        fase=np.array(case.fase),
+        rows=np.array(case.rows),
     )
     print(f"gravado {Path(out_dir) / 'figuras.npz'}")

@@ -1,7 +1,7 @@
 """Cenario de mercado transativo: negociacao em PADE, rede em OpenDSS.
 
-Fase de programacao da operacao (subsecao 6.1.2 da tese de Lucas S. Melo, 2022),
-sobre a rede MVLV75 (75 barras, 5 transformadores, 68 prosumidores).
+Fase de programacao da operacao (Melo, 2022, secao 6.1.2) sobre a IEEE 13
+barras: 10 prosumidores, um concentrador, 14 bancos de armazenamento.
 
     t = 0        o sistema multi-agentes negocia: os prosumidores propoem a
                  programacao do armazenamento, o DSO verifica as restricoes e o
@@ -17,7 +17,7 @@ LINEARIZADO (dV = S . dP), e aqui se verifica se a promessa se confirma na
 solucao nao linear. Sem isso, o resultado da negociacao seria uma afirmacao
 sobre o proprio modelo dela.
 
-Comparacao: com CONTROL_ENABLED=0 os agentes publicam a programacao PROPOSTA
+Comparacao: com MARKET_NEGOTIATE=0 os agentes publicam a programacao PROPOSTA
 pelos prosumidores, sem negociacao, que e a linha de base.
 """
 
@@ -31,16 +31,24 @@ import re
 
 import mosaik
 
-PADE_HOST = os.environ.get("PADE_HOST", "pade-market")
+PADE_HOST = os.environ.get("PADE_HOST", "pade")
 PADE_PORT = os.environ.get("PADE_PORT", "5678")
-OPENDSS_HOST = os.environ.get("OPENDSS_HOST", "opendss")
-ELEC_COLLECTOR_HOST = os.environ.get("ELEC_COLLECTOR_HOST", "elec-collector")
+OPENDSS_HOST = os.environ.get("OPENDSS_HOST", "grid")
+ELEC_COLLECTOR_HOST = os.environ.get("ELEC_COLLECTOR_HOST", "collector")
 
-CIRCUITO_DSS = os.environ.get("MARKET_CIRCUIT", "/app/src/data/MVLV75/Master.dss")
+CIRCUITO_DSS = os.environ.get("MARKET_CIRCUIT", "/app/src/data/13Bus/Master.dss")
 OUTPUT_DIR = Path(os.environ.get("MOSAIK_OUTPUT_DIR", "/app/output/market"))
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 RESULT_TAG = os.environ.get("RESULT_TAG", "negociado")
 RESULT_CSV = str(OUTPUT_DIR / f"result_{RESULT_TAG}.csv")
+
+# Analise por fase (MARKET_FASE=1): o armazenamento de cada fase vai para a carga
+# monofasica `Port_<no>_<fase>` do circuito, e o Load_<no> leva so a demanda.
+FASE = os.environ.get("MARKET_FASE", "0") == "1"
+# Regulador: `previsao` aplica, a cada passo, as derivacoes do ponto de operacao da
+# previsao, que o DSO usou para calcular a matriz de sensibilidade. Sem comando,
+# o simulador OpenDSS deixa as derivacoes travadas em 0 (`neutro`).
+REGULADOR = os.environ.get("MARKET_REGULADOR", "previsao")
 
 START_DATE = os.environ.get("MOSAIK_START_DATE", "2026-01-01 00:00:00")
 STEP_SIZE = int(os.environ.get("MOSAIK_STEP_SIZE", "900"))      # 15 min
@@ -87,11 +95,35 @@ def create_scenario(world):
         node = m.group(1)
         agent = pade_sim.MarketMAS(node=int(node))
         world.connect(agent, load, ("P_kw", "P_kw"), ("Q_kvar", "Q_kvar"))
-        # A demanda liquida REALIZADA por no tambem vai para o coletor: e a
-        # grandeza da Figura 55 e das Tabelas 20 e 21 do Apendice A da tese, e
-        # sem grava-la nao ha como confrontar no a no com elas. So a tensao ia.
+        # A demanda liquida REALIZADA por no tambem vai para o coletor, ao lado
+        # da tensao: e o que a figura de demanda da operacao mostra.
         world.connect(agent, monitor, "P_kw")
         n_ligados += 1
+
+    n_portas = 0
+    if FASE:
+        porta_re = re.compile(r"^load-port_(\d+)_([123])$", re.IGNORECASE)
+        for eid, load in loads.items():
+            m = porta_re.match(eid)
+            if m is None:
+                continue
+            agent = pade_sim.MarketMAS(node=int(m.group(1)), porta=int(m.group(2)))
+            world.connect(agent, load, ("P_kw", "P_kw"), ("Q_kvar", "Q_kvar"))
+            # Registrada tambem, para que a demanda liquida do no (carga mais
+            # armazenamento) possa ser reconstituida somando as portas.
+            world.connect(agent, monitor, "P_kw")
+            n_portas += 1
+        if not n_portas:
+            raise SystemExit("MARKET_FASE=1, mas o circuito nao tem cargas "
+                             "Port_<no>_<fase> (ver gen_ieee13_market.py)")
+        ignoradas = [e for e in ignoradas if not porta_re.match(e)]
+
+    n_reg = 0
+    if REGULADOR == "previsao":
+        for reg in (e for e in grid.children if e.type == "RegControl"):
+            agent = pade_sim.Regulador(nome=reg.eid.split("-", 1)[1])
+            world.connect(agent, reg, ("tap", "tap"))
+            n_reg += 1
 
     for bus in buses:
         world.connect(bus, monitor, "V1_pu", "V2_pu", "V3_pu")
@@ -101,7 +133,9 @@ def create_scenario(world):
             "nenhuma carga com o nome `Load_<no>` no circuito; o mercado nao "
             f"tem o que acionar. Cargas encontradas: {sorted(loads)[:8]}")
     print(f"   {n_ligados} nos acionados pelos agentes, "
-          f"{len(buses)} barras registradas")
+          + (f"{n_portas} portas por fase, " if FASE else "")
+          + (f"{n_reg} reguladores pela previsao, " if n_reg else "")
+          + f"{len(buses)} barras registradas")
     if ignoradas:
         print(f"   {len(ignoradas)} cargas fora da convencao do mercado, "
               f"ignoradas: {sorted(ignoradas)[:6]}")

@@ -1,7 +1,7 @@
-"""Compatibility wrapper for the OpenDSS simulator module.
+"""Ponto de entrada do simulador OpenDSS para o Mosaik (o CMD do contêiner `grid`).
 
-This keeps older scenario files working even though the implementation lives
-in `1_api_opendss.py`.
+A implementação está em `api_opendss.py`; este módulo só a expõe e inicia o
+servidor: `python -m simulators.opendss_simulator --remote 0.0.0.0:5671`.
 """
 
 from importlib import import_module

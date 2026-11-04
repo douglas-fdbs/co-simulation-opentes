@@ -2,27 +2,21 @@
 # -*- coding: utf-8 -*-
 """Camada de rede para as mensagens FIPA: atraso, perda e telemetria.
 
-Sucessor do `pade.simul` do PADE 2.2, que desviava toda mensagem ACL para um
-`SimulAgent` e de la para o servidor ns-3, devolvendo o instante de entrega
-(`market-simulation/pade-cosimul/pade/simul/simul_agent.py`). Esse modulo foi
-removido no PADE 3.0 junto com o `mode='simulation'`, entao no PADE 3.0 o
-`Agent.send` vai direto para `reactor.connectTCP` e nenhuma mensagem passa por
-simulador de rede nenhum.
-
-Aqui o desvio e reconstruido SEM tocar no nucleo do PADE, que e compartilhado
-com os outros cenarios do repositorio: o `_send` do agente e substituido em
+No PADE 3.0 o `Agent.send` vai direto para `reactor.connectTCP`, e nenhuma
+mensagem passa por simulador de rede. Esta camada poe um modelo de rede no
+caminho SEM tocar no nucleo do PADE: o `_send` de cada agente e substituido em
 tempo de execucao (`install`), e a entrega passa a ser agendada pelo backend.
 
 BACKENDS
 --------
-`ideal`    entrega tudo, sem atraso. E o caso de controle da Fase 5.
-`lossy`    modelo fenomenologico igual ao do NetworkNode.cc do comm-opentes:
+`ideal`    entrega tudo, sem atraso. E o caso de controle.
+`lossy`    modelo fenomenologico, sem o OMNeT++:
            sorteia a perda, e o atraso e propagacao + transmissao (tamanho da
            mensagem sobre a banda) + jitter exponencial. Permite rodar o
            experimento de perda sem depender do OMNeT++.
-`omnet`    cliente ZMQ do servidor de rotas 6TiSCH do container `comm-tisch`
-           (`comm-opentes/Tisch.cc`, configuracao `-c tisch`). E a rede LPWA da
-           tese: PER por distancia pelo modelo de Pister-Hack, matriz de
+`omnet`    cliente ZMQ do servidor de rotas 6TiSCH do conteiner `comm`
+           (`comm-opentes/Tisch.cc`). E a rede LPWA de Melo (2022,
+           secao 6.1.5): PER por distancia pelo modelo de Pister-Hack, matriz de
            adjacencia com limiar de PER 0,5, roteamento multi-salto e atraso
            vindo do slotframe do TSCH. Cada envio vira uma consulta com origem,
            destino e tamanho, e a resposta traz atraso e descarte daquele par.
@@ -31,9 +25,9 @@ TEMPO
 -----
 O atraso e aplicado no relogio do reactor do Twisted, porque a negociacao inteira
 acontece DENTRO de um passo do Mosaik, com o relogio da co-simulacao parado.
-`time_scale` comprime esse atraso: a rede LPWA da tese entrega entre 10 e 90 s
+`time_scale` comprime esse atraso: a rede LPWA entrega em dezenas de segundos
 por mensagem, o que faria cada rodada levar minutos de relogio real. Com
-`time_scale = 0.01` o padrao temporal e preservado e o experimento fica viavel.
+`time_scale = 0.02` o padrao temporal e preservado e o experimento fica viavel.
 O valor NAO simulado (o atraso nominal) e o que vai para a telemetria.
 
 IDENTIDADE DOS AGENTES
@@ -41,7 +35,7 @@ IDENTIDADE DOS AGENTES
 O canal `lossy` so precisa do tamanho da mensagem. O 6TiSCH precisa saber QUEM
 fala com QUEM, porque o PER depende da distancia entre os dois radios. O `route`
 passa origem e destino em todos os backends, e o `node_map` traduz o nome local
-do agente para o nome da posicao no Apendice B da tese.
+do agente para o nome da posicao dele no `nodes_xy.csv` do caso.
 """
 
 import csv
@@ -53,7 +47,7 @@ import time
 from pade.acl.messages import ACLMessage
 from twisted.internet import reactor
 
-# Parametros do canal, com os mesmos defaults do comm-opentes/omnetpp.ini.
+# Parametros do canal `lossy`.
 BANDWIDTH_BPS = float(os.environ.get("NET_BANDWIDTH_BPS", "50000"))
 DROP_PROBABILITY = float(os.environ.get("NET_DROP_PROBABILITY", "0.0"))
 JITTER_MEAN_S = float(os.environ.get("NET_JITTER_MEAN", "0.05"))
@@ -61,40 +55,31 @@ PROPAGATION_S = float(os.environ.get("NET_PROPAGATION", "0.010"))
 TIME_SCALE = float(os.environ.get("NET_TIME_SCALE", "1.0"))
 SEED = int(os.environ.get("NET_SEED", "0"))
 
-# Tamanho da mensagem informado a rede. `real` usa o conteudo serializado, que e
-# o que de fato trafega. `thesis` reproduz os valores DECLARADOS pelo trabalho
-# original, que sao arbitrarios e nao tem relacao com o conteudo. A opcao existe
-# para tornar a diferenca mensuravel, nao para escolher a mentira.
+# Tamanho da mensagem informado a rede. `real` (padrao) usa o conteudo
+# serializado, que e o que de fato trafega. `declarado` usa tres classes de
+# tamanho fixas, as da implementacao de referencia (Melo, 2022), que nao tem
+# relacao com o conteudo; serve para comparar com os resultados de comunicacao
+# de la.
 #
-# O original usa TRES classes, e nao duas. Varrendo os 42 `set_message_length`
-# de `market_agent.py`, `bess_agent.py`, `dso_agent.py` e `prosumer_agent.py`:
-#
-#   100 bytes fixos        CFP, AGREE, SUBSCRIBE e INFORM de confirmacao ('OK',
-#                          confirmacao de assinatura). E a classe MAIS FREQUENTE,
-#                          porque um CFP enderecado a N destinatarios conta N
-#                          vezes.
+#   100 bytes fixos        CFP, AGREE, SUBSCRIBE e INFORM de confirmacao. E a
+#                          classe mais frequente, porque um CFP enderecado a N
+#                          destinatarios conta N vezes.
 #   uniforme 100 a 500     um caso so: a PROPOSE do prosumidor no leilao de tempo
-#                          real, ou seja, na fase de OPERACAO
-#                          (`prosumer_agent.py`, linha 310).
+#                          real, ou seja, na fase de OPERACAO.
 #   uniforme 1000 a 1500   PROPOSE, REQUEST e INFORM que carregam conteudo
 #                          serializado, e ACCEPT/REJECT_PROPOSAL que carregam o
 #                          multiplicador de Lagrange.
 #
-# Uma versao anterior deste arquivo lia so o `market_agent.py` e mapeava CFP para
-# 100 e TODO o resto para 1000 a 1500. Isso inverte a distribuicao da Figura 59
-# da tese, em que cerca de 94% das mensagens ficam abaixo de 500 bytes: passavam
-# a ser a minoria. E como o tempo de entrega no 6TiSCH cresce com o numero de
-# quadros, e 100 bytes cabem em um quadro contra 8 a 12 para 1000 a 1500, o erro
-# multiplicava por quase dez o tempo de rede da maioria das mensagens.
+# A distincao entre as classes importa: o tempo de entrega no 6TiSCH cresce com
+# o numero de quadros, e 100 bytes cabem em um quadro contra 8 a 12 para 1000 a
+# 1500.
 MESSAGE_SIZE = os.environ.get("NET_MESSAGE_SIZE", "real")
-THESIS_CONTROL_BYTES = 100
-THESIS_BID_RANGE = (100, 500)
-THESIS_PAYLOAD_RANGE = (1000, 1500)
-# Abaixo disto um INFORM e confirmacao, e nao carga util. O original separa os
-# dois casos por construcao ('OK' contra `pickle.dumps(config)`); aqui a
-# separacao vem do conteudo real, que e a mesma distincao medida.
-THESIS_CONTROL_MAX_BYTES = 64
-# Performativas que o original sempre manda com 100 bytes.
+DECLARADO_CONTROL_BYTES = 100
+DECLARADO_BID_RANGE = (100, 500)
+DECLARADO_PAYLOAD_RANGE = (1000, 1500)
+# Abaixo disto um INFORM e confirmacao, e nao carga util.
+DECLARADO_CONTROL_MAX_BYTES = 64
+# Performativas da classe de 100 bytes.
 CONTROLE = frozenset(x for x in (
     getattr(ACLMessage, n, None)
     for n in ("CFP", "AGREE", "SUBSCRIBE", "REFUSE", "FAILURE")) if x is not None)
@@ -131,7 +116,7 @@ class LossyBackend:
 
 
 class OmnetBackend:
-    """Cliente do servidor de rotas 6TiSCH do container `comm-tisch`.
+    """Cliente do servidor de rotas 6TiSCH do conteiner `comm`.
 
     Uma consulta por envio, sincrona. O custo e de dezenas de microssegundos por
     mensagem em ZMQ local, desprezivel perto do que a propria rede simulada
@@ -150,7 +135,7 @@ class OmnetBackend:
     def __init__(self, host=None, port=None, node_map=None, timeout_ms=120000):
         import zmq
 
-        self.host = host or os.environ.get("OMNET_HOST", "comm-tisch")
+        self.host = host or os.environ.get("OMNET_HOST", "comm")
         self.port = int(port or os.environ.get("OMNET_NET_PORT", "5556"))
         self.node_map = node_map or {}
         self.unmapped = set()
@@ -184,7 +169,7 @@ class OmnetBackend:
     def _name(self, aid_name):
         if aid_name in self.node_map:
             return self.node_map[aid_name]
-        # Sem posicao no Apendice B o no nao existe no modelo de radio. O
+        # Sem posicao no `nodes_xy.csv` o no nao existe no modelo de radio. O
         # servidor entrega sem atraso e o registro fica aqui, para nao passar
         # despercebido.
         self.unmapped.add(aid_name)
@@ -218,17 +203,17 @@ class NetworkLink:
         self.backend = backend
         self.time_scale = time_scale
         self._rng = random.Random(SEED)
-        # Contabilidade por ciclo. A tese posiciona os tres ciclos de troca de
-        # mensagens nos minutos 1, 5 e 10 da janela de 15 min, o que so significa
-        # alguma coisa se der para dizer QUANTO tempo de rede cada ciclo gastou.
+        # Contabilidade por ciclo. Os tres ciclos de troca de mensagens comecam
+        # nos minutos 1, 5 e 10 da janela de 15 min, o que so significa alguma
+        # coisa se der para dizer QUANTO tempo de rede cada ciclo gastou.
         # Como as mensagens de um ciclo viajam em paralelo, o custo do ciclo e o
         # MAIOR atraso dele, nao a soma.
         self.cycle = None
         self.cycles = []
         # Intervalo de 15 min em curso, quando a fase de operacao esta rodando.
         # Serve para duas coisas: separar a PROPOSE do leilao de tempo real, que
-        # o original manda menor, e dar ao traco o tempo de CO-SIMULACAO, sem o
-        # qual nao da para reproduzir a Figura 58 da tese.
+        # no modo `declarado` e menor, e dar ao traco o tempo de CO-SIMULACAO,
+        # que e o eixo da figura de mensagens.
         self.ctx_t = None
         self.sent = 0
         self.dropped = 0
@@ -263,24 +248,22 @@ class NetworkLink:
 
     def _size(self, message):
         real = self._conteudo(message)
-        if MESSAGE_SIZE != "thesis":
+        if MESSAGE_SIZE != "declarado":
             return real
         perf = message.performative
         if perf in CONTROLE:
-            return THESIS_CONTROL_BYTES
-        if perf == ACLMessage.INFORM and real <= THESIS_CONTROL_MAX_BYTES:
-            return THESIS_CONTROL_BYTES
-        # A unica PROPOSE de faixa curta do original e a do PROSUMIDOR no leilao
-        # de tempo real: `prosumer_agent.py` linha 310, e so ela. As propostas do
-        # concentrador ao DSO e ao agente de mercado carregam programacao e ficam
-        # na faixa alta, que e o que a Figura 58(a) mostra em azul e verde. Duas
-        # condicoes, portanto: fase de operacao (ha intervalo corrente) e
-        # remetente prosumidor.
+            return DECLARADO_CONTROL_BYTES
+        if perf == ACLMessage.INFORM and real <= DECLARADO_CONTROL_MAX_BYTES:
+            return DECLARADO_CONTROL_BYTES
+        # A unica PROPOSE de faixa curta e a do PROSUMIDOR no leilao de tempo
+        # real. As propostas do concentrador ao DSO e ao agente de mercado
+        # carregam programacao e ficam na faixa alta. Duas condicoes, portanto:
+        # fase de operacao (ha intervalo corrente) e remetente prosumidor.
         if (perf == ACLMessage.PROPOSE and self.ctx_t is not None
                 and str(getattr(message.sender, "localname", "")).startswith(
                     "prosumer")):
-            return self._rng.randint(*THESIS_BID_RANGE)
-        return self._rng.randint(*THESIS_PAYLOAD_RANGE)
+            return self._rng.randint(*DECLARADO_BID_RANGE)
+        return self._rng.randint(*DECLARADO_PAYLOAD_RANGE)
 
     @staticmethod
     def _instrumentacao(message, receiver):
@@ -288,15 +271,11 @@ class NetworkLink:
 
         O `Agent.react` do PADE reenvia uma COPIA de tudo o que recebe para o
         agente `sniffer`, embrulhada num INFORM marcado como mensagem de sistema.
-        O sniffer e ferramenta de depuracao do framework: nao existe na
-        arquitetura da tese, nao e no da rede 6TiSCH e nao consome o meio LPWA.
-
-        Modelar essas copias como trafego distorce tudo o que se mede. Medido
-        numa corrida da fase de operacao sobre a rede da tese: elas eram METADE
-        das mensagens, todas na faixa de 1000 a 1500 bytes porque embrulham a
+        O sniffer e ferramenta de depuracao do framework: nao faz parte da
+        arquitetura do mercado, nao e no da rede 6TiSCH e nao consome o meio
+        LPWA. Modelar essas copias como trafego distorceria tudo o que se mede:
+        elas chegam a metade das mensagens, todas grandes porque embrulham a
         original, e todas com atraso zero porque o destino nao tem no na rede.
-        Com elas dentro, a distribuicao de tamanho da Figura 59 saia invertida e
-        a mediana do tempo de recepcao caia para 0,1 s.
 
         Elas continuam sendo ENTREGUES; apenas nao passam pelo modelo de rede.
         """
@@ -304,17 +283,11 @@ class NetworkLink:
             return True
         nome = getattr(receiver, "localname", "") or ""
         rem = getattr(getattr(message, "sender", None), "localname", "") or ""
-        # O SOLVER tambem nao e da arquitetura. Ele existe aqui porque o
-        # `py_dss_interface` e o Pyomo nao podem rodar na thread do reactor, e o
-        # trabalho original tem o mesmo recurso (`solver_agent.py`). Ele NAO
-        # aparece na topologia publicada: o `nodes_xy.csv` do Apendice B tem 78
-        # posicoes, os 75 nos eletricos mais o DSO e o Mercado, e nenhuma para
-        # ele. Nem aparece nas Figuras 58 e 59, que so mostram AC, AD e AM.
-        #
-        # Medido antes desta exclusao: 36% do trafego da programacao era de e
-        # para o solver, com mediana de 2.916 bytes e maximo de 102.534, contra
-        # mediana de 26 bytes do resto. Era ele que estourava o enlace ruim e
-        # deixava o `concentrator_trafo_5_35` sem resposta, e nao o CFP.
+        # O SOLVER tambem nao e da arquitetura. Ele existe porque o
+        # `py_dss_interface` e o Pyomo nao podem rodar na thread do reactor: e
+        # um servico de calculo local, sem posicao no `nodes_xy.csv`, e o
+        # trafego dele (grande, porque carrega os modelos inteiros) nao passa
+        # pelo radio.
         for x in (nome, rem):
             if x.startswith(("sniffer", "ams", "solver")):
                 return True
@@ -389,11 +362,10 @@ class NetworkLink:
 
 
 def node_map_from_case(case):
-    """Nome local do agente para nome da posicao no Apendice B da tese.
+    """Nome local do agente para o nome da posicao dele no `nodes_xy.csv`.
 
-    O AM e o AD ficam ambos em (0,0) no apendice. O agente de solucao nao existe
-    na tese: e um servico de calculo do proprio AM, entao divide a posicao dele e
-    nao gasta radio.
+    O AM e o AD ficam na subestacao. O agente de solucao e um servico de calculo
+    do proprio AM, entao divide a posicao dele e nao gasta radio.
     """
     mapping = {"market": "Market", "dso": "DSO", "solver": "Market"}
     for c in case.concentrators:
@@ -409,8 +381,7 @@ def install(agents, backend_name=None, trace_path=None, time_scale=TIME_SCALE,
     """Instala a camada de rede nos agentes dados.
 
     Substitui `agent._send` por uma versao que consulta o backend. Nao toca no
-    `pade/core/agent.py`, que e compartilhado com os cenarios `star`, `ieee13` e
-    `integrated`.
+    `pade/core/agent.py`, que segue igual ao do PADE.
     """
     backend_name = backend_name or os.environ.get("NET_BACKEND", "ideal")
     if backend_name not in BACKENDS:

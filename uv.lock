@@ -11,19 +11,6 @@ resolution-markers = [
 ]
 
 [[package]]
-name = "arrow"
-version = "1.4.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "python-dateutil" },
-    { name = "tzdata" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/b9/33/032cdc44182491aa708d06a68b62434140d8c50820a087fac7af37703357/arrow-1.4.0.tar.gz", hash = "sha256:ed0cc050e98001b8779e84d461b0098c4ac597e88704a655582b21d116e526d7", size = 152931, upload-time = "2025-10-18T17:46:46.761Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/ed/c9/d7977eaacb9df673210491da99e6a247e93df98c715fc43fd136ce1d3d33/arrow-1.4.0-py3-none-any.whl", hash = "sha256:749f0769958ebdc79c173ff0b0670d59051a535fa26e8eba02953dc19eb43205", size = 68797, upload-time = "2025-10-18T17:46:45.663Z" },
-]
-
-[[package]]
 name = "attrs"
 version = "26.1.0"
 source = { registry = "https://pypi.org/simple" }
@@ -339,7 +326,6 @@ source = { editable = "simulators/grid-opentes" }
 dependencies = [
     { name = "mosaik" },
     { name = "mosaik-api" },
-    { name = "opender" },
     { name = "pandas" },
     { name = "py-dss-interface" },
     { name = "setuptools" },
@@ -349,7 +335,6 @@ dependencies = [
 requires-dist = [
     { name = "mosaik", specifier = "==3.5.0" },
     { name = "mosaik-api", specifier = "==3.0.6" },
-    { name = "opender", specifier = "==2.1.6" },
     { name = "pandas", specifier = ">=2.3.2" },
     { name = "py-dss-interface", specifier = ">=2.3.0" },
     { name = "setuptools", specifier = "==69.5.1" },
@@ -374,18 +359,6 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/82/77/7b3966d0b9d1d31a36ddf1746926a11dface89a83409bf1483f0237aa758/idna-3.15.tar.gz", hash = "sha256:ca962446ea538f7092a95e057da437618e886f4d349216d2b1e294abfdb65fdc", size = 199245, upload-time = "2026-05-12T22:45:57.011Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/d2/23/408243171aa9aaba178d3e2559159c24c1171a641aa83b67bdd3394ead8e/idna-3.15-py3-none-any.whl", hash = "sha256:048adeaf8c2d788c40fee287673ccaa74c24ffd8dcf09ffa555a2fbb59f10ac8", size = 72340, upload-time = "2026-05-12T22:45:55.733Z" },
-]
-
-[[package]]
-name = "importlib-metadata"
-version = "4.13.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "zipp" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/55/12/ab288357b884ebc807e3f4eff63ce5ba6b941ba61499071bf19f1bbc7f7f/importlib_metadata-4.13.0.tar.gz", hash = "sha256:dd0173e8f150d6815e098fd354f6414b0f079af4644ddfe90c71e2fc6174346d", size = 50445, upload-time = "2022-10-01T17:09:15.698Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/d0/98/c277899f5aa21f6e6946e1c83f2af650cbfee982763ffb91db07ff7d3a13/importlib_metadata-4.13.0-py3-none-any.whl", hash = "sha256:8a8a81bcf996e74fee46f0d16bd3eaa382a7eb20fd82445c3ad11f4090334116", size = 23010, upload-time = "2022-10-01T17:09:13.903Z" },
 ]
 
 [[package]]
@@ -598,21 +571,6 @@ wheels = [
 ]
 
 [[package]]
-name = "mosaik-csv"
-version = "2.0.1"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "arrow" },
-    { name = "importlib-metadata" },
-    { name = "mosaik-api-v3" },
-    { name = "pandas" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/68/fb/9c9fe27526e72f571445c3751413a428fed029a9b4199c0d5eed9c002c3a/mosaik-csv-2.0.1.tar.gz", hash = "sha256:449419148cf2906b5db8e1c27ce8f0a3e6e081f9ead4f24a34b8b7f1eec2fa1f", size = 15216, upload-time = "2024-05-17T08:13:30.551Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/f3/a3/a3164a867f1f5aa73b9e938674e3f0351c71b29d67bcb6ed969035bb8a86/mosaik_csv-2.0.1-py2.py3-none-any.whl", hash = "sha256:1be1cd4c7f8f7f5ce8d6b5f6693ee0030541d0deb78c221a7b8376e031059bc4", size = 15201, upload-time = "2024-05-17T08:13:29.19Z" },
-]
-
-[[package]]
 name = "mosaik-simpy-io"
 version = "0.2.4"
 source = { registry = "https://pypi.org/simple" }
@@ -697,20 +655,6 @@ wheels = [
 ]
 
 [[package]]
-name = "opender"
-version = "2.1.6"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "matplotlib" },
-    { name = "numpy" },
-    { name = "pandas" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/22/4c/14502001ed724a0ecf22a6d258d4143831da48203f20eb565723b1652c09/opender-2.1.6.tar.gz", hash = "sha256:bc6054b141220f881fb51aa1ec9570f28df0bf92719ccaac5df8839e919bdd42", size = 61079, upload-time = "2025-01-14T13:32:11.278Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/3c/f0/8de592c49b944c0093602ba4307d21a9f0ca7df61cd0a67eef288068b081/opender-2.1.6-py3-none-any.whl", hash = "sha256:4074347a71b6b7638d31395b73eb5f3672efc3ee5dac437a59773fe6862ae4bb", size = 90191, upload-time = "2025-01-14T13:32:09.796Z" },
-]
-
-[[package]]
 name = "opentes-integration"
 version = "0.1.0"
 source = { virtual = "." }
@@ -720,8 +664,6 @@ dependencies = [
     { name = "mosaik" },
     { name = "mosaik-api" },
     { name = "mosaik-api-v3" },
-    { name = "mosaik-csv" },
-    { name = "opender" },
     { name = "pade-agents" },
     { name = "pandas" },
     { name = "py-dss-interface" },
@@ -736,8 +678,6 @@ requires-dist = [
     { name = "mosaik", specifier = "==3.5.0" },
     { name = "mosaik-api", specifier = "==3.0.6" },
     { name = "mosaik-api-v3", specifier = ">=3.0.13,<3.1" },
-    { name = "mosaik-csv", specifier = "==2.0.1" },
-    { name = "opender", specifier = "==2.1.6" },
     { name = "pade-agents", editable = "simulators/pade-opentes" },
     { name = "pandas", specifier = ">=2.3.2" },
     { name = "py-dss-interface", specifier = ">=2.3.0" },
@@ -1096,15 +1036,6 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/b3/8f/705086c9d734d3b663af0e9bb3d4de6578d08f46b1b101c2442fd9aecaa2/win32_setctime-1.2.0.tar.gz", hash = "sha256:ae1fdf948f5640aae05c511ade119313fb6a30d7eabe25fef9764dca5873c4c0", size = 4867, upload-time = "2024-12-07T15:28:28.314Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/e1/07/c6fe3ad3e685340704d314d765b7912993bcb8dc198f0e7a89382d37974b/win32_setctime-1.2.0-py3-none-any.whl", hash = "sha256:95d644c4e708aba81dc3704a116d8cbc974d70b3bdb8be1d150e36be6e9d1390", size = 4083, upload-time = "2024-12-07T15:28:26.465Z" },
-]
-
-[[package]]
-name = "zipp"
-version = "4.1.0"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/b9/d8/eab98a517c14134c0b2eb4e2387bc5f457334293ec5d2dd3857ec2966802/zipp-4.1.0.tar.gz", hash = "sha256:4cb57381f544315db7688e976e922a2b18cdb513d21cc194eb42232ba2a3e602", size = 26214, upload-time = "2026-05-18T20:08:57.967Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/3a/13/547360d81e6d88d58492968ffda9f9542854f11310ee556fef14260cc886/zipp-4.1.0-py3-none-any.whl", hash = "sha256:25ad4e16390cd314347dd8f1de67a2ac538ae658ed4ab9db16029c07c188e97f", size = 10238, upload-time = "2026-05-18T20:08:57.045Z" },
 ]
 
 [[package]]

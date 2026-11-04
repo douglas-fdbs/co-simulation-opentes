@@ -10,8 +10,6 @@ dependencies = [
     "mosaik==3.5.0",
     "mosaik-api==3.0.6",
     "mosaik-api-v3>=3.0.13,<3.1",
-    "mosaik-csv==2.0.1",
-    "opender==2.1.6",
     "pandas>=2.3.2",
     "matplotlib>=3.10.0",
     "py-dss-interface>=2.3.0",

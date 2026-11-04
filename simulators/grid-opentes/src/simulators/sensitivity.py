@@ -1,45 +1,42 @@
 """Matrizes de sensibilidade de tensao dV/dP e dV/dQ obtidas do OpenDSS.
 
-Substitui o Jacobiano do pandapower usado pelo modelo de otimizacao do agente
-DSO no trabalho original.
-
 CONTEXTO
 --------
-A restricao de tensao do modelo do DSO e linearizada (Eq. 6.14 a 6.17 da tese de
-Lucas S. Melo, 2022):
+A restricao de tensao do modelo do DSO e linearizada (Melo, 2022, equacoes 6.14
+a 6.17):
 
-    Umin <= U0(t,l) + dU(t,l) <= Umax     com     dU = J^-1_21 . dP
+    Umin <= U0(t,l) + dU(t,l) <= Umax     com     dU = S . dP
 
-ou seja, so a sensibilidade da tensao a potencia ATIVA, com dQ = 0. Como o
-MyGrid resolve o fluxo por varredura direta-inversa e nao produz Jacobiano, o
-trabalho original precisou de um segundo simulador (pandapower) so para extrair
-`net['_ppc']['internal']['J']` e inverter. Isso deixou duas representacoes da
-mesma rede convivendo, com transformadores e modelo de carga diferentes.
+ou seja, so a sensibilidade da tensao a potencia ATIVA, com dQ = 0. Na
+formulacao de referencia, S e o bloco dV/dP do Jacobiano invertido de um fluxo
+de potencia de Newton-Raphson.
 
 Aqui a mesma grandeza e obtida por perturbacao no proprio OpenDSS: perturba-se a
 potencia ativa de um no, resolve-se o fluxo e mede-se a variacao de tensao em
 todos os nos. Vantagens: um simulador so, e o metodo nao depende de o solver
 expor o Jacobiano (vale para varredura direta-inversa, para rede desbalanceada e
-para qualquer elemento de controle que o OpenDSS saiba resolver).
+para qualquer elemento de controle que o OpenDSS saiba resolver), e a rede
+que o mercado lineariza e a mesma que a co-simulacao resolve.
 
 SOBRE O dQ = 0
 --------------
-A Eq. 6.16 despreza o reativo. Isso vale enquanto o dispositivo despachado nao
-mexer em Q, que e o caso do armazenamento sem controle de reativo. Se ele
+A restricao (6.16) despreza o reativo. Isso vale enquanto o dispositivo
+despachado nao mexer em Q, que e o caso do armazenamento sem controle de
+reativo. Se ele
 mantiver fator de potencia constante, o que e o comportamento padrao de um
 inversor comum, a hipotese passa a dominar o erro da restricao.
 
 Por isso `compute_sensitivity` devolve TAMBEM `dV/dQ`, obtida do mesmo jeito, por
 perturbacao. Com as duas matrizes a restricao de tensao aceita qualquer politica
-de reativo do dispositivo, e a politica "sem reativo" continua reproduzindo a
-tese exatamente, porque o termo simplesmente zera.
+de reativo do dispositivo, e a politica "sem reativo" continua sendo a
+restricao (6.16), porque o termo simplesmente zera.
 
 CONVENCAO DE SINAL
 ------------------
 `S[i, j] = dV_i / dP_j` e `SQ[i, j] = dV_i / dQ_j`, com P e Q em INJECAO
 (positivo = gera, tensao sobe), V em pu, P em kW e Q em kvar. O modelo do DSO
 trabalha com potencia de CARGA, entao la as matrizes entram com sinal trocado
-(`-S`), do mesmo jeito que o codigo original usa `-jac_inv_21`.
+(`-S`).
 
 CUSTO
 -----
@@ -49,6 +46,12 @@ numero de nos controlaveis. Diferenca adiantada: N + 1, com metade da precisao.
 Uso direto (dentro do container grid):
 
     python src/simulators/sensitivity.py
+
+Matriz por fase, para MARKET_FASE=1 (linhas por (no, fase), colunas pelas portas
+`Port_<no>_<fase>` do circuito):
+
+    python src/simulators/sensitivity.py day --por-fase --load-csv ... \
+        --pv-csv ... --out .../sensitivity_fase.npz
 """
 
 import json
@@ -58,12 +61,10 @@ from pathlib import Path
 
 import numpy as np
 
-# Qual rede. `GRID_DIR` aponta para a pasta do circuito; sem a variavel, vale a
-# rede da tese. Sem isso o modulo compilava a MVLV75 mesmo quando recebia os
-# perfis de outra rede, e devolvia uma matriz que nao correspondia a nenhuma das
-# duas.
+# Qual rede. `GRID_DIR` aponta para a pasta do circuito; sem a variavel, vale o
+# caso IEEE 13 do mercado.
 DATA_DIR = Path(os.environ.get(
-    "GRID_DIR", Path(__file__).resolve().parents[1] / "data" / "MVLV75"))
+    "GRID_DIR", Path(__file__).resolve().parents[1] / "data" / "13Bus"))
 MASTER = DATA_DIR / "Master.dss"
 FORCE_JSON = DATA_DIR / "force.json"
 
@@ -76,7 +77,7 @@ def apply_loads(dss, loads_kw, loads_kvar=None, pf=DEFAULT_PF):
 
     O `pf` fixo do OpenDSS acopla Q a P: ao perturbar kW, o kvar acompanharia e a
     sensibilidade medida seria dV/d(P,Q), nao dV/dP. Fixando kvar explicitamente,
-    a perturbacao seguinte em kW e de potencia ativa pura, como exige a Eq. 6.16.
+    a perturbacao seguinte em kW e de potencia ativa pura, como exige a (6.16).
 
     `loads_kvar` omitido significa Q derivado de P pelo fator de potencia.
     """
@@ -92,11 +93,10 @@ _BUS_CACHE = None
 def bus_name(node):
     """Nome da barra no OpenDSS para um no do mercado.
 
-    As redes geradas por `gen_market_grid.py` e `gen_test_grid.py` nomeiam as
-    barras como `n{no}`, e essa continua sendo a regra. Uma rede publicada, como
-    a IEEE 13, tem nomes proprios que nao se pode renomear sem perder a
-    correspondencia com a referencia: nesse caso o `force.json` traz o nome da
-    barra em cada no, e ele manda.
+    A regra padrao e `n{no}`. Uma rede publicada, como a IEEE 13, tem nomes
+    proprios que nao se pode renomear sem perder a correspondencia com a
+    referencia: nesse caso o `force.json` traz o nome da barra em cada no, e ele
+    manda.
     """
     global _BUS_CACHE
     if _BUS_CACHE is None:
@@ -127,8 +127,19 @@ def solve(dss):
         raise RuntimeError("fluxo de potencia nao convergiu")
 
 
+def read_taps(dss):
+    """Derivacao de cada regulador, na ordem de `dss.regcontrols.names`."""
+    taps = []
+    for name in dss.regcontrols.names or []:
+        if not name:
+            continue
+        dss.regcontrols.name = name
+        taps.append(dss.regcontrols.tap_number)
+    return taps
+
+
 def compute_sensitivity(dss, nodes, loads_kw, delta_kw=DEFAULT_DELTA_KW,
-                        central=True, pf=DEFAULT_PF, reactive=True):
+                        central=True, pf=DEFAULT_PF, reactive=True, taps_out=None):
     """Calcula V0, dV/dP e dV/dQ no ponto de operacao dado.
 
     Args:
@@ -139,6 +150,13 @@ def compute_sensitivity(dss, nodes, loads_kw, delta_kw=DEFAULT_DELTA_KW,
         central: diferenca central (2N+1 fluxos) ou adiantada (N+1 fluxos).
         pf: fator de potencia usado para fixar o Q das cargas.
         reactive: se False, devolve dV/dQ nula e economiza metade dos fluxos.
+        taps_out: lista em que se acrescentam as derivacoes do ponto base.
+
+    O ponto base e resolvido com o regulador livre; as perturbacoes, com as
+    derivacoes CONGELADAS (ControlMode=OFF). E o ponto da previsao que fixa as
+    derivacoes do dia seguinte: o mercado decide depois, com elas como condicao
+    de contorno, e o cenario de mercado aplica essas mesmas derivacoes na
+    co-simulacao. Ver docs/paginas/mercado.md, "O regulador de tensao".
 
     Returns:
         (V0, S, SQ): V0 com len(nodes) posicoes em pu; S em pu/kW e SQ em
@@ -146,8 +164,12 @@ def compute_sensitivity(dss, nodes, loads_kw, delta_kw=DEFAULT_DELTA_KW,
     """
     tan_phi = math.tan(math.acos(pf))
     apply_loads(dss, loads_kw, pf=pf)
+    dss.text("Set ControlMode=static")
     solve(dss)
     v0 = read_voltages(dss, nodes)
+    if taps_out is not None:
+        taps_out.append(read_taps(dss))
+    dss.text("Set ControlMode=OFF")
 
     n = len(nodes)
     s = np.zeros((n, n))
@@ -188,6 +210,7 @@ def compute_sensitivity(dss, nodes, loads_kw, delta_kw=DEFAULT_DELTA_KW,
 
         dss.text(f"Edit Load.Load_{node} kW={base_kw} kvar={base_kvar}")
 
+    dss.text("Set ControlMode=static")
     solve(dss)
     return v0, s, s_q
 
@@ -195,8 +218,8 @@ def compute_sensitivity(dss, nodes, loads_kw, delta_kw=DEFAULT_DELTA_KW,
 def predict(v0, s, delta_p_kw, s_q=None, delta_q_kvar=None):
     """Tensao prevista pelo modelo linear para uma variacao de injecao.
 
-    Com `s_q` e `delta_q_kvar` a previsao inclui o reativo; sem eles, reproduz a
-    Eq. 6.16 da tese, que despreza o termo.
+    Com `s_q` e `delta_q_kvar` a previsao inclui o reativo; sem eles, e a
+    restricao (6.16), que despreza o termo.
     """
     v = v0 + s @ np.asarray(delta_p_kw)
     if s_q is not None and delta_q_kvar is not None:
@@ -228,17 +251,104 @@ def compute_day(dss, nodes, loads_by_period, delta_kw=DEFAULT_DELTA_KW,
                 central=True, pf=DEFAULT_PF):
     """V0 e S para uma sequencia de pontos de operacao (o dia inteiro).
 
-    `loads_by_period` e uma lista com um dicionario {no: kW} por periodo. E o
-    equivalente do laco de `run_powerflow_in_pandapower`, que resolvia o fluxo e
-    guardava (vm_pu, jac_inv_21) para cada um dos 96 intervalos.
+    `loads_by_period` e uma lista com um dicionario {no: kW} por periodo, um
+    ponto de operacao para cada um dos 96 intervalos.
     """
-    v0_list, s_list, sq_list = [], [], []
+    v0_list, s_list, sq_list, taps = [], [], [], []
     for loads in loads_by_period:
-        v0, s, s_q = compute_sensitivity(dss, nodes, loads, delta_kw, central, pf)
+        v0, s, s_q = compute_sensitivity(dss, nodes, loads, delta_kw, central, pf,
+                                         taps_out=taps)
         v0_list.append(v0)
         s_list.append(s)
         sq_list.append(s_q)
-    return np.array(v0_list), np.array(s_list), np.array(sq_list)
+    return np.array(v0_list), np.array(s_list), np.array(sq_list), np.array(taps)
+
+
+# ----------------------------------------------------------------------------
+# Sensibilidade POR FASE (MARKET_FASE=1)
+# ----------------------------------------------------------------------------
+# A media das fases so representa a barra quando as fases estao proximas. Numa
+# rede desequilibrada ela esconde violacao: na IEEE 13 a negociacao feita sobre a
+# media zera as violacoes na media e deixa 152 pontos acima de 1,03 pu quando a
+# tensao e lida fase a fase. Aqui cada fase de cada barra vira uma LINHA da
+# matriz, e cada fase em que um dispositivo pode injetar vira uma COLUNA (uma
+# "porta"). As portas sao as cargas monofasicas `Port_<no>_<fase>` que o gerador
+# do caso escreve no Master.dss, com potencia zero.
+#
+# Duas diferencas de metodo em relacao a `compute_sensitivity`:
+#   - as perturbacoes sao feitas com as derivacoes do regulador CONGELADAS
+#     (ControlMode=OFF), depois de o ponto base ter sido resolvido com elas
+#     livres. E a sensibilidade local que interessa: o regulador tem banda morta
+#     e nao responde a 1 kW; congelar apenas impede que um ponto perto da borda
+#     da banda contamine uma coluna com uma troca de derivacao;
+#   - o reativo da carga base fica no ponto base, como no metodo por no.
+
+def phase_rows(dss, nodes):
+    """(no, fase) de cada fase existente das barras dadas, na ordem dos nos."""
+    rows = []
+    for node in nodes:
+        dss.circuit.set_active_bus(bus_name(node))
+        rows += [(node, k) for k in sorted(dss.bus.nodes) if k in (1, 2, 3)]
+    return rows
+
+
+def phase_ports(dss):
+    """(no, fase) de cada carga `Port_<no>_<fase>` do circuito."""
+    ports = []
+    for name in dss.loads.names:
+        parts = name.lower().split("_")
+        if len(parts) == 3 and parts[0] == "port":
+            ports.append((int(parts[1]), int(parts[2])))
+    return sorted(ports)
+
+
+def read_voltages_phase(dss, rows):
+    """Tensao em pu de cada (no, fase), pelo NUMERO do no da barra e nao pela
+    posicao: numa barra 645, que so tem as fases B e C, a primeira leitura e B."""
+    cache, v = {}, np.zeros(len(rows))
+    for i, (node, k) in enumerate(rows):
+        if node not in cache:
+            dss.circuit.set_active_bus(bus_name(node))
+            cache[node] = dict(zip(dss.bus.nodes, dss.bus.vmag_angle_pu[0::2]))
+        v[i] = cache[node][k]
+    return v
+
+
+def compute_sensitivity_phase(dss, rows, ports, loads_kw, delta_kw=DEFAULT_DELTA_KW,
+                              pf=DEFAULT_PF, reactive=True, taps_out=None):
+    """V0 por fase e dV/dP, dV/dQ por porta, com diferenca central.
+
+    Returns:
+        (V0, S, SQ): V0 com len(rows) posicoes; S e SQ (len(rows), len(ports)),
+        em pu/kW e pu/kvar, com P e Q em INJECAO, como em `compute_sensitivity`.
+    """
+    apply_loads(dss, loads_kw, pf=pf)
+    for n, k in ports:
+        dss.text(f"Edit Load.Port_{n}_{k} kW=0 kvar=0")
+    dss.text("Set ControlMode=static")
+    solve(dss)
+    v0 = read_voltages_phase(dss, rows)
+    if taps_out is not None:
+        taps_out.append(read_taps(dss))
+    dss.text("Set ControlMode=OFF")
+    s = np.zeros((len(rows), len(ports)))
+    s_q = np.zeros((len(rows), len(ports)))
+    try:
+        for j, (n, k) in enumerate(ports):
+            for col, campo in ((s, "kW"), (s_q, "kvar") if reactive else (None, None)):
+                if col is None:
+                    continue
+                dss.text(f"Edit Load.Port_{n}_{k} {campo}={-delta_kw}")
+                solve(dss)
+                vp = read_voltages_phase(dss, rows)
+                dss.text(f"Edit Load.Port_{n}_{k} {campo}={delta_kw}")
+                solve(dss)
+                vm = read_voltages_phase(dss, rows)
+                dss.text(f"Edit Load.Port_{n}_{k} {campo}=0")
+                col[:, j] = (vp - vm) / (2.0 * delta_kw)
+    finally:
+        dss.text("Set ControlMode=static")
+    return v0, s, s_q
 
 
 def _run_day(args):
@@ -267,9 +377,29 @@ def _run_day(args):
 
     dss = py_dss_interface.DSS()
     dss.text(f'Compile "{MASTER}"')
-    v0, s, s_q = compute_day(dss, nodes, periods)
 
-    np.savez(args.out, nodes=np.array(nodes), v0=v0, s=s, s_q=s_q)
+    if args.por_fase:
+        rows, ports = phase_rows(dss, nodes), phase_ports(dss)
+        if not ports:
+            raise SystemExit(f"{MASTER} nao tem cargas Port_<no>_<fase>: o modo por fase "
+                             "precisa delas (ver gen_ieee13_market.py)")
+        taps = []
+        res = [compute_sensitivity_phase(dss, rows, ports, loads, taps_out=taps)
+               for loads in periods]
+        v0, s, s_q = (np.array([r[i] for r in res]) for i in range(3))
+        np.savez(args.out, nodes=np.array(nodes), rows=np.array(rows),
+                 ports=np.array(ports), v0=v0, s=s, s_q=s_q, taps=np.array(taps),
+                 reguladores=np.array([n for n in dss.regcontrols.names if n]))
+        print(f"{n_periods} periodos, {len(rows)} linhas por fase, {len(ports)} portas -> {args.out}")
+        print(f"  V0 por fase: min={v0.min():.5f} max={v0.max():.5f}; violacoes no caso "
+              f"base: {(v0 < 0.97).sum()} abaixo de 0,97 e {(v0 > 1.03).sum()} acima de 1,03 "
+              f"(de {v0.size})")
+        return
+
+    v0, s, s_q, taps = compute_day(dss, nodes, periods)
+
+    np.savez(args.out, nodes=np.array(nodes), v0=v0, s=s, s_q=s_q, taps=taps,
+             reguladores=np.array([n for n in dss.regcontrols.names if n]))
     below = (v0 < 0.97).sum()
     above = (v0 > 1.03).sum()
     print(f"{n_periods} periodos, {len(nodes)} nos -> {args.out}")
@@ -314,7 +444,7 @@ def _main():
     for node in lv_nodes:
         direction[idx[node]] = rng.uniform(-1.0, 1.0)
 
-    # Q do ponto de operacao, mantido fixo: e a hipotese dQ = 0 da Eq. 6.16, e e
+    # Q do ponto de operacao, mantido fixo: e a hipotese dQ = 0 de (6.16), e e
     # o que um armazenamento sem controle de reativo faz de fato.
     tan_phi = math.tan(math.acos(DEFAULT_PF))
     base_kvar = {node: base.get(node, 0.0) * tan_phi for node in nodes}
@@ -377,8 +507,7 @@ def _main():
           f"|dS| max = {np.abs(s_fwd - ref).max():.2e} pu/kW")
 
     # Gravar S e um produto de simulacao, nao dado de entrada: so acontece se o
-    # caminho for pedido explicitamente (usado para comparar com o Jacobiano do
-    # pandapower fora do container, ja que pandapower nao esta na imagem).
+    # caminho for pedido explicitamente, para comparar com outra ferramenta.
     out = os.environ.get("SENSITIVITY_OUT")
     if out:
         np.savez(out, nodes=np.array(nodes), v0=v0, s=s)
@@ -394,6 +523,8 @@ if __name__ == "__main__":
     d.add_argument("--load-csv", required=True, dest="load_csv")
     d.add_argument("--pv-csv", required=True, dest="pv_csv")
     d.add_argument("--out", required=True)
+    d.add_argument("--por-fase", action="store_true", dest="por_fase",
+                   help="linhas por (no, fase) e colunas pelas portas Port_<no>_<fase>")
     parsed = ap.parse_args()
 
     if parsed.cmd == "day":

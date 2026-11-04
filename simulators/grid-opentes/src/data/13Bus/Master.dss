@@ -26,6 +26,34 @@ New Load.Load_671 bus1=671.1.2.3 phases=3 conn=delta model=1 kV=4.16 kW=1155.000
 New Load.Load_675 bus1=675.1.2.3 phases=3 conn=wye model=1 kV=4.16 kW=843.000 kvar=408.284 Vminpu=0.8 Vmaxpu=1.2
 New Load.Load_692 bus1=692.3.1 phases=1 conn=delta model=1 kV=4.16 kW=170.000 kvar=82.335 Vminpu=0.8 Vmaxpu=1.2
 
+! Portas de armazenamento por fase, usadas so com MARKET_FASE=1. Uma
+! carga monofasica fase-neutro em cada fase em que o Load_n do no esta
+! ligado, com potencia zero: o modo por fase escreve nelas o despacho de
+! cada fase, e o modo por no nao as toca. Com zero, o circuito resolve
+! exatamente como sem elas.
+New Load.Port_611_3 bus1=611.3 phases=1 conn=wye model=1 kV=2.4018 kW=0 kvar=0 Vminpu=0.8 Vmaxpu=1.2
+New Load.Port_632_1 bus1=632.1 phases=1 conn=wye model=1 kV=2.4018 kW=0 kvar=0 Vminpu=0.8 Vmaxpu=1.2
+New Load.Port_632_2 bus1=632.2 phases=1 conn=wye model=1 kV=2.4018 kW=0 kvar=0 Vminpu=0.8 Vmaxpu=1.2
+New Load.Port_632_3 bus1=632.3 phases=1 conn=wye model=1 kV=2.4018 kW=0 kvar=0 Vminpu=0.8 Vmaxpu=1.2
+New Load.Port_634_1 bus1=634.1 phases=1 conn=wye model=1 kV=0.2771 kW=0 kvar=0 Vminpu=0.8 Vmaxpu=1.2
+New Load.Port_634_2 bus1=634.2 phases=1 conn=wye model=1 kV=0.2771 kW=0 kvar=0 Vminpu=0.8 Vmaxpu=1.2
+New Load.Port_634_3 bus1=634.3 phases=1 conn=wye model=1 kV=0.2771 kW=0 kvar=0 Vminpu=0.8 Vmaxpu=1.2
+New Load.Port_645_2 bus1=645.2 phases=1 conn=wye model=1 kV=2.4018 kW=0 kvar=0 Vminpu=0.8 Vmaxpu=1.2
+New Load.Port_646_2 bus1=646.2 phases=1 conn=wye model=1 kV=2.4018 kW=0 kvar=0 Vminpu=0.8 Vmaxpu=1.2
+New Load.Port_646_3 bus1=646.3 phases=1 conn=wye model=1 kV=2.4018 kW=0 kvar=0 Vminpu=0.8 Vmaxpu=1.2
+New Load.Port_652_1 bus1=652.1 phases=1 conn=wye model=1 kV=2.4018 kW=0 kvar=0 Vminpu=0.8 Vmaxpu=1.2
+New Load.Port_670_1 bus1=670.1 phases=1 conn=wye model=1 kV=2.4018 kW=0 kvar=0 Vminpu=0.8 Vmaxpu=1.2
+New Load.Port_670_2 bus1=670.2 phases=1 conn=wye model=1 kV=2.4018 kW=0 kvar=0 Vminpu=0.8 Vmaxpu=1.2
+New Load.Port_670_3 bus1=670.3 phases=1 conn=wye model=1 kV=2.4018 kW=0 kvar=0 Vminpu=0.8 Vmaxpu=1.2
+New Load.Port_671_1 bus1=671.1 phases=1 conn=wye model=1 kV=2.4018 kW=0 kvar=0 Vminpu=0.8 Vmaxpu=1.2
+New Load.Port_671_2 bus1=671.2 phases=1 conn=wye model=1 kV=2.4018 kW=0 kvar=0 Vminpu=0.8 Vmaxpu=1.2
+New Load.Port_671_3 bus1=671.3 phases=1 conn=wye model=1 kV=2.4018 kW=0 kvar=0 Vminpu=0.8 Vmaxpu=1.2
+New Load.Port_675_1 bus1=675.1 phases=1 conn=wye model=1 kV=2.4018 kW=0 kvar=0 Vminpu=0.8 Vmaxpu=1.2
+New Load.Port_675_2 bus1=675.2 phases=1 conn=wye model=1 kV=2.4018 kW=0 kvar=0 Vminpu=0.8 Vmaxpu=1.2
+New Load.Port_675_3 bus1=675.3 phases=1 conn=wye model=1 kV=2.4018 kW=0 kvar=0 Vminpu=0.8 Vmaxpu=1.2
+New Load.Port_692_1 bus1=692.1 phases=1 conn=wye model=1 kV=2.4018 kW=0 kvar=0 Vminpu=0.8 Vmaxpu=1.2
+New Load.Port_692_3 bus1=692.3 phases=1 conn=wye model=1 kV=2.4018 kW=0 kvar=0 Vminpu=0.8 Vmaxpu=1.2
+
 ! Regulador com o ajuste oficial (vreg=122, banda 2 V, PT 20, CT 700,
 ! R=3, X=9) e derivacoes LIVRES. Ver ESTUDO_IEEE13.md: congelar as
 ! derivacoes em qualquer valor faz a rede violar por conta do

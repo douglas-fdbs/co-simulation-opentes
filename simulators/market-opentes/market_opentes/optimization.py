@@ -1,35 +1,33 @@
-"""Modelos de otimizacao do SiMTES, portados para Pyomo moderno.
+"""Modelos de otimizacao dos agentes do mercado, em Pyomo.
 
-Correspondencia com a tese de Lucas S. Melo (2022), subsecao 6.1.4:
+A formulacao e a de Melo (2022), cap. 6; os numeros entre parenteses nos
+comentarios, como (6.25), sao os das equacoes de la.
 
-  solve_prosumer     Eq. 6.1 a 6.9    Agente Prosumidor
-  solve_concentrator Eq. 6.25 e 6.26  Agente Concentrador
-  solve_dso          Eq. 6.27 a 6.29  Agente DSO
+  solve_prosumer       (6.1) a (6.9)     Agente Prosumidor
+  solve_concentrator   (6.25) e (6.26)   Agente Concentrador
+  solve_dso            (6.27) a (6.29)   Agente DSO
 
-O que mudou em relacao a implementacao original (`market-simulation`):
+Escolhas de implementacao:
 
-1. O modelo do prosumidor era estocastico de dois estagios resolvido com PySP,
-   que foi removido do Pyomo 6. Aqui ele e escrito na FORMA EXTENSIVA: um unico
-   problema com uma copia das variaveis de segundo estagio por cenario,
-   compartilhando as de primeiro estagio. Com um cenario de probabilidade 1 o
-   modelo e o deterministico; com nove e o da tese. PySP so era necessario para
-   decompor arvores grandes, o que nao e o caso com nove cenarios.
+1. O modelo estocastico de dois estagios do prosumidor e escrito na FORMA
+   EXTENSIVA: um unico problema com uma copia das variaveis de segundo estagio
+   por cenario, compartilhando as de primeiro estagio. Com um cenario de
+   probabilidade 1 o modelo e o deterministico; com nove, o estocastico
+   completo. Nove cenarios nao pedem decomposicao.
 
-2. A restricao de tensao do DSO usava `J^-1_21` do pandapower. Aqui usa a matriz
-   de sensibilidade dV/dP obtida do OpenDSS (ver
-   grid-opentes/src/simulators/sensitivity.py). Sinal: S e dV/dP_injecao, e o
-   armazenamento entra como carga, entao dV = -S . (p_prosumidor + p_rede).
+2. A restricao de tensao do DSO usa a matriz de sensibilidade dV/dP medida no
+   OpenDSS (grid-opentes/src/simulators/sensitivity.py). Sinal: S e
+   dV/dP_injecao, e o armazenamento entra como carga, entao
+   dV = -S . (p_prosumidor + p_rede).
 
-3. A restricao de carregamento (Eq. 6.28) e aplicada por transformador,
-   somando a carga base do trafo e o armazenamento sob ele. A implementacao
-   original generalizava para todos os ramos por uma matriz de incidencia; a
-   versao por transformador e a da tese e e a que tem limite conhecido
-   (potencia nominal do trafo).
+3. A restricao de carregamento (6.28) e aplicada por transformador, somando a
+   carga base do trafo e o armazenamento sob ele, que e onde ha limite
+   conhecido (a potencia nominal).
 
-4. O solver e configuravel (`MARKET_SOLVER`, default cplex).
+4. O solver e configuravel (`MARKET_SOLVER`, padrao cplex).
 
 Convencao de sinal da potencia de armazenamento: POSITIVA carregando (consome
-da rede), negativa descarregando. E a mesma do codigo original.
+da rede), negativa descarregando.
 """
 
 import os
@@ -44,32 +42,30 @@ from .config import (A_PROSUMER, B_NETWORK, CK, D_ENERGY, DT_H, PERIODS,
 SOLVER_NAME = os.environ.get("MARKET_SOLVER", "cplex")
 SOLVER_PATH = os.environ.get("MARKET_SOLVER_PATH")
 
-BILATERAL_PRICE = 38.0    # EUR/MWh, valor do stochastic_model/config.json
+BILATERAL_PRICE = 38.0    # EUR/MWh, preco do contrato bilateral
 BILATERAL_MAX_KW = 5.0
-INIT_SOC_FRACTION = 0.2   # soc[0] = 0,2 * max_soc, como no ReferenceModel
-# Estado de carga ao fim do dia nao pode ficar abaixo do inicial. NAO existe na
-# Eq. 6.9 da tese, e a ausencia tem efeito visivel: como a energia que sobra na
+INIT_SOC_FRACTION = 0.2   # soc[0] = 0,2 * max_soc
+# Estado de carga ao fim do dia nao pode ficar abaixo do inicial. E um acrescimo
+# a (6.9), e a ausencia tem efeito visivel: como a energia que sobra na
 # bateria no ultimo intervalo nao vale nada na funcao objetivo, o modelo a
-# despeja. Sem esta restricao, os 25 armazenamentos descarregam ao mesmo tempo no
-# intervalo 95 (50 kW agregados) e a tensao sobe a 1,02 pu.
+# despeja: sem esta restricao, todos os armazenamentos descarregam ao mesmo tempo
+# no ultimo intervalo, e a tensao sobe.
 TERMINAL_SOC = os.environ.get("MARKET_TERMINAL_SOC", "1") == "1"
 # Multa por desviar do programado no mercado de tempo real, em EUR/MWh.
 #
-# A subsecao 6.1.1 da tese descreve esta multa ("a diferenca entre o valor de
-# energia programado e o valor de energia efetivamente gerado ou consumido e
-# submetida a um valor mais elevado como forma de estimulo ao prosumidor para
-# obedecer sua programacao") e a Figura 36 mostra a faixa passivel dela. As
-# Equacoes 6.1 a 6.9 NAO tem esse termo.
+# A multa faz parte do desenho de mercado descrito por Melo (2022, secao 6.1.1),
+# como estimulo para o prosumidor cumprir a programacao, mas nao aparece nas
+# equacoes (6.1) a (6.9) do prosumidor.
 #
 # Sem ele o modelo e neutro ao risco e o mercado de tempo real nao tem limite de
 # quantidade, entao o ambiente bilateral nao cumpre funcao de protecao: medido,
 # fica em 1,5% da energia com um cenario e 1,3% com nove. Com a multa, desviar do
 # programado custa, e contratar antecipadamente passa a valer.
 #
-# Default 0,0 = formulacao da tese.
+# Padrao 0,0: sem multa, como nas equacoes de referencia.
 DEVIATION_PENALTY = float(os.environ.get("MARKET_DEVIATION_PENALTY", "0.0"))
-# Aversao ao risco (CVaR de Rockafellar-Uryasev). beta = 0 e a formulacao da
-# tese, neutra ao risco.
+# Aversao ao risco (CVaR de Rockafellar-Uryasev). beta = 0 e neutro ao risco,
+# como nas equacoes de referencia.
 #
 # Medido: nem a incerteza sozinha nem a multa por desvio dao funcao ao mercado
 # bilateral (1,5%, 1,3% e 1,4% da energia). O motivo e estrutural: sob
@@ -107,7 +103,7 @@ def _solve(model, label):
 
 
 # ---------------------------------------------------------------------------
-# Agente Prosumidor (Eq. 6.1 a 6.9)
+# Agente Prosumidor, (6.1) a (6.9)
 # ---------------------------------------------------------------------------
 
 def solve_prosumer(scenarios, storage=None, bilateral_price=BILATERAL_PRICE,
@@ -130,13 +126,10 @@ def solve_prosumer(scenarios, storage=None, bilateral_price=BILATERAL_PRICE,
         armazenamento, o prosumidor ainda contrata: o modelo e resolvido do mesmo
         jeito, so sem as variaveis de bateria.
     """
-    # Sem armazenamento o prosumidor CONTINUA contratando: o `start_pade_agents.py`
-    # do trabalho original cria um agente por no de baixa tensao, todos pedem a
-    # otimizacao ao solver, e `bilateral_contract_purchase` volta sempre; o
-    # `has_storage` la so decide se a programacao da bateria e real ou zeros
-    # (`solver_agent.py`, linha 107). Este modulo devolvia um esqueleto com o
-    # bilateral zerado, o que contradizia a propria docstring acima e tirava do
-    # mercado os 43 nos sem bateria da MVLV75.
+    # Sem armazenamento o prosumidor CONTINUA contratando: todo no de baixa
+    # tensao tem um agente que pede a otimizacao, e a compra bilateral volta
+    # sempre; a bateria so decide se a programacao de armazenamento e real ou
+    # zeros.
     tem_arm = storage is not None
 
     probs = np.array([s[0] for s in scenarios], dtype=float)
@@ -170,7 +163,7 @@ def solve_prosumer(scenarios, storage=None, bilateral_price=BILATERAL_PRICE,
             rule=lambda m, z, t: m.p_spot[z, t] - m.p_spot_plan[t]
             == m.dev_pos[z, t] - m.dev_neg[z, t])
 
-    # Eq. 6.6 a 6.9: operacao do armazenamento
+    # (6.6) a (6.9): operacao do armazenamento
     if tem_arm:
         m.excl = pyo.Constraint(m.T,
                                 rule=lambda m, t: m.b_charge[t] + m.b_discharge[t] <= 1)
@@ -190,14 +183,10 @@ def solve_prosumer(scenarios, storage=None, bilateral_price=BILATERAL_PRICE,
                 expr=m.soc[last] + (m.p_charge[last] - m.p_discharge[last]) * DT_H
                 >= INIT_SOC_FRACTION * storage.max_soc_kwh)
 
-    # Eq. 6.3 a 6.5: balanco energetico e regra do mercado de tempo real.
+    # (6.3) a (6.5): balanco energetico e regra do mercado de tempo real.
     #
-    # O modelo original decidia a direcao destas restricoes com `value(aux2)`,
-    # lendo o valor CORRENTE das variaveis de armazenamento, que na construcao
-    # do modelo e zero. Ou seja, na pratica a direcao vinha da demanda liquida
-    # SEM armazenamento. Aqui isso e explicito: a direcao e dada pelo parametro
-    # de demanda liquida, que e conhecido, e nao pelo estado inicial de uma
-    # variavel de decisao.
+    # A direcao destas restricoes e dada pela demanda liquida SEM armazenamento,
+    # que e um parametro conhecido, e nao pelo valor de uma variavel de decisao.
     m.balance = pyo.ConstraintList()
     m.spot_rule = pyo.ConstraintList()
     for z, (_, demand, _) in enumerate(scenarios):
@@ -224,7 +213,7 @@ def solve_prosumer(scenarios, storage=None, bilateral_price=BILATERAL_PRICE,
         m.cvar_excess = pyo.Constraint(
             m.Z, rule=lambda m, z: m.excess[z] >= m.cost_z[z] - m.var_cost)
 
-    # Eq. 6.1: custo esperado
+    # (6.1): custo esperado
     def obj(m):
         bilateral = sum(m.p_bilateral[t] * bilateral_price * DT_H for t in m.T)
         spot = sum(prob * sum(m.p_spot[z, t] * price[t] * DT_H for t in m.T)
@@ -257,64 +246,95 @@ def solve_prosumer(scenarios, storage=None, bilateral_price=BILATERAL_PRICE,
 
 
 # ---------------------------------------------------------------------------
-# Agente Concentrador (Eq. 6.25 e 6.26)
+# Agente Concentrador, (6.25) e (6.26)
 # ---------------------------------------------------------------------------
 
+def _grupos(keys, node_of):
+    """{dispositivo: [chaves]} na ordem das chaves."""
+    grupos = {}
+    for k in keys:
+        grupos.setdefault(node_of(k), []).append(k)
+    return grupos
+
+
+def _soma(termos):
+    """Soma que devolve o proprio termo quando ha um so, para que o modo por no
+    monte EXATAMENTE a mesma expressao de antes da analise por fase."""
+    termos = list(termos)
+    return termos[0] if len(termos) == 1 else sum(termos)
+
+
 def solve_concentrator(nodes, p_init, lam, storages, ck=CK, d_energy=D_ENERGY,
-                       periods=None, soc0=None):
+                       periods=None, soc0=None, node_of=None, mult=None):
     """Reprograma o armazenamento dos prosumidores sob um concentrador.
 
     Args:
-        nodes: nos com armazenamento de prosumidor sob este concentrador.
-        p_init: {no: array[96]} programacao proposta pelos prosumidores.
-        lam: {no: array[96]} preco sombra vindo do agente de mercado.
+        nodes: CHAVES das variaveis dos prosumidores sob este concentrador. No
+            modo por no sao os proprios nos; no modo por fase sao as portas,
+            "671.A", e `node_of`/`mult` dizem de que dispositivo cada uma e e
+            quantas fases ele tem.
+        p_init: {chave: array[96]} programacao proposta pelos prosumidores.
+        lam: {chave: array[96]} preco sombra vindo do agente de mercado.
         storages: {no: Storage}.
+        node_of: chave -> no do dispositivo. Padrao: a identidade.
+        mult: chave -> numero de fases |F| do dispositivo. Padrao: 1.
+
+    Por fase, cada porta tem limite Pmax/|F|, o dispositivo tem um estado de
+    carga so (a soma das portas) e o peso Ck e multiplicado por |F|: assim, numa
+    rede equilibrada, a solucao por fase e a por no coincidem (ver docs/paginas/mercado.md).
 
     Returns:
-        {no: array[96]} programacao resultante.
+        {chave: array[96]} programacao resultante.
     """
     if not nodes:
         return {}
 
+    node_of = node_of or (lambda k: k)
+    mult = mult or (lambda k: 1)
+    grupos = _grupos(nodes, node_of)
     periods = PERIODS if periods is None else periods
     m = pyo.ConcreteModel(name="concentrador")
     m.N = pyo.Set(initialize=nodes, ordered=True)
+    m.D = pyo.Set(initialize=list(grupos), ordered=True)
     m.T = pyo.Set(initialize=range(periods), ordered=True)
     m.p = pyo.Var(m.N, m.T, domain=pyo.Reals)
-    m.soc = pyo.Var(m.N, m.T, domain=pyo.NonNegativeReals)
+    m.soc = pyo.Var(m.D, m.T, domain=pyo.NonNegativeReals)
 
     m.lim = pyo.Constraint(
         m.N, m.T,
-        rule=lambda m, n, t: pyo.inequality(-storages[n].max_flow_kw, m.p[n, t],
-                                            storages[n].max_flow_kw))
+        rule=lambda m, n, t: pyo.inequality(
+            -storages[node_of(n)].max_flow_kw / mult(n), m.p[n, t],
+            storages[node_of(n)].max_flow_kw / mult(n)))
     m.soc_bounds = pyo.Constraint(
-        m.N, m.T,
-        rule=lambda m, n, t: pyo.inequality(storages[n].min_soc_kwh, m.soc[n, t],
-                                            storages[n].max_soc_kwh))
+        m.D, m.T,
+        rule=lambda m, d, t: pyo.inequality(storages[d].min_soc_kwh, m.soc[d, t],
+                                            storages[d].max_soc_kwh))
     m.soc_init = pyo.Constraint(
-        m.N, rule=lambda m, n: m.soc[n, 0] == (
-            INIT_SOC_FRACTION * storages[n].max_soc_kwh if soc0 is None else soc0[n]))
+        m.D, rule=lambda m, d: m.soc[d, 0] == (
+            INIT_SOC_FRACTION * storages[d].max_soc_kwh if soc0 is None else soc0[d]))
     m.soc_memory = pyo.ConstraintList()
-    for n in nodes:
+    for d, ks in grupos.items():
         for t in range(periods - 1):
-            m.soc_memory.add(m.soc[n, t + 1] == m.soc[n, t] + m.p[n, t] * DT_H)
+            m.soc_memory.add(m.soc[d, t + 1] == m.soc[d, t]
+                             + _soma(m.p[k, t] for k in ks) * DT_H)
 
-    # Eq. 6.26: a energia total movimentada nao pode cair abaixo de uma fracao
+    # (6.26): a energia total movimentada nao pode cair abaixo de uma fracao
     # da que o prosumidor programou (o concentrador altera a forma, nao o
-    # montante). O sinal depende de a programacao original ser liquida de carga
-    # ou de descarga, como no `energy_constraint` do codigo original.
+    # montante). O sinal depende de a programacao proposta ser liquida de carga
+    # ou de descarga. Por fase, vale para o dispositivo inteiro, somando as
+    # portas.
     m.energy = pyo.ConstraintList()
-    for n in nodes:
-        total = float(np.sum(p_init[n]))
-        expr = sum(m.p[n, t] for t in range(periods))
+    for d, ks in grupos.items():
+        total = sum(float(np.sum(p_init[k])) for k in ks)
+        expr = sum(m.p[k, t] for k in ks for t in range(periods))
         if total >= 0.0:
             m.energy.add(expr >= d_energy * total)
         else:
             m.energy.add(expr <= d_energy * total)
 
-    # Eq. 6.25
+    # (6.25)
     def obj(m):
-        return sum(ck * (m.p[n, t] - float(p_init[n][t])) ** 2
+        return sum(ck * mult(n) * (m.p[n, t] - float(p_init[n][t])) ** 2
                    + float(lam[n][t]) * m.p[n, t]
                    for n in m.N for t in m.T)
 
@@ -325,7 +345,7 @@ def solve_concentrator(nodes, p_init, lam, storages, ck=CK, d_energy=D_ENERGY,
 
 
 # ---------------------------------------------------------------------------
-# Agente DSO (Eq. 6.27 a 6.29)
+# Agente DSO, (6.27) a (6.29)
 # ---------------------------------------------------------------------------
 
 def solve_dso(case, base_load, p_prosumer_init, p_network_init, lam, v0, s,
@@ -345,47 +365,65 @@ def solve_dso(case, base_load, p_prosumer_init, p_network_init, lam, v0, s,
             `dual.load_sensitivity`).
 
     Returns:
-        (p_prosumer, p_network): cada um {no: array[96]}.
+        (p_prosumer, p_network): cada um {chave: array[96]}.
+
+    As chaves sao as do caso (`case.prosumer_keys`, `case.network_keys`): os nos,
+    no modo por no; as portas, no modo por fase. As linhas da restricao de
+    tensao sao as colunas de `v0` (os nos ou os pares no-fase) e a coluna de cada
+    chave em `s` vem de `case.columns`.
     """
-    pros_nodes = case.prosumer_storage_nodes
-    net_nodes = case.network_storage_nodes
-    node_index = {n: i for i, n in enumerate(case.all_nodes)}
+    pros_nodes = case.prosumer_keys
+    net_nodes = case.network_keys
+    node_of, mult = case.node_of, case.mult
+    g_rede = _grupos(net_nodes, node_of)
+
+    def coef(key):
+        """Sensibilidade efetiva da chave, (periodos, linhas)."""
+        cols = case.columns(key)
+        if len(cols) == 1 and cols[0][1] == 1.0:
+            return s[:, :, cols[0][0]]
+        return sum(w * s[:, :, c] for c, w in cols)
+
+    cp = {n: coef(n) for n in pros_nodes}
+    cq = {n: coef(n) for n in net_nodes}
 
     periods = PERIODS if periods is None else periods
     m = pyo.ConcreteModel(name="dso")
     m.T = pyo.Set(initialize=range(periods), ordered=True)
     m.NP = pyo.Set(initialize=pros_nodes, ordered=True)
     m.NR = pyo.Set(initialize=net_nodes, ordered=True)
+    m.DR = pyo.Set(initialize=list(g_rede), ordered=True)
     m.p = pyo.Var(m.NP, m.T, domain=pyo.Reals)      # armazenamento do prosumidor
     m.q = pyo.Var(m.NR, m.T, domain=pyo.Reals)      # armazenamento de rede
-    m.soc = pyo.Var(m.NR, m.T, domain=pyo.NonNegativeReals)
+    m.soc = pyo.Var(m.DR, m.T, domain=pyo.NonNegativeReals)
 
     m.lim_p = pyo.Constraint(
         m.NP, m.T,
-        rule=lambda m, n, t: pyo.inequality(-case.prosumer_storage[n].max_flow_kw,
-                                            m.p[n, t],
-                                            case.prosumer_storage[n].max_flow_kw))
+        rule=lambda m, n, t: pyo.inequality(
+            -case.prosumer_storage[node_of(n)].max_flow_kw / mult(n), m.p[n, t],
+            case.prosumer_storage[node_of(n)].max_flow_kw / mult(n)))
     m.lim_q = pyo.Constraint(
         m.NR, m.T,
-        rule=lambda m, n, t: pyo.inequality(-case.network_storage[n].max_flow_kw,
-                                            m.q[n, t],
-                                            case.network_storage[n].max_flow_kw))
+        rule=lambda m, n, t: pyo.inequality(
+            -case.network_storage[node_of(n)].max_flow_kw / mult(n), m.q[n, t],
+            case.network_storage[node_of(n)].max_flow_kw / mult(n)))
     m.soc_bounds = pyo.Constraint(
-        m.NR, m.T,
+        m.DR, m.T,
         rule=lambda m, n, t: pyo.inequality(case.network_storage[n].min_soc_kwh,
                                             m.soc[n, t],
                                             case.network_storage[n].max_soc_kwh))
     m.soc_init = pyo.Constraint(
-        m.NR,
+        m.DR,
         rule=lambda m, n: m.soc[n, 0] == (
             INIT_SOC_FRACTION * case.network_storage[n].max_soc_kwh
             if soc0 is None else soc0[n]))
     m.soc_memory = pyo.ConstraintList()
-    for n in net_nodes:
+    for n, ks in g_rede.items():
         for t in range(periods - 1):
-            m.soc_memory.add(m.soc[n, t + 1] == m.soc[n, t] + m.q[n, t] * DT_H)
+            m.soc_memory.add(m.soc[n, t + 1] == m.soc[n, t]
+                             + _soma(m.q[k, t] for k in ks) * DT_H)
 
-    # Primeiro nivel de interferencia da fase de operacao (subsecao 6.1.4.3): o
+    # Primeiro nivel de interferencia da fase de operacao: o
     # DSO tenta resolver a violacao usando SO o armazenamento de rede, sem tocar
     # na programacao dos prosumidores.
     if fix_prosumer:
@@ -394,46 +432,47 @@ def solve_dso(case, base_load, p_prosumer_init, p_network_init, lam, v0, s,
             for t in range(periods):
                 m.fixed_prosumer.add(m.p[n, t] == float(p_prosumer_init[n][t]))
 
-    # Eq. 6.29: limites de tensao. dV = -S . (p + q), porque S e dV/dP_injecao e
+    # (6.29): limites de tensao. dV = -S . (p + q), porque S e dV/dP_injecao e
     # o armazenamento carregando e carga.
     #
     # Se o dispositivo tiver fator de potencia constante, o reativo acompanha o
     # ativo e o efeito ja vem somado em `s`: a mesma variavel de decisao move as
     # duas potencias, entao a sensibilidade efetiva basta. Ver
     # `dual.load_sensitivity`.
+    #
+    # Por fase, cada linha e uma fase de uma barra: a restricao vale para cada
+    # fase, e nao para a media, que escondia a sobretensao da fase B na IEEE 13.
     m.voltage = pyo.ConstraintList()
     for t in range(periods):
-        s_t = s[t]
-        for i, node in enumerate(case.all_nodes):
-            dv = sum(-float(s_t[i, node_index[n]]) * m.p[n, t] for n in pros_nodes)
-            dv += sum(-float(s_t[i, node_index[n]]) * m.q[n, t] for n in net_nodes)
+        for i in range(len(v0[t])):
+            dv = sum(-float(cp[n][t][i]) * m.p[n, t] for n in pros_nodes)
+            dv += sum(-float(cq[n][t][i]) * m.q[n, t] for n in net_nodes)
             m.voltage.add(pyo.inequality(V_MIN + V_BACKOFF,
                                          float(v0[t][i]) + dv,
                                          V_MAX - V_BACKOFF))
 
-    # Eq. 6.28: carregamento do transformador. A carga base entra na conta,
+    # (6.28): carregamento do transformador. A carga base entra na conta,
     # senao a restricao nao significa nada.
     m.loading = pyo.ConstraintList()
     for c in case.concentrators:
         # `MARKET_TRAFO_KVA` forca um valor unico para todos os transformadores.
-        # Existe para reproduzir a tese, que usa 250 kVA uniformes vindos do std
-        # type do pandapower: com esse valor a restricao de carregamento nunca
-        # atua. Sem a chave, valem os 45 a 112,5 kVA do force.json.
+        # Sem a chave, vale a potencia de cada um no force.json.
         kva = float(os.environ["MARKET_TRAFO_KVA"]) if os.environ.get("MARKET_TRAFO_KVA") else c.kva
         limit_kw = kva * 0.9        # potencia ativa maxima, com fp 0,9
         for t in range(periods):
             base = float(sum(base_load[n][t] for n in c.nodes if n in base_load))
             expr = base
-            expr += sum(m.p[n, t] for n in c.prosumer_storage)
-            expr += sum(m.q[n, t] for n in c.network_storage)
+            expr += sum(m.p[n, t] for n in case.chaves(c.prosumer_storage))
+            expr += sum(m.q[n, t] for n in case.chaves(c.network_storage))
             m.loading.add(pyo.inequality(-limit_kw, expr, limit_kw))
 
-    # Eq. 6.27
+    # (6.27). Por fase, os pesos a e b sao multiplicados por |F|, como o Ck do
+    # concentrador.
     def obj(m):
-        term = sum(a * (m.p[n, t] - float(p_prosumer_init[n][t])) ** 2
+        term = sum(a * mult(n) * (m.p[n, t] - float(p_prosumer_init[n][t])) ** 2
                    - float(lam[n][t]) * m.p[n, t]
                    for n in m.NP for t in m.T)
-        term += sum(b * (m.q[n, t] - float(p_network_init[n][t])) ** 2
+        term += sum(b * mult(n) * (m.q[n, t] - float(p_network_init[n][t])) ** 2
                     for n in m.NR for t in m.T)
         return term
 

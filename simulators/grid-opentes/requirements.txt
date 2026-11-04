@@ -1,6 +1,5 @@
 mosaik==3.5.0
 mosaik-api==3.0.6
-opender==2.1.6
 pandas>=2.3.2
 py-dss-interface>=2.3.0
 setuptools==69.5.1

@@ -12,8 +12,6 @@ The legacy goal is preserved: Mosaik starts a scenario, connects to a PADE-drive
 | `simulator.py` | Core logic of the generic Python simulator used by Mosaik. |
 | `example_sim.py` | Mosaik API 3.0 wrapper around the generic Python simulator. |
 | `first.py` | Mosaik scenario orchestrator that creates the world and connects the simulators. |
-| `changelogs.md` | Migration notes and expected logging behaviour. |
-| `changelogs_en.md` | English changelog copy for the same example. |
 
 ## What changed relative to the legacy example
 

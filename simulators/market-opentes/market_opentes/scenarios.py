@@ -1,11 +1,10 @@
 """Geracao e reducao de cenarios para o modelo estocastico do prosumidor.
 
-Porte de `stochastic_model/generate_scenarios.py` do trabalho original, sem
-PySP. O procedimento e o da subsecao 6.1.4.1 da tese:
+O procedimento e o de Melo (2022, secao 6.1.4.1):
 
-  Passo 1: amostra N cenarios de carga, de geracao e de preco direto da base de
-           dados (dias diferentes do SimBench e do Nordpool) e reduz cada
-           conjunto de N para 3, por selecao direta da distancia de Kantorovich.
+  Passo 1: amostra N cenarios de carga, de geracao e de preco do reservatorio de
+           dias alternativos (`scenario_pool.npz`) e reduz cada conjunto de N
+           para 3, por selecao direta da distancia de Kantorovich.
   Passo 2: combina carga x geracao, resultando em 9 cenarios de potencia, com
            probabilidade dada pelo produto das individuais.
   Passo 3: reduz os 9 cenarios de potencia para 3.
@@ -13,7 +12,7 @@ PySP. O procedimento e o da subsecao 6.1.4.1 da tese:
            finais de preco-potencia usados na otimizacao.
 
 Quem nao tem geracao pula o passo 2: os 3 cenarios de consumo ja sao os de
-potencia, como diz o texto da tese.
+potencia.
 """
 
 import numpy as np
@@ -22,7 +21,7 @@ from .config import DATA_DIR
 
 
 def load_pool():
-    """Reservatorio de dias alternativos gerado por `data_prep`."""
+    """Reservatorio de dias alternativos, gerado por `gen_ieee13_market.py`."""
     data = np.load(DATA_DIR / "scenario_pool.npz")
     nodes = [int(x) for x in data["nodes"]]
     index = {n: i for i, n in enumerate(nodes)}

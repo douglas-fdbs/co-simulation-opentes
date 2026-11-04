@@ -2,8 +2,8 @@
 # -*- coding: utf-8 -*-
 """Sistema multi-agentes do mercado transativo (fase de programacao da operacao).
 
-Porte dos agentes de `market-simulation` (tese de Lucas S. Melo, 2022, subsecao
-6.1.2) para PADE 3.0 e Mosaik 3. Quatro papeis, mais o solver:
+Os papeis e a sequencia da negociacao sao os de Melo (2022, secao 6.1.2), aqui
+sobre PADE 3.0 e Mosaik 3. Quatro papeis, mais o solver:
 
   AP  ProsumerAgent     um por no de baixa tensao com armazenamento
   AC  ConcentratorAgent um por transformador de distribuicao
@@ -11,27 +11,24 @@ Porte dos agentes de `market-simulation` (tese de Lucas S. Melo, 2022, subsecao
   AM  MarketAgent       um, coordena a decomposicao dual e o preco sombra
       SolverAgent       resolve os modelos fora do reactor do Twisted
 
-O QUE MUDOU EM RELACAO AO ORIGINAL
-----------------------------------
-1. UM simulador Mosaik para todos os agentes. O original subia um simulador por
-   agente (68 prosumidores + 5 concentradores + DSO + mercado = 75 sockets TCP,
-   `start_mosaik_sim.py:344-373`). Aqui um unico `MosaikCon` vive no agente de
-   mercado e os demais agentes sao alcancados pelo registro `AGENTS`. E o padrao
-   que o `agent_example_1_mosaik_updated.py` ja usava no cenario Volt/Var.
+ESCOLHAS DE IMPLEMENTACAO
+-------------------------
+1. UM simulador Mosaik para todos os agentes: um unico `MosaikCon` vive no
+   agente de mercado, e os demais agentes sao alcancados pelo registro
+   `AGENTS`. E o padrao do exemplo `pade/tests/mosaik_example`.
 
-2. API do Mosaik 2.2 -> 3.0: `step(time, inputs, max_advance)`, `init` com
+2. Mosaik API 3.0: `step(time, inputs, max_advance)`, `init` com
    `time_resolution`.
 
-3. Conteudo das mensagens em JSON, nao `pickle` + `literal_eval`. Alem de
-   fragil, o tamanho serializado alimenta o modelo de rede na Fase 5, entao a
-   escolha de serializacao afeta resultado.
+3. Conteudo das mensagens em JSON. O tamanho serializado alimenta o modelo de
+   rede (`network_link.py`), entao a escolha de serializacao afeta o resultado.
 
 4. `handle_all_proposes` so dispara quando TODAS as propostas chegam, e o
-   timeout do `FipaContractNetProtocol` esta comentado no PADE (protocols.py).
-   Aqui cada rodada arma um timeout proprio: sem ele, uma unica mensagem
-   perdida trava a rodada e, como o `step_done` sai de dentro do handler, trava
-   tambem o Mosaik. Isso e inofensivo com comunicacao ideal e essencial na
-   Fase 5, com o OMNeT++ descartando pacotes.
+   timeout do `FipaContractNetProtocol` esta desativado no PADE
+   (protocols.py). Aqui cada rodada arma um timeout proprio: sem ele, uma unica
+   mensagem perdida trava a rodada e, como o `step_done` sai de dentro do
+   handler, trava tambem o Mosaik. Isso e inofensivo com comunicacao ideal e
+   essencial com a rede 6TiSCH descartando pacotes.
 
 SEQUENCIA (fase de programacao, quatro ciclos)
 ----------------------------------------------
@@ -39,7 +36,7 @@ SEQUENCIA (fase de programacao, quatro ciclos)
   ciclo 2  AD pede aos AC as programacoes agregadas
   ciclo 3  AM pede aos AC e ao AD suas analises
   ciclo 4  iterativo: AC e AD reotimizam com o preco sombra corrente, o AM
-           atualiza lambda (Eq. 6.30) e testa a convergencia
+           atualiza lambda (6.30) e testa a convergencia
 
 Quando a rodada fecha, o `step_done` libera o Mosaik e a programacao acordada
 passa a ser publicada como potencia de cada no a cada passo de 15 min.
@@ -65,9 +62,10 @@ from twisted.internet import reactor
 MARKET_PKG = os.environ.get("MARKET_OPENTES_PATH", "/market")
 sys.path.insert(0, MARKET_PKG)
 
-from market_opentes.config import (PERIODS, STORAGE_TAN_PHI,   # noqa: E402
+from market_opentes.config import (PERIODS, REGULADOR, STORAGE_TAN_PHI,  # noqa: E402
                                    load_case)
-from market_opentes.dual import load_profiles, load_sensitivity  # noqa: E402
+from market_opentes.dual import (criterio_parada, load_profiles,  # noqa: E402
+                                 load_sensitivity, load_taps)
 from market_opentes.optimization import (solve_concentrator, solve_dso,  # noqa: E402
                                          solve_prosumer)
 from market_opentes.operation import realized_profiles, voltage_at  # noqa: E402
@@ -80,7 +78,7 @@ HOST = os.environ.get("PADE_AGENT_HOST", "127.0.0.1")
 BASE_PORT = int(os.environ.get("PADE_PORT", "5678"))
 AMS_PORT = int(os.environ.get("AMS_PORT", "8000"))
 STEP_SIZE = int(os.environ.get("AGENT_STEP_SIZE", "900"))
-CONFIG_JSON = os.environ.get("MARKET_CONFIG", "/market/data/config.json")
+CONFIG_JSON = os.environ.get("MARKET_CONFIG", "/grid-data/13Bus/config.json")
 ALPHA = float(os.environ.get("MARKET_ALPHA", "0.6"))
 EPS = float(os.environ.get("MARKET_EPS", "1e-3"))
 MAX_ROUNDS = int(os.environ.get("MARKET_MAX_ROUNDS", "30"))
@@ -95,17 +93,28 @@ def _round_timeout():
     if explicito:
         return float(explicito)
     escala = float(os.environ.get("NET_TIME_SCALE", "1.0"))
-    if os.environ.get("NET_BACKEND", "ideal") == "ideal":
+    backend = os.environ.get("NET_BACKEND", "ideal")
+    if backend == "ideal":
         return 120.0
-    # Folga de cinco vezes sobre o pior caso plausivel de entrega nesta rede,
-    # cerca de 200 s nominais por mensagem, com piso para nao ficar curto demais.
-    return max(20.0, 5.0 * 200.0 * escala)
+    if backend == "lossy":
+        # O canal com perda entrega em segundos (34 kB a 50 kbps sao 5,4 s): 60 s
+        # nominais ja sao mais de dez vezes a maior entrega. Tres janelas, como na
+        # 6TiSCH, fariam cada mensagem perdida esperar 45 min de relogio a escala 1.
+        return max(3.0, 60.0 * escala)
+    # Uma rodada e um CFP descendo e uma proposta subindo. Com a analise por
+    # fase, cada um leva de 300 a 540 s nominais na rede 6TiSCH, e a ida e volta
+    # chega a cerca de 1000 s: um limite pensado para 200 s por mensagem
+    # disparava retransmissoes sem perda nenhuma. A referencia passa a ser a
+    # janela de 15 min: so se retransmite o que nao chegou em tres janelas de
+    # tempo de rede.
+    janela = float(os.environ.get("MARKET_WINDOW_S", "900"))
+    return max(20.0, 3.0 * janela * escala)
 
 
 ROUND_TIMEOUT = _round_timeout()
 
 # Posicao dos tres ciclos de troca de mensagens dentro da janela de 15 min
-# (subsecao 6.1.2 da tese): AC com seus AP no minuto 1, AD com os AC no minuto 5,
+# (Melo, 2022, secao 6.1.2): AC com seus AP no minuto 1, AD com os AC no minuto 5,
 # AM com AC e AD no minuto 10. Sao ORCAMENTOS, nao esperas: a negociacao inteira
 # acontece dentro de um passo do Mosaik, com o relogio da co-simulacao parado, e
 # o que interessa e se o tempo de REDE de cada ciclo cabe na fatia dele.
@@ -125,8 +134,8 @@ def begin_cycle(index, t=None):
     """Abre a contabilidade de rede do ciclo dado (0, 1 ou 2).
 
     `t` e o intervalo de 15 min, quando a fase de operacao esta rodando. Sem ele
-    o traco de mensagens nao tem tempo de co-simulacao e nao da para reproduzir
-    a Figura 58 da tese, que e um grafico contra esse tempo.
+    o traco de mensagens nao tem tempo de co-simulacao, que e o eixo da figura
+    de mensagens.
     """
     if LINK is not None:
         LINK.begin_cycle(CYCLE_NAMES[index], t)
@@ -150,29 +159,26 @@ def close_cycle(index, label=""):
 # que a camada de transporte entrega. Com o OMNeT++ descartando pacotes, uma
 # unica mensagem perdida em ~24 por rodada mata a rodada, entao sem isto a
 # negociacao nao sobrevive a nenhuma perda realista.
-# Retransmissoes antes de desistir de um destinatario. Tres bastavam com a rede
-# idealizada; sobre a topologia publicada da tese NAO bastam. O enlace 5-36, por
-# exemplo, e admitido com PER 0,4, que a Tabela 7 aceita por estar abaixo do
-# limiar de 0,5: uma mensagem de 1250 bytes ocupa dez quadros e perde 27,5% dos
-# datagramas mesmo com as retentativas do MAC. Com tres tentativas a negociacao
-# aborta na primeira rodada; com dez ela converge.
+# Retransmissoes antes de desistir de um destinatario. A matriz de adjacencia
+# admite enlaces com PER de ate 0,5: neles, uma mensagem de mil e poucos bytes
+# ocupa dez quadros e perde uma fracao grande dos datagramas mesmo com as
+# retentativas do MAC. Poucas tentativas abortam a negociacao na primeira
+# rodada.
 MAX_RETRIES = int(os.environ.get("MARKET_MAX_RETRIES", "10"))
 # 0 = linha de base: publica a programacao PROPOSTA pelos prosumidores, sem
 # negociacao, para medir o que a rede sofreria sem o mecanismo.
 NEGOTIATE = os.environ.get("MARKET_NEGOTIATE", "1") == "1"
 # Fase de operacao: a cada passo de 15 min o DSO confere o desvio da previsao e,
-# se houver violacao, corrige. Dia realizado = outro dia do reservatorio de
-# cenarios, para que exista desvio.
+# se houver violacao, corrige. A demanda realizada vem de
+# `operation.realized_profiles` (`MARKET_REALIZED_DAY` so vale no modo `day`).
 OPERATION = os.environ.get("MARKET_OPERATION", "1") == "1"
 REALIZED_DAY = int(os.environ.get("MARKET_REALIZED_DAY", "9"))
 # Circuito para o fluxo de potencia da fase de operacao. O agente DSO precisa do
 # ponto de operacao REALIZADO, e nao de uma extrapolacao linear do ponto do dia
 # seguinte: medido, a extrapolacao erra ate 7,2e-3 pu, sete vezes a margem de
-# seguranca. A tese resolve o fluxo de carga na operacao
-# (`analyse_auction_grid_restrictions` chama `run_powerflow_in_pandapower`), e
-# aqui e o mesmo: o solver abre o circuito e resolve.
+# seguranca. Por isso o solver abre o circuito e resolve o fluxo de carga.
 MARKET_CIRCUIT = os.environ.get("MARKET_CIRCUIT",
-                                "/grid-data/MVLV75/Master.dss")
+                                "/grid-data/13Bus/Master.dss")
 
 _BUS_CACHE = None
 
@@ -180,8 +186,7 @@ _BUS_CACHE = None
 def _bus_name(node):
     """Nome da barra no OpenDSS para um no do mercado.
 
-    As redes geradas pelo repositorio nomeiam as barras como `n{no}`, e essa
-    continua sendo a regra. Uma rede publicada, como a IEEE 13, tem nomes
+    A regra padrao e `n{no}`. Uma rede publicada, como a IEEE 13, tem nomes
     proprios que nao se pode renomear sem perder a correspondencia com a
     referencia: nesse caso o `force.json` traz o nome da barra em cada no.
     Mesma funcao de `sensitivity.py`, que roda no outro container.
@@ -203,8 +208,8 @@ def _bus_name(node):
 # negociado, e a comparacao deixaria de isolar o efeito do mecanismo.
 USE_REALIZED = os.environ.get("MARKET_REALIZED", "1") == "1"
 OP_MAX_ROUNDS = int(os.environ.get("MARKET_OP_MAX_ROUNDS", "30"))
-# O leilao de tempo real liquida em TODA janela, como no original, e nao apenas
-# quando o armazenamento de rede nao basta. Ver `collect_operation`.
+# O leilao de tempo real liquida em TODA janela, e nao apenas quando o
+# armazenamento de rede nao basta. Ver `collect_operation`.
 OP_AUCTION_ALWAYS = os.environ.get("MARKET_OP_AUCTION_ALWAYS", "1") not in ("0", "")
 
 AGENTS = {}          # localname -> instancia, para o simulador Mosaik alcancar
@@ -215,8 +220,16 @@ MOSAIK_MODELS = {
     "models": {
         "MarketMAS": {
             "public": True,
-            "params": ["node"],
+            "params": ["node", "porta"],
             "attrs": ["P_kw", "Q_kvar", "lambda_max", "round_count"],
+        },
+        # Comando de derivacao de um regulador (MARKET_REGULADOR=previsao): o DSO
+        # aplica as derivacoes do ponto de operacao da previsao, com que a matriz
+        # de sensibilidade foi calculada.
+        "Regulador": {
+            "public": True,
+            "params": ["nome"],
+            "attrs": ["tap"],
         },
     },
 }
@@ -224,6 +237,16 @@ MOSAIK_MODELS = {
 
 def _json(payload):
     return json.dumps(payload)
+
+
+def _chave(s):
+    """Chave de armazenamento vinda de uma mensagem JSON.
+
+    Por no a chave e o numero do no, e o JSON a devolve como texto ("671"); por
+    fase e a porta, "671.A", que fica como esta.
+    """
+    s = str(s)
+    return int(s) if s.isdigit() else s
 
 
 def _parse(content):
@@ -243,11 +266,9 @@ def _curto(serie, casas=6):
 def _set_content(message, payload):
     """Define o conteudo e ANOTA o tamanho serializado da mensagem.
 
-    O `ACLMessage` do PADE 2.2 tinha `set_message_length`, usado pela integracao
-    com o ns-3 para dimensionar o pacote; o PADE 3.0 removeu isso junto com o
-    modulo `pade.simul`. Como o modelo de rede da Fase 5 precisa do tamanho,
-    guardamos em `message_length` como atributo simples. Quem consumir deve ler
-    com `getattr(msg, "message_length", None)`.
+    O `ACLMessage` do PADE 3.0 nao guarda tamanho de pacote. Como o modelo de
+    rede precisa dele, o tamanho fica em `message_length`, como atributo simples.
+    Quem consumir deve ler com `getattr(msg, "message_length", None)`.
     """
     content = _json(payload)
     message.set_content(content)
@@ -273,6 +294,56 @@ def _reply(message, performative, payload):
 
 
 # ---------------------------------------------------------------------------
+# Partida dos agentes
+#
+# Dois comportamentos do PADE, juntos, produziam uma corrida no inicio da
+# negociacao:
+#   - `FipaProtocol.execute` faz `self.message = message` em TODO comportamento
+#     do agente, a cada mensagem recebida, inclusive nos iniciadores;
+#   - `Agent.on_start` agenda para 2 s depois um `on_start()` em todos os
+#     comportamentos, e o `on_start` de um iniciador envia `self.message`.
+# Se a negociacao comecava antes desses 2 s, um iniciador reenviava a ultima
+# mensagem RECEBIDA, com o proprio agente como remetente e como destinatario:
+# o DSO respondia a um CFP falso para si mesmo, a proposta da rodada nunca
+# chegava ao agente de mercado, e a rodada esperava o tempo limite inteiro.
+#
+# A correcao tem duas partes. `_AgenteMercado` lanca os comportamentos uma
+# vez, por `lancar_comportamentos`, que o `start_market_loop` chama antes de
+# anunciar que os agentes estao prontos, e portanto antes de qualquer
+# negociacao. E `_SoEnviaOProprio` impede um iniciador de reenviar mensagem
+# que veio de outro agente, qualquer que seja o caminho que chame o `on_start`.
+# ---------------------------------------------------------------------------
+
+class _AgenteMercado(Agent):
+    """Agente do mercado: sem o lancamento adiado de comportamentos do PADE."""
+
+    def on_start(self):
+        for system_behaviour in self.system_behaviours:
+            system_behaviour.on_start()
+        AGENTS[self.aid.localname] = self
+
+    def lancar_comportamentos(self):
+        for behaviour in self.behaviours:
+            behaviour.on_start()
+
+
+class _SoEnviaOProprio:
+    """Iniciador que so envia mensagem montada pelo proprio agente.
+
+    Mensagem nova tem remetente vazio; a que o agente ja enviou (numa
+    retransmissao) tem o proprio agente como remetente. Qualquer outro
+    remetente significa que `self.message` foi sobrescrita por uma mensagem
+    recebida, e reenvia-la seria o erro descrito acima.
+    """
+
+    def on_start(self):
+        remetente = getattr(getattr(self.message, "sender", None), "localname", None)
+        if remetente is not None and remetente != self.agent.aid.localname:
+            return
+        super().on_start()
+
+
+# ---------------------------------------------------------------------------
 # Solver: roda os modelos em thread separada, para nao travar o reactor
 # ---------------------------------------------------------------------------
 
@@ -290,7 +361,7 @@ class SolverProtocol(FipaRequestProtocol):
         self.agent.send(_reply(message, ACLMessage.INFORM, result))
 
 
-class SolverAgent(Agent):
+class SolverAgent(_AgenteMercado):
     """Resolve os modelos Pyomo sob demanda (papel do `solver_agent.py`)."""
 
     def __init__(self, aid, case, profiles, price, sensitivity):
@@ -324,12 +395,19 @@ class SolverAgent(Agent):
         import py_dss_interface
 
         cwd = os.getcwd()
+        nomes, taps = load_taps() if REGULADOR == "previsao" else ([], None)
         try:
             dss = py_dss_interface.DSS()
             dss.text(f'Compile "{MARKET_CIRCUIT}"')
             tan_phi = math.tan(math.acos(0.9))
+            if nomes:
+                # As mesmas derivacoes que a co-simulacao aplica: as da previsao.
+                dss.text("Set ControlMode=OFF")
             pontos = []
             for t in range(PERIODS):
+                for i, nome in enumerate(nomes):
+                    dss.regcontrols.name = nome
+                    dss.regcontrols.tap_number = int(taps[t][i])
                 for node in self.case.lv_nodes:
                     if node in self.realized:
                         kw = float(self.realized[node][t])
@@ -337,10 +415,20 @@ class SolverAgent(Agent):
                                  f"kvar={kw * tan_phi}")
                 dss.text("Solve")
                 v = []
-                for node in self.case.all_nodes:
-                    dss.circuit.set_active_bus(_bus_name(node))
-                    mags = [m for m in dss.bus.vmag_angle_pu[0::2] if m > 1e-6]
-                    v.append(sum(mags) / len(mags))
+                if self.case.fase:
+                    # Uma tensao por (no, fase), na ordem das linhas da matriz.
+                    lidas = {}
+                    for node, k in self.case.rows:
+                        if node not in lidas:
+                            dss.circuit.set_active_bus(_bus_name(node))
+                            lidas[node] = dict(zip(dss.bus.nodes,
+                                                   dss.bus.vmag_angle_pu[0::2]))
+                        v.append(lidas[node][k])
+                else:
+                    for node in self.case.all_nodes:
+                        dss.circuit.set_active_bus(_bus_name(node))
+                        mags = [m for m in dss.bus.vmag_angle_pu[0::2] if m > 1e-6]
+                        v.append(sum(mags) / len(mags))
                 pontos.append(np.array(v))
         finally:
             os.chdir(cwd)
@@ -361,10 +449,6 @@ class SolverAgent(Agent):
                    for n in self.case.lv_nodes if n in self.realized}
         return self.v0_real[t], base_kw, float(sum(deviation.values()))
 
-    def on_start(self):
-        super().on_start()
-        AGENTS[self.aid.localname] = self
-
     def dispatch(self, request):
         kind = request["kind"]
         if kind == "prosumer":
@@ -374,9 +458,7 @@ class SolverAgent(Agent):
                 deterministic_demand=self.profiles[node],
                 deterministic_price=self.price)
             # `.get`, e nao `[]`: todo no de baixa tensao e prosumidor e
-            # contrata nos dois mercados; so alguns tem bateria. E o que o
-            # `ReferenceModel.py` do trabalho original faz, com `p_bilateral`
-            # fora do `if has_storage`.
+            # contrata nos dois mercados; so alguns tem bateria.
             decision = solve_prosumer(scenarios, self.case.prosumer_storage.get(node))
             return {"node": node,
                     "schedule": decision["storage"].tolist(),
@@ -384,17 +466,18 @@ class SolverAgent(Agent):
                     "spot": decision["spot"].tolist()}
 
         if kind == "concentrator":
-            nodes = request["nodes"]
+            nodes = [_chave(n) for n in request["nodes"]]
             out = solve_concentrator(
                 nodes,
                 {n: np.array(request["p_init"][str(n)]) for n in nodes},
                 {n: np.array(request["lam"][str(n)]) for n in nodes},
-                self.case.prosumer_storage)
+                self.case.prosumer_storage,
+                node_of=self.case.node_of, mult=self.case.mult)
             return {"schedule": {str(n): out[n].tolist() for n in nodes}}
 
         if kind == "dso":
-            pros = self.case.prosumer_storage_nodes
-            net = self.case.network_storage_nodes
+            pros = self.case.prosumer_keys
+            net = self.case.network_keys
             p, q = solve_dso(
                 self.case, self.profiles,
                 {n: np.array(request["p_init"][str(n)]) for n in pros},
@@ -411,29 +494,28 @@ class SolverAgent(Agent):
 
     def _dispatch_operation(self, kind, request):
         t = int(request["t"])
-        pros = self.case.prosumer_storage_nodes
-        net = self.case.network_storage_nodes
+        pros = self.case.prosumer_keys
+        net = self.case.network_keys
         v0_t, base_kw, desvio = self._operation_point(t)
 
         if kind == "operation_concentrator":
-            nodes = request["nodes"]
+            nodes = [_chave(n) for n in request["nodes"]]
             out = solve_concentrator(
                 nodes,
                 {n: np.array(request["p_init"][str(n)]) for n in nodes},
                 {n: np.array(request["lam"][str(n)]) for n in nodes},
-                self.case.prosumer_storage, periods=1)
+                self.case.prosumer_storage, periods=1,
+                node_of=self.case.node_of, mult=self.case.mult)
             return {"schedule": {str(n): out[n].tolist() for n in nodes}}
 
         p_t = {n: np.array(request["p_init"][str(n)]) for n in pros}
         q_t = {n: np.array(request["q_init"][str(n)]) for n in net}
         lam_t = {n: np.array(request["lam"][str(n)]) for n in pros}
         # Estado de carga do armazenamento de REDE, acumulado ao longo do dia.
-        # Sem isto cada janela resolvia com a bateria de volta a 50%, o que a
-        # tornava uma fonte de energia infinita: 8 kW disponiveis nas 95 janelas
-        # dao 190 kWh de um dispositivo de 20 kWh. Era por isso que o
-        # armazenamento de rede SEMPRE bastava e o leilao nunca abria.
-        # Vem no pedido: quem sabe o que foi de fato APLICADO nos intervalos
-        # anteriores e o agente de mercado, nao o solver.
+        # Sem isto cada janela resolveria com a bateria de volta ao estado
+        # inicial, como uma fonte de energia infinita. Vem no pedido: quem sabe
+        # o que foi de fato APLICADO nos intervalos anteriores e o agente de
+        # mercado, nao o solver.
         soc_rede = {int(k): float(v)
                     for k, v in request.get("soc_rede", {}).items()} or None
 
@@ -472,7 +554,7 @@ class SolverAgent(Agent):
                 "q": {str(n): v.tolist() for n, v in q.items()}}
 
 
-class SolverClient(FipaRequestProtocol):
+class SolverClient(_SoEnviaOProprio, FipaRequestProtocol):
     """Lado iniciador: quem precisa de um modelo resolvido usa isto."""
 
     def __init__(self, agent):
@@ -496,12 +578,10 @@ class SolverClient(FipaRequestProtocol):
 # ---------------------------------------------------------------------------
 # Despacho da programacao acordada: FIPA-Subscribe
 #
-# Fechada a negociacao, a programacao precisa CHEGAR a quem a executa. No
-# original isso e feito por Subscribe/Publish (`DSOPublisherProtocol`,
-# `BESSPublisherProtocol`, `ProsumerSubscriberProtocol`), e a versao anterior
-# daqui simplesmente aplicava o resultado da otimizacao do DSO sem ato
-# comunicativo nenhum. Alem de infiel a arquitetura, isso SUBESTIMA o trafego que
-# a analise de comunicacao mede.
+# Fechada a negociacao, a programacao precisa CHEGAR a quem a executa, por
+# Subscribe/Publish, como na arquitetura de referencia. Aplicar o resultado da
+# otimizacao sem ato comunicativo SUBESTIMARIA o trafego que a analise de
+# comunicacao mede.
 #
 # A cadeia e: os prosumidores assinam o seu concentrador, os concentradores
 # assinam o DSO. No aceite, o DSO publica aos concentradores, cada concentrador
@@ -558,6 +638,17 @@ class DispatchSubscriber(FipaSubscribeProtocol):
         _set_content(message, {"subscribe": agent.aid.localname})
         super().__init__(agent, message, is_initiator=True)
         self._on_dispatch = on_dispatch
+        # O `execute` do PADE sobrescreve `self.message` a cada mensagem
+        # recebida; a assinatura fica guardada a parte e e enviada uma vez.
+        self._assinatura = message
+        self._assinou = False
+
+    def on_start(self):
+        if self._assinou:
+            return
+        self._assinou = True
+        self.message = self._assinatura
+        super().on_start()
 
     def handle_agree(self, message):
         pass
@@ -606,7 +697,7 @@ class ProsumerParticipant(FipaContractNetProtocol):
                        {"node": self.agent.node, "schedule": result["schedule"]})))
 
 
-class ProsumerAgent(Agent):
+class ProsumerAgent(_AgenteMercado):
     def __init__(self, aid, node, concentrator_name):
         super().__init__(aid=aid, debug=False)
         self.node = node
@@ -620,22 +711,27 @@ class ProsumerAgent(Agent):
         self.behaviours.append(self.subscriber)
 
     def _apply_dispatch(self, dispatch, confirm):
-        """Recebe a programacao acordada do seu armazenamento e confirma."""
+        """Recebe a programacao acordada do seu armazenamento e confirma.
+
+        Por fase o despacho chega por porta ("671.A", "671.B", ...). O prosumidor
+        executa o total do dispositivo; a reparticao entre as fases e do inversor,
+        que o concentrador comanda.
+        """
         series = dispatch.get(str(self.node))
+        if series is None:
+            portas = [np.array(v) for k, v in dispatch.items()
+                      if k.split(".")[0] == str(self.node) and "." in k]
+            series = np.sum(portas, axis=0) if portas else None
         if series is not None:
             self.dispatched = np.array(series)
         confirm()
-
-    def on_start(self):
-        super().on_start()
-        AGENTS[self.aid.localname] = self
 
 
 # ---------------------------------------------------------------------------
 # AC: Agente Concentrador
 # ---------------------------------------------------------------------------
 
-class ConcentratorInitiator(FipaContractNetProtocol):
+class ConcentratorInitiator(_SoEnviaOProprio, FipaContractNetProtocol):
     """Ciclo 1: pede aos prosumidores a programacao proposta.
 
     A conclusao do ciclo e decidida por CONTAGEM PROPRIA, e nao pelo
@@ -674,23 +770,25 @@ class ConcentratorParticipant(FipaContractNetProtocol):
         action = request.get("action")
 
         if action == "REPORT":          # ciclo 2: so devolve o que os AP propuseram
-            resposta = {"p_init": {str(n): self.agent.p_init[n].tolist()
-                                   for n in self.agent.storage_nodes
-                                   if n in self.agent.p_init}}
+            # Por fase, a proposta de cada prosumidor vai repartida entre as
+            # portas do dispositivo dele; e a partir dai que o leilao redistribui.
+            resposta = {"p_init": {str(k): self.agent.proposta(k).tolist()
+                                   for k in self.agent.storage_keys
+                                   if self.agent.case.node_of(k) in self.agent.p_init}}
             if "t" in request:
                 resposta["t"] = request["t"]
                 # Na operacao o AC informa tambem o armazenamento de rede sob
                 # ele, que e o recurso que o AD tenta usar primeiro.
                 resposta["q_init"] = {
                     str(n): [float(self.agent.network_dispatch[n][request["t"]])]
-                    for n in self.agent.network_storage
+                    for n in self.agent.network_keys
                     if self.agent.network_dispatch is not None
                     and n in self.agent.network_dispatch}
             self.agent.send(_reply(message, ACLMessage.PROPOSE, resposta))
             return
 
         if action == "OPERATE_AUCTION":  # leilao de operacao, um periodo so
-            nodes = self.agent.storage_nodes
+            nodes = self.agent.storage_keys
             self.agent.solver.ask(
                 {"kind": "operation_concentrator", "t": request["t"],
                  "nodes": nodes,
@@ -708,10 +806,10 @@ class ConcentratorParticipant(FipaContractNetProtocol):
             # erro silencioso: cada concentrador cuida de um subconjunto dos nos
             # e receberia o lambda de outro prosumidor, o que ainda converge,
             # mas mais devagar e para outro ponto.
-            nodes = self.agent.storage_nodes
+            nodes = self.agent.storage_keys
             self.agent.solver.ask(
                 {"kind": "concentrator", "nodes": nodes,
-                 "p_init": {str(n): self.agent.p_init[n].tolist() for n in nodes},
+                 "p_init": {str(n): self.agent.proposta(n).tolist() for n in nodes},
                  "lam": {str(n): request["lam"][str(n)] for n in nodes}},
                 lambda result: self.agent.send(
                     _reply(message, ACLMessage.PROPOSE,
@@ -720,15 +818,19 @@ class ConcentratorParticipant(FipaContractNetProtocol):
                                          for k, v in result["schedule"].items()}})))
 
 
-class ConcentratorAgent(Agent):
+class ConcentratorAgent(_AgenteMercado):
     def __init__(self, aid, name, nodes, storage_nodes, on_ready,
-                 network_storage=()):
+                 network_storage=(), case=None):
         super().__init__(aid=aid, debug=False)
         self.name = name
+        # Chaves das variaveis de armazenamento sob este concentrador: os
+        # proprios nos, no modo por no; as portas "671.A", no modo por fase.
+        self.case = case
+        self.storage_keys = case.chaves(storage_nodes) if case else list(storage_nodes)
+        self.network_keys = case.chaves(network_storage) if case else list(network_storage)
         # `nodes` sao TODOS os prosumidores sob este transformador, que e com
         # quem o ciclo 1 fala. `storage_nodes` sao os que tem bateria, que sao
-        # os unicos com variavel a acoplar na negociacao de lambda. Confundir os
-        # dois tirava 43 dos 68 nos da MVLV75 do mercado e do trafego.
+        # os unicos com variavel a acoplar na negociacao de lambda.
         self.nodes = nodes
         self.storage_nodes = storage_nodes
         self.p_init = {}
@@ -746,7 +848,7 @@ class ConcentratorAgent(Agent):
         self.behaviours.append(ConcentratorParticipant(self))
         self.cycle1 = None
         self.op_t = None            # intervalo, quando o ciclo 1 e de operacao
-        # Papel do AC na tese: acionar os dispositivos de armazenamento de rede
+        # Papel do AC: acionar os dispositivos de armazenamento de rede
         # sob o seu transformador. O DSO decide, o concentrador despacha.
         self.network_storage = network_storage
         self.network_dispatch = None
@@ -756,9 +858,15 @@ class ConcentratorAgent(Agent):
         self.behaviours.append(self.subscriber)
         self._confirm_to_dso = None
 
+    def proposta(self, key):
+        """Proposta do prosumidor para a chave: a serie dele dividida por |F|."""
+        if self.case is None:
+            return self.p_init[key]
+        return self.p_init[self.case.node_of(key)] / self.case.mult(key)
+
     def _apply_dispatch(self, dispatch, confirm):
         """Aciona o armazenamento de rede e repassa aos prosumidores."""
-        rede = {n: dispatch["network"][str(n)] for n in self.network_storage
+        rede = {n: dispatch["network"][str(n)] for n in self.network_keys
                 if str(n) in dispatch.get("network", {})}
         self.network_dispatch = {n: np.array(v) for n, v in rede.items()}
         display_message(self.aid.localname,
@@ -766,8 +874,9 @@ class ConcentratorAgent(Agent):
                         f"de rede e repassando a {len(self.nodes)} prosumidores")
         self._confirm_to_dso = confirm
         self.publisher._on_all_confirmed = self._on_prosumers_confirmed
-        prosumer_part = {str(n): dispatch["prosumer"][str(n)]
-                         for n in self.nodes if str(n) in dispatch.get("prosumer", {})}
+        meus = {str(n) for n in self.nodes}
+        prosumer_part = {k: v for k, v in dispatch.get("prosumer", {}).items()
+                         if k.split(".")[0] in meus}
         self.publisher.publish({"dispatch": prosumer_part})
 
     def _on_prosumers_confirmed(self):
@@ -775,17 +884,11 @@ class ConcentratorAgent(Agent):
             self._confirm_to_dso()
             self._confirm_to_dso = None
 
-    def on_start(self):
-        super().on_start()
-        AGENTS[self.aid.localname] = self
-
     def request_schedules(self, t=None, on_ready=None):
         """Ciclo 1: pede a programacao aos prosumidores.
 
-        Com `t` a solicitacao e da fase de operacao e pede so aquele intervalo,
-        que e a diferenca que a tese aponta entre as duas fases: "as programacoes
-        enviadas pelos AP e AC sao compostas apenas pelo valor programado para o
-        proximo intervalo de tempo".
+        Com `t` a solicitacao e da fase de operacao e pede so aquele intervalo:
+        na operacao, as programacoes trazem apenas o valor do proximo intervalo.
         """
         self.op_t = t
         if on_ready is not None:
@@ -838,11 +941,9 @@ class ConcentratorAgent(Agent):
             return
         # Mesma politica que o DSO ja aplica no ciclo 2: quem nao respondeu nem
         # apos as retransmissoes entra com programacao NULA. Sem preencher, o
-        # buraco em `p_init` so aparece dois ciclos depois, como um KeyError
+        # buraco em `p_init` so apareceria dois ciclos depois, como um KeyError
         # dentro do `handle_cfp` do ciclo 4, que derruba o processo do agente e
-        # trava a co-simulacao inteira. Foi o que aconteceu na primeira corrida
-        # sobre a rede 6TiSCH da tese: o no 36 perdeu a proposta e a falha
-        # apareceu num ponto sem relacao com a causa.
+        # trava a co-simulacao inteira, num ponto sem relacao com a causa.
         #
         # A escolha nao e neutra e por isso fica registrada: o prosumidor
         # silencioso perde a chance de ser remunerado pelo ajuste, e a rede
@@ -921,7 +1022,7 @@ class DSOParticipant(FipaContractNetProtocol):
                            dict(result, round=request.get("round")))))
 
 
-class ReportInitiator(FipaContractNetProtocol):
+class ReportInitiator(_SoEnviaOProprio, FipaContractNetProtocol):
     """Ciclo 2: o AD pede as programacoes agregadas aos AC."""
 
     def __init__(self, agent, message):
@@ -932,7 +1033,7 @@ class ReportInitiator(FipaContractNetProtocol):
         self.agent.collect_report(message)
 
 
-class DSOAgent(Agent):
+class DSOAgent(_AgenteMercado):
     def __init__(self, aid, on_dispatch_done=None):
         super().__init__(aid=aid, debug=False)
         self.solver = SolverClient(self)
@@ -954,11 +1055,9 @@ class DSOAgent(Agent):
     def request_reports(self, names, on_ready, t=None):
         """Solicita a cada concentrador a programacao que ele agregou.
 
-        Este ciclo EXISTIA so no papel: o tratador de `REPORT` estava escrito no
-        concentrador, mas ninguem enviava o CFP, e o agente de mercado lia
-        `p_init` direto da memoria do concentrador. O atalho pulava a rede
-        inteira, e com isso o ciclo 2 nao aparecia em nenhuma medicao de
-        comunicacao. A tese o descreve como ato comunicativo do AD com os AC.
+        E um ato comunicativo do AD com os AC, e passa pela rede como os outros:
+        ler `p_init` direto da memoria do concentrador pularia o ciclo 2 em
+        qualquer medicao de comunicacao.
         """
         self._report_on_ready = on_ready
         self._report_expected = set(names)
@@ -1035,16 +1134,12 @@ class DSOAgent(Agent):
             "prosumer": {str(n): v for n, v in prosumer_schedule.items()},
             "network": {str(n): v for n, v in network_schedule.items()}}})
 
-    def on_start(self):
-        super().on_start()
-        AGENTS[self.aid.localname] = self
-
 
 # ---------------------------------------------------------------------------
 # AM: Agente Mercado, que tambem hospeda a conexao com o Mosaik
 # ---------------------------------------------------------------------------
 
-class OperationInitiator(FipaContractNetProtocol):
+class OperationInitiator(_SoEnviaOProprio, FipaContractNetProtocol):
     """Ciclo da fase de operacao: um intervalo, dois niveis."""
 
     def __init__(self, agent, message):
@@ -1055,7 +1150,7 @@ class OperationInitiator(FipaContractNetProtocol):
         self.agent.collect_operation(message)
 
 
-class MarketInitiator(FipaContractNetProtocol):
+class MarketInitiator(_SoEnviaOProprio, FipaContractNetProtocol):
     """Ciclo 4: uma rodada de negociacao com os AC e o AD."""
 
     def __init__(self, agent, message):
@@ -1070,7 +1165,7 @@ class MarketInitiator(FipaContractNetProtocol):
         self.agent.try_close_round()
 
 
-class MarketAgent(Agent):
+class MarketAgent(_AgenteMercado):
     def __init__(self, aid, case, profiles, price, sensitivity):
         super().__init__(aid=aid, debug=False)
         self.case = case
@@ -1083,16 +1178,25 @@ class MarketAgent(Agent):
         # e o OpenDSS nunca o veria, tornando a fase de operacao inobservavel.
         self.realized = realized_profiles(REALIZED_DAY) if USE_REALIZED else None
         self.p_init = {}
-        self.q_init = {n: np.zeros(PERIODS) for n in case.network_storage_nodes}
-        self.lam = {n: np.zeros(PERIODS) for n in case.prosumer_storage_nodes}
+        self.q_init = {n: np.zeros(PERIODS) for n in case.network_keys}
+        self.lam = {n: np.zeros(PERIODS) for n in case.prosumer_keys}
+        # Passo do subgradiente por chave: por fase, multiplicado por |F|, como em
+        # `dual.run`. Por no fica 1 e nada muda.
+        self.passo = (np.array([float(case.mult(k)) for k in case.prosumer_keys])[:, None]
+                      if case.por_porta else 1.0)
         # De quais nos cada concentrador cuida. Serve para enderecar o CFP do
         # ciclo 4: cada um recebe so o preco sombra dos seus.
-        self._nos_do_concentrador = {f"concentrator_{c.name}": list(c.prosumer_storage)
+        self._nos_do_concentrador = {f"concentrator_{c.name}": case.chaves(c.prosumer_storage)
                                      for c in case.concentrators}
         self.x = {}
         self.y = {}
         self.q = {}
         self.round = 0
+        # Ultima rodada ja fechada. Com retransmissao, uma resposta duplicada
+        # chega com o numero de uma rodada que ja fechou e nao pode fecha-la de
+        # novo: depois do aceite, isso reabria a negociacao em paralelo com a
+        # fase de operacao.
+        self._rodada_fechada = 0
         self.expected = ({f"concentrator_{c.name}" for c in case.concentrators}
                          | {"dso"})
         self.replied = set()
@@ -1115,10 +1219,6 @@ class MarketAgent(Agent):
         self.op_result = None
         self.operation_log = []
         self.op_v_min_before = None
-
-    def on_start(self):
-        super().on_start()
-        AGENTS[self.aid.localname] = self
 
     # ---- ciclo 1: cada AC pede aos seus AP ---------------------------------
     def start_negotiation(self):
@@ -1144,14 +1244,14 @@ class MarketAgent(Agent):
         close_cycle(1)
         for payload in reports.values():
             for node, series in payload.get("p_init", {}).items():
-                self.p_init[int(node)] = np.array(series)
+                self.p_init[_chave(node)] = np.array(series)
 
         # Politica para quem nao respondeu ao CFP nem apos as retransmissoes: a
         # flexibilidade dele nao entra na negociacao (programacao nula). E uma
         # decisao de mercado, nao um detalhe de implementacao, e muda o
         # resultado: o prosumidor silencioso perde a chance de ser remunerado
         # pelo ajuste, e a rede perde o recurso dele.
-        ausentes = [n for n in self.case.prosumer_storage_nodes if n not in self.p_init]
+        ausentes = [n for n in self.case.prosumer_keys if n not in self.p_init]
         if ausentes:
             display_message(self.aid.localname,
                             f"sem programacao de {ausentes}: entram com zero")
@@ -1162,7 +1262,7 @@ class MarketAgent(Agent):
                             f"{len(self.p_init)} programacoes recebidas; "
                             "LINHA DE BASE, sem negociacao")
             self.y = dict(self.p_init)
-            self.q = {n: np.zeros(PERIODS) for n in self.case.network_storage_nodes}
+            self.q = {n: np.zeros(PERIODS) for n in self.case.network_keys}
             self.converged = True
             self.mosaik_sim.release_step()
             return
@@ -1186,19 +1286,18 @@ class MarketAgent(Agent):
         Quem consome o que, lido dos dois `handle_cfp`: o concentrador usa
         apenas o `lam` DOS NOS DELE, e tira o `p_init` da propria memoria; o DSO
         usa `lam`, `p_init` e `q_init` de todos, porque a restricao de tensao e
-        global. Mandar o pacote inteiro para todos era desperdicio puro, e era o
-        que fazia o CFP nao trafegar na rede da tese: 35.663 bytes em 281
-        quadros, com 99,93% de perda no pior enlace.
+        global. Mandar o pacote inteiro para todos multiplicaria o tamanho do CFP,
+        e numa rede LPWA mensagem grande e mensagem perdida.
 
-        As series vao com 6 casas decimais. A tolerancia da negociacao e 1e-4 no
-        criterio de parada, quatro ordens de grandeza acima do que se descarta.
+        As series vao com 6 casas decimais (1e-6 kW), muito abaixo da tolerancia
+        do criterio de parada, de 0,1% da potencia de cada dispositivo.
         """
         base = {"action": "REOPTIMIZE", "round": self.round}
         if receiver != "dso":
             nos = self._nos_do_concentrador.get(receiver, [])
             base["lam"] = {str(n): _curto(self.lam[n]) for n in nos}
             return base
-        pros = self.case.prosumer_storage_nodes
+        pros = self.case.prosumer_keys
         base["lam"] = {str(n): _curto(self.lam[n]) for n in pros}
         # `p_init` e `q_init` so vao na PRIMEIRA rodada. O primeiro e constante
         # ao longo da negociacao (e a programacao que os prosumidores
@@ -1207,7 +1306,7 @@ class MarketAgent(Agent):
         if self.round <= 1:
             base["p_init"] = {str(n): _curto(self.p_init[n]) for n in pros}
             base["q_init"] = {str(n): _curto(self.q_init[n])
-                              for n in self.case.network_storage_nodes}
+                              for n in self.case.network_keys}
         return base
 
     def _send_cfp(self, receivers):
@@ -1263,26 +1362,26 @@ class MarketAgent(Agent):
         de depender de `received_qty == cfp_qty` do `FipaContractNetProtocol`.
         Com entrega instantanea os dois coincidem; com atraso, nao: as respostas
         chegam intercaladas e o protocolo do PADE conclui o ciclo com o conjunto
-        incompleto. Foi assim que o ciclo 1 agregou 19 das 25 programacoes com a
-        camada de rede ligada, mesmo sem nenhuma perda.
+        incompleto, mesmo sem nenhuma perda.
         """
         payload = _parse(message.content)
-        if payload.get("round") != self.round:
-            # Resposta de uma rodada anterior: ignorar, senao o lambda seria
-            # atualizado com um residuo que mistura duas rodadas.
+        if payload.get("round") != self.round or self._rodada_fechada == self.round:
+            # Resposta de uma rodada anterior, ou duplicata de uma ja fechada:
+            # ignorar, senao o lambda seria atualizado com um residuo que mistura
+            # duas rodadas.
             return
         sender = getattr(message.sender, "localname", "?")
         self.replied.add(sender)
         if "schedule" in payload:                          # concentrador
             for node, series in payload["schedule"].items():
-                self.x[int(node)] = np.array(series)
+                self.x[_chave(node)] = np.array(series)
         else:                                              # DSO
-            self.y = {int(n): np.array(v) for n, v in payload["p"].items()}
-            self.q = {int(n): np.array(v) for n, v in payload["q"].items()}
+            self.y = {_chave(n): np.array(v) for n, v in payload["p"].items()}
+            self.q = {_chave(n): np.array(v) for n, v in payload["q"].items()}
         self.try_close_round()
 
     def try_close_round(self):
-        pros = self.case.prosumer_storage_nodes
+        pros = self.case.prosumer_keys
         if self.replied != self.expected:
             return
         if not self.y or any(n not in self.x for n in pros):
@@ -1290,10 +1389,11 @@ class MarketAgent(Agent):
         if self._timeout_call is not None and self._timeout_call.active():
             self._timeout_call.cancel()
         self.replied = set()
+        self._rodada_fechada = self.round
 
         c3 = close_cycle(2, f" (rodada {self.round})")
         residual = np.array([self.x[n] - self.y[n] for n in pros])
-        d_lam = ALPHA * residual
+        d_lam = ALPHA * self.passo * residual
         for i, n in enumerate(pros):
             self.lam[n] = self.lam[n] + d_lam[i]
 
@@ -1301,10 +1401,11 @@ class MarketAgent(Agent):
             "round": self.round,
             "d_lambda_max": float(np.abs(d_lam).max()),
             "residual_max": float(np.abs(residual).max()),
+            "residual_rel_max": float((np.abs(residual)
+                                       / self.case.potencia_ref(pros)).max()),
             "lambda_max": float(max(np.abs(v).max() for v in self.lam.values())),
-            # Programacao que cada lado adotou NESTA rodada, por no. E o dado das
-            # Figuras 51 e 52 da tese, que comparam o que o AC propoe com o que o
-            # AD aceita ao longo das iteracoes.
+            # Programacao que cada lado adotou NESTA rodada, por no: o que o AC
+            # propoe e o que o AD aceita ao longo das iteracoes.
             "x": {str(n): self.x[n].tolist() for n in pros if n in self.x},
             "y": {str(n): self.y[n].tolist() for n in pros if n in self.y},
             "cycle3_net_s": c3["max_delay"] if c3 else None,
@@ -1312,9 +1413,10 @@ class MarketAgent(Agent):
         extra = f" rede={c3['max_delay']:.0f} s" if c3 else ""
         display_message(self.aid.localname,
                         f"rodada {self.round}: |dlambda|={np.abs(d_lam).max():.3e} "
-                        f"|x-y|={np.abs(residual).max():.4f} kW{extra}")
+                        f"|x-y|={np.abs(residual).max():.4f} kW "
+                        f"({self.history[-1]['residual_rel_max']:.1e} de Pmax){extra}")
 
-        if np.abs(d_lam).max() <= EPS:
+        if criterio_parada(self.case, pros, residual, d_lam, EPS)[0]:
             self.converged = True
             self._accept()
         elif self.round >= MAX_ROUNDS:
@@ -1327,16 +1429,11 @@ class MarketAgent(Agent):
     def _decision(self, performative):
         """Fecha a rodada com ACCEPT ou REJECT para todos os participantes.
 
-        A mensagem carrega apenas o numero da rodada. Ela levava tambem o preco
-        sombra dos 25 nos por 96 intervalos, em precisao total, e NINGUEM lia:
-        nao ha `handle_reject_propose` nem `handle_accept_propose` em lugar
-        nenhum, e o preco da rodada seguinte ja vai no proximo CFP.
-
-        Medido, isso custava 51.898 bytes por destinatario POR RODADA, ou 409
-        quadros. No enlace de PER 0,400 da rede da tese a entrega de um
-        datagrama desse tamanho e 0,00%, e sem receber o fecho da rodada o
-        participante nao aceitava o CFP seguinte. Era a maior mensagem da
-        negociacao inteira, maior que o proprio CFP.
+        A mensagem carrega apenas o numero da rodada: o preco da rodada
+        seguinte ja vai no proximo CFP, e nenhum participante le o preco no
+        ACCEPT ou no REJECT. Repetir ali o preco sombra inteiro faria do fecho a
+        maior mensagem da negociacao, e sem recebe-lo o participante nao aceita
+        o CFP seguinte.
         """
         answer = ACLMessage(performative)
         answer.set_protocol(ACLMessage.FIPA_CONTRACT_NET_PROTOCOL)
@@ -1358,12 +1455,12 @@ class MarketAgent(Agent):
         display_message(self.aid.localname, "acordo fechado; iniciando o despacho")
         self._dispatch_timeout = self.call_later(ROUND_TIMEOUT, self._on_dispatch_timeout)
         AGENTS["dso"].dispatch(
-            {n: self.y[n].tolist() for n in self.case.prosumer_storage_nodes},
-            {n: self.q[n].tolist() for n in self.case.network_storage_nodes})
+            {n: self.y[n].tolist() for n in self.case.prosumer_keys},
+            {n: self.q[n].tolist() for n in self.case.network_keys})
 
     # ---- fase de operacao, a cada 15 min ----------------------------------
     def start_operation(self, t):
-        """Fase de operacao do intervalo t (subsecao 6.1.2).
+        """Fase de operacao do intervalo t (Melo, 2022, secao 6.1.2).
 
         Os mesmos tres ciclos da programacao, com a programacao reduzida a UM
         intervalo, e nos mesmos instantes da janela de 15 min: AC com seus AP no
@@ -1401,17 +1498,17 @@ class MarketAgent(Agent):
     def _start_operation_check(self, t):
         self.op_t = t
         self.op_round = 0
-        self.op_lam = {n: np.zeros(1) for n in self.case.prosumer_storage_nodes}
+        self.op_lam = {n: np.zeros(1) for n in self.case.prosumer_keys}
         self.op_retries = 0
         self.op_violations_before = 0
         self.replied = set()
         payload = {
             "action": "OPERATE", "t": t, "round": 0,
-            "lam": {str(n): [0.0] for n in self.case.prosumer_storage_nodes},
+            "lam": {str(n): [0.0] for n in self.case.prosumer_keys},
             "p_init": {str(n): [float(self.y[n][t])]
-                       for n in self.case.prosumer_storage_nodes},
+                       for n in self.case.prosumer_keys},
             "q_init": {str(n): [float(self.q[n][t])]
-                       for n in self.case.network_storage_nodes},
+                       for n in self.case.network_keys},
             "soc_rede": self.soc_rede(t),
         }
         self._payload = payload
@@ -1434,7 +1531,10 @@ class MarketAgent(Agent):
         correcao nenhuma, ou, antes da correcao do cancelamento acima, travava a
         co-simulacao.
         """
-        faltando = sorted(self.expected - self.replied) if self.op_round else []
+        # No primeiro nivel (op_round 0) o pedido vai so ao DSO, e a chegada da
+        # resposta cancela este timeout: se ele disparou, a resposta se perdeu.
+        # Antes, a lista ficava vazia e a janela passava sem correcao.
+        faltando = sorted(self.expected - self.replied) if self.op_round else ["dso"]
         if faltando and self.op_retries < MAX_RETRIES:
             self.op_retries += 1
             display_message(self.aid.localname,
@@ -1451,17 +1551,16 @@ class MarketAgent(Agent):
         """Estado de carga de cada armazenamento de REDE no inicio do intervalo.
 
         Integra o despacho JA APLICADO nos intervalos anteriores, a partir da
-        fracao inicial. Sem isto cada janela resolvia com a bateria de volta ao
-        estado inicial, o que a tornava fonte de energia infinita: 8 kW nas 95
-        janelas dao 190 kWh de um dispositivo de 20 kWh. Era por isso que o
-        armazenamento de rede sempre bastava e o leilao nunca abria.
+        fracao inicial. Sem isto cada janela resolveria com a bateria de volta
+        ao estado inicial, como uma fonte de energia infinita.
         """
         from market_opentes.config import DT_H
         from market_opentes.optimization import INIT_SOC_FRACTION
         out = {}
         for n, st in self.case.network_storage.items():
             soc = INIT_SOC_FRACTION * st.max_soc_kwh
-            soc += float(np.sum(self.q[n][:t])) * DT_H
+            # Um estado de carga por dispositivo: por fase, soma das portas dele.
+            soc += float(sum(np.sum(self.q[k][:t]) for k in self.case.chaves([n]))) * DT_H
             out[str(n)] = float(np.clip(soc, st.min_soc_kwh, st.max_soc_kwh))
         return out
 
@@ -1485,19 +1584,11 @@ class MarketAgent(Agent):
             if payload["violations_after"] == 0:
                 self._apply_operation(payload)
             # O leilao de tempo real abre SEMPRE, e nao so quando o
-            # armazenamento de rede nao basta.
-            #
-            # O desenho anterior, de dois niveis com o leilao como contingencia,
-            # era invencao nossa. Medido, ele nunca abria: a correcao de tensao
-            # necessaria e de 0,51 mpu em media e o desvio maximo e de 0,871 kW,
-            # contra 184 kW de capacidade de armazenamento de rede. Ele sobra por
-            # duas ordens de grandeza, entao a contingencia jamais dispara.
-            #
-            # No `market_agent.py` do trabalho original o `MARKET_AUCTION` e
-            # disparado por tempo, uma vez por janela, para todos os
-            # concentradores e o DSO, sem teste de violacao nenhum. Um mercado
-            # spot de tempo real liquida sempre, inclusive quando nao ha o que
-            # corrigir; e o que da conteudo ao ciclo 3 e as Figuras 56 e 57.
+            # armazenamento de rede nao basta: e disparado por tempo, uma vez por
+            # janela, para todos os concentradores e o DSO, como na arquitetura
+            # de referencia. Um mercado spot de tempo real liquida sempre,
+            # inclusive quando nao ha o que corrigir. Com MARKET_OP_AUCTION_ALWAYS=0
+            # ele vira contingencia, so aberto quando ha violacao.
             if OP_AUCTION_ALWAYS or payload["violations_after"]:
                 self._op_next_round()
                 return
@@ -1515,20 +1606,21 @@ class MarketAgent(Agent):
         self.replied.add(sender)
         if "schedule" in payload:
             for node, series in payload["schedule"].items():
-                self.op_x[int(node)] = np.array(series)
+                self.op_x[_chave(node)] = np.array(series)
         else:
             self.op_result = payload
         if self.replied != self.expected or not self.op_result:
             return
         self._cancela_timeout_op()
 
-        pros = self.case.prosumer_storage_nodes
+        pros = self.case.prosumer_keys
         y_op = {n: np.array(self.op_result["p"][str(n)]) for n in pros}
         residual = np.array([self.op_x[n] - y_op[n] for n in pros])
+        d_lam = ALPHA * self.passo * residual
         for i, n in enumerate(pros):
-            self.op_lam[n] = self.op_lam[n] + ALPHA * residual[i]
+            self.op_lam[n] = self.op_lam[n] + d_lam[i]
 
-        if (np.abs(ALPHA * residual).max() <= EPS
+        if (criterio_parada(self.case, pros, residual, d_lam, EPS)[0]
                 or self.op_round >= OP_MAX_ROUNDS
                 or self.op_result["violations_after"] == 0):
             self._apply_operation(self.op_result)
@@ -1550,11 +1642,11 @@ class MarketAgent(Agent):
         payload = {
             "action": "OPERATE_AUCTION", "t": t, "round": self.op_round,
             "lam": {str(n): self.op_lam[n].tolist()
-                    for n in self.case.prosumer_storage_nodes},
+                    for n in self.case.prosumer_keys},
             "p_init": {str(n): [float(self.y[n][t])]
-                       for n in self.case.prosumer_storage_nodes},
+                       for n in self.case.prosumer_keys},
             "q_init": {str(n): [float(self.q[n][t])]
-                       for n in self.case.network_storage_nodes},
+                       for n in self.case.network_keys},
             "soc_rede": self.soc_rede(t),
         }
         self._payload = payload
@@ -1577,9 +1669,9 @@ class MarketAgent(Agent):
         """Grava a correcao do intervalo na programacao que vai para a rede."""
         t = self.op_t
         for node, series in payload["p"].items():
-            self.y[int(node)][t] = float(series[0])
+            self.y[_chave(node)][t] = float(series[0])
         for node, series in payload["q"].items():
-            self.q[int(node)][t] = float(series[0])
+            self.q[_chave(node)][t] = float(series[0])
 
     def _finish_operation(self, motivo):
         c3 = close_cycle(2, f" (t={self.op_t})")
@@ -1635,15 +1727,30 @@ class MarketMosaikSim(MosaikCon):
     def __init__(self, agent):
         super().__init__(MOSAIK_MODELS, agent)
         self.step_size = STEP_SIZE
-        self.entities = {}       # eid -> no
+        self.entities = {}       # eid -> no, porta ou ("regulador", indice)
+        self.reguladores, self.taps = load_taps() if REGULADOR == "previsao" else ([], None)
+        if REGULADOR == "previsao" and not self.reguladores:
+            raise SystemExit("MARKET_REGULADOR=previsao, mas a matriz de sensibilidade nao "
+                             "tem as derivacoes da previsao: regere com sensitivity.py day")
 
     def init(self, sid, time_resolution=1.0, step_size=STEP_SIZE, **kwargs):
         self.step_size = int(step_size)
         return MOSAIK_MODELS
 
-    def create(self, num, model, node=None, **params):
-        eid = f"node_{node}"
-        self.entities[eid] = int(node)
+    def create(self, num, model, node=None, porta=None, nome=None, **params):
+        if model == "Regulador":
+            eid = f"reg_{nome}"
+            self.entities[eid] = ("regulador", self.reguladores.index(str(nome).lower()))
+            return [{"eid": eid, "type": model}]
+        # Por fase, cada porta de armazenamento e uma entidade propria, ligada a
+        # carga monofasica `Port_<no>_<fase>`; a entidade do no passa a levar so a
+        # demanda. `porta` e o numero da fase (1, 2 ou 3).
+        if porta is not None:
+            eid = f"port_{node}_{porta}"
+            self.entities[eid] = f"{int(node)}.{'ABC'[int(porta) - 1]}"
+        else:
+            eid = f"node_{node}"
+            self.entities[eid] = int(node)
         return [{"eid": eid, "type": model}]
 
     def step(self, time, inputs, max_advance=0):
@@ -1671,6 +1778,9 @@ class MarketMosaikSim(MosaikCon):
         for eid, attrs in outputs.items():
             node = self.entities[eid]
             data[eid] = {}
+            if isinstance(node, tuple):                  # regulador
+                data[eid]["tap"] = int(self.taps[t][node[1]])
+                continue
             for attr in attrs:
                 if attr == "P_kw":
                     data[eid][attr] = float(agent.node_power(node, t))
@@ -1691,11 +1801,23 @@ def _node_power(self, node, t):
     ha. Nos dois casos e a mesma grandeza fisica para todos os cenarios
     comparados, entao a comparacao entre com e sem negociacao continua valida.
     """
+    if isinstance(node, str):                    # porta: so o armazenamento
+        if self.case.por_porta:
+            return float(self.y[node][t] if node in self.y else 0.0) + \
+                float(self.q[node][t] if node in self.q else 0.0)
+        # Dispositivo equilibrado: a variavel e do no, e a potencia dele se
+        # reparte igualmente pelas portas, que e exatamente o que o DSO supos
+        # ao usar a media das colunas das portas.
+        no = self.case.node_of(node)
+        total = float(self.y[no][t] if no in self.y else 0.0) + \
+            float(self.q[no][t] if no in self.q else 0.0)
+        return total / len([k for n, k in self.case.ports if n == no])
     fonte = self.realized if self.realized is not None else self.profiles
     total = float(fonte.get(node, np.zeros(PERIODS))[t])
-    if node in self.y:
+    # Por fase o armazenamento vai pelas portas, e o Load_n leva so a demanda.
+    if node in self.y and not self.case.fase:
         total += float(self.y[node][t])
-    if node in self.q:
+    if node in self.q and not self.case.fase:
         total += float(self.q[node][t])
     return total
 
@@ -1704,15 +1826,17 @@ def _node_reactive(self, node, t):
     """Reativo do no: fator de potencia 0,9 sobre a demanda, mais o do armazenamento.
 
     Com `MARKET_STORAGE_PF=none`, que e o padrao, o armazenamento nao injeta
-    reativo e sobra a hipotese dQ = 0 da Eq. 6.16 da tese. Com um fator de
-    potencia configurado, o reativo do dispositivo entra AQUI tambem, e nao so no
+    reativo e vale a hipotese dQ = 0 da restricao de tensao (6.16). Com um fator
+    de potencia configurado, o reativo do dispositivo entra AQUI tambem, e nao so no
     modelo do DSO: se entrasse so num lado, a restricao passaria a ser resolvida
     contra uma rede que se comporta de outro jeito, que e pior que ignorar o
     termo nos dois.
     """
+    if isinstance(node, str):                    # porta: reativo do armazenamento
+        return _node_power(self, node, t) * STORAGE_TAN_PHI
     fonte = self.realized if self.realized is not None else self.profiles
     q = float(fonte.get(node, np.zeros(PERIODS))[t]) * 0.4843
-    if STORAGE_TAN_PHI:
+    if STORAGE_TAN_PHI and not self.case.fase:
         if node in self.y:
             q += float(self.y[node][t]) * STORAGE_TAN_PHI
         if node in self.q:
@@ -1751,7 +1875,8 @@ def build_agents():
         agents.append(ConcentratorAgent(AID(name=f"concentrator_{c.name}@{HOST}:{port}"),
                                         c.name, c.nodes, c.prosumer_storage,
                                         market.concentrator_ready,
-                                        network_storage=c.network_storage))
+                                        network_storage=c.network_storage,
+                                        case=case))
         for node in c.nodes:
             concentrador_do_no[node] = f"concentrator_{c.name}"
         port += 1
@@ -1765,7 +1890,7 @@ def build_agents():
 
 
 def _install_network(agents, case=None):
-    """Camada de rede opcional entre os agentes (Fase 5)."""
+    """Camada de rede opcional entre os agentes (`network_link.py`)."""
     import network_link
     backend = os.environ.get("NET_BACKEND", "ideal")
     if backend == "ideal" and not os.environ.get("NET_TRACE"):
@@ -1784,7 +1909,7 @@ def _install_network(agents, case=None):
     return link
 
 
-RUN_DIR = Path(os.environ.get("MARKET_RUN_DIR", "/market/data/run"))
+RUN_DIR = Path(os.environ.get("MARKET_RUN_DIR", "/app/output/market"))
 
 
 def _dump_run(market, link):
@@ -1829,12 +1954,12 @@ def start_market_loop(agents, case=None):
     O `Agent._send` so entrega a mensagem se o destinatario estiver em
     `agentInstance.table`, e quem preenche essa tabela e o AMS, um processo
     separado que o `pade start-runtime` sobe. Sem AMS, a tabela fica vazia e as
-    mensagens sao DESCARTADAS EM SILENCIO (o aviso so sai com debug=True). Foi
-    exatamente isso que travou a primeira execucao: os CFP saiam e nada voltava.
+    mensagens sao DESCARTADAS EM SILENCIO (o aviso so sai com debug=True): os
+    CFP saem e nada volta.
 
     Como aqui o conjunto de agentes e fixo e conhecido no arranque, a tabela e
     semeada direto. Isso dispensa o AMS, e tambem evita que o trafego de
-    registro e de keep-alive dele polua a medicao de comunicacao da Fase 5.
+    registro e de keep-alive dele polua a medicao de comunicacao.
     """
     reactor.suggestThreadPoolSize(30)
     for agent in agents:
@@ -1846,21 +1971,28 @@ def start_market_loop(agents, case=None):
     for agent in agents:
         agent.agentInstance.table.update(directory)
 
-    # Sinal de prontidao: so agora as portas estao abertas. Quem espera por este
-    # processo (o run.sh, o Mosaik) deve esperar por ESTA linha, e nao pela que
-    # anuncia a criacao dos agentes, que sai antes do listenTCP.
-    print(f"[market-mas] pronto: {len(agents)} agentes ouvindo a partir da porta "
-          f"{BASE_PORT}", flush=True)
-
+    # A camada de rede entra antes dos comportamentos, para que as assinaturas
+    # do despacho tambem passem pelo modelo de rede.
     link = _install_network(agents, case)
     globals()["LINK"] = link
+
+    # Os comportamentos sao lancados aqui, com a tabela de enderecos preenchida
+    # e antes de qualquer negociacao (ver `_AgenteMercado`).
+    for agent in agents:
+        agent.lancar_comportamentos()
+
+    # Sinal de prontidao: so agora as portas estao abertas e os comportamentos
+    # iniciados. Quem espera por este processo (o run.sh, o Mosaik) deve
+    # esperar por ESTA linha, e nao pela que anuncia a criacao dos agentes.
+    print(f"[market-mas] pronto: {len(agents)} agentes ouvindo a partir da porta "
+          f"{BASE_PORT}", flush=True)
     if link is not None:
         reactor.addSystemEventTrigger(
             "before", "shutdown",
             lambda: (print(f"[rede] {link.summary()}", flush=True), link.close()))
 
-    # O historico e o registro da operacao so existiam na memoria do agente e
-    # morriam com o processo. Sao a fonte das Figuras 51, 52 e 58 da tese.
+    # O historico da negociacao e o registro da operacao vivem na memoria do
+    # agente: sao gravados no `run.json` antes que o processo termine.
     market = agents[0]
     reactor.addSystemEventTrigger("before", "shutdown",
                                   lambda: _dump_run(market, link))
@@ -1872,7 +2004,10 @@ if __name__ == "__main__":
     case, agents = build_agents()
     print(f"[market-mas] {len(agents)} agentes: 1 mercado, 1 solver, 1 DSO, "
           f"{len(case.concentrators)} concentradores, "
-          f"{len(case.prosumer_storage_nodes)} prosumidores", flush=True)
+          f"{len(case.prosumer_storage_nodes)} prosumidores"
+          + (f"; analise POR FASE, {len(case.prosumer_keys)} portas de prosumidor "
+             f"e {len(case.network_keys)} de rede, dispositivo {case.dispositivo}"
+             if case.fase else ""), flush=True)
     ams = {"name": HOST, "port": AMS_PORT}
     for agent in agents:
         agent.update_ams(ams)

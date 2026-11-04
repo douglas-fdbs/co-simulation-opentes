@@ -1,36 +1,46 @@
 /**
  * @file Tisch.cc
- * @brief Rede LPWA 6TiSCH multi-salto da tese (subsecao 6.1.5).
+ * @brief Rede LPWA 6TiSCH multi-salto, como servidor de rotas para os agentes.
  *
- * O QUE A TESE ESPECIFICA
+ * O MODELO
+ * --------
+ * O modelo de rede de Melo (2022, secao 6.1.5): IEEE 802.15.4g modo 1 na banda
+ * ISM dos EUA, 50 kbps, 16 canais, TSCH com salto de canal. Slotframe de 101
+ * timeslots executado em 4,04 s. RSSI pelo modelo de Friis menos uma uniforme de
+ * 0 a 40 dB (Pister-Hack, LE et al. 2009), que e a abordagem do Simulador 6TiSCH
+ * (MUNICIO et al., 2019). Conversao de RSSI para PER pela curva de Prando et al.
+ * (2019, Fig. 3), com nivel de sensibilidade de -106,37 dBm. Enlace viavel
+ * sempre que o PER ficar abaixo de 0,5. As posicoes dos agentes vem do
+ * `nodes_xy.csv` do caso.
+ *
+ * A MATRIZ DE ADJACENCIA
  * ----------------------
- * IEEE 802.15.4g modo 1 na banda ISM dos EUA, 50 kbps, 16 canais, TSCH com salto
- * de canal. Slotframe de 101 timeslots executado em 4,04 s. RSSI pelo modelo de
- * Friis menos uma uniforme de 0 a 40 dB (Pister-Hack, LE et al. 2009), que e a
- * abordagem do Simulador 6TiSCH (MUNICIO et al., 2019). Conversao de RSSI para
- * PER pela Tabela 7 da tese, obtida de Prando et al. (2019, Fig. 3), com nivel de
- * sensibilidade de -106,37 dBm. Enlace viavel sempre que o PER ficar abaixo de
- * 0,5. As coordenadas sao as do Apendice B, reproduzidas em `nodes_xy.csv`, e
- * conferem exatamente com o `bus_xy.txt` da implementacao de referencia.
+ * Pode ser lida de um arquivo (`adjacency_file`), quando a topologia e dado
+ * publicado, ou gerada pelo limiar de PER, como no caso IEEE 13, que nao tem
+ * topologia de radio publicada. Gerar pelo limiar exige supor o orcamento de
+ * enlace do radio (0 dBm aqui), e a suposicao pesa: uma rede mais conectada tem
+ * menos saltos e menos perda, ou seja, resultados de comunicacao otimistas.
  *
- * A MATRIZ DE ADJACENCIA E DADO, NAO RECONSTRUCAO
- * ----------------------------------------------
- * O Apendice C publica a matriz, e ela tambem esta no `adj_array.txt` da
- * implementacao de referencia: 578 enlaces entre os 77 agentes. Reconstrui-la
- * pelo limiar de PER exigiria supor o orcamento de enlace do radio, que a tese
- * nao informa, e a suposicao natural de 0 dBm produz 1.466 enlaces, duas vezes e
- * meia a densidade real. Uma rede mais conectada tem menos saltos e menos perda,
- * ou seja, resultados de comunicacao otimistas. Por isso a matriz e lida do
- * arquivo, e o modelo de propagacao fica responsavel apenas pelo PER de cada
- * enlace que existe.
+ * O CAMINHO SALTO A SALTO
+ * -----------------------
+ * O caminho e percorrido salto a salto em tempo de evento do OMNeT++, entao o
+ * atraso sai da propria simulacao e nao de uma tabela pre-calculada. O numero
+ * de frames vem do tamanho da mensagem FIPA que o agente informa.
  *
- * O QUE ESTE MODULO ACRESCENTA
- * ---------------------------
- * A tese roda o Simulador 6TiSCH OFF-LINE, extrai PER e atraso e alimenta o ns-3
- * com esses numeros. Aqui o caminho e percorrido salto a salto em tempo de
- * evento do OMNeT++, entao o atraso sai da propria simulacao e nao de uma tabela
- * pre-calculada. O custo em bytes tambem e o real: o numero de frames vem do
- * tamanho serializado da mensagem FIPA, nao de um valor arbitrario.
+ * DOIS MACS SOBRE O MESMO RADIO
+ * ------------------------------
+ * `mac = "tsch"` e a rede da referencia: TSCH, um quadro de 127 bytes por cell
+ * alocado ao enlace, `cells_per_slotframe` cells por slotframe de 4,04 s.
+ *
+ * `mac = "wisun"` e o Wi-SUN FAN (IEEE 802.15.4g com salto de canal
+ * assincrono): o mesmo radio e o mesmo modelo de propagacao, mas o acesso ao
+ * meio e por CSMA/CA, sem fatia reservada. O remetente transmite no canal em
+ * que o receptor esta ouvindo, quando quiser, e o quadro pode ter ate 2047
+ * bytes (PSDU do SUN PHY). O atraso por quadro e recuo aleatorio + tempo no ar
+ * + reversao + ACK + espacamento. A sensibilidade piora com a taxa na
+ * proporcao do ruido termico, 10 log10(R / 50 kbps), o que encurta o alcance e
+ * muda a topologia. Nenhum dos dois modelos tem disputa entre enlaces: cada
+ * mensagem e calculada sozinha, o que e otimista nos dois.
  *
  * POR QUE UM SERVIDOR DE ROTAS E NAO UM PASSO DO MOSAIK
  * ---------------------------------------------------
@@ -58,8 +68,8 @@ using json = nlohmann::json;
 
 namespace {
 
-// Tabela 7 da tese: PER em funcao do RSSI acima do nivel de sensibilidade, em
-// passos de 1 dB. O indice 0 e o proprio nivel de sensibilidade.
+// PER em funcao do RSSI acima do nivel de sensibilidade, em passos de 1 dB
+// (Prando et al., 2019). O indice 0 e o proprio nivel de sensibilidade.
 const double PER_TABLE[] = {1.0, 0.8, 0.4, 0.15, 0.03, 0.006, 0.0015, 0.0};
 const int PER_TABLE_LEN = 8;
 
@@ -78,6 +88,7 @@ class TischServer : public cSimpleModule {
 
     std::vector<std::vector<double>> per;      // PER por enlace, ja com Pister-Hack
     std::vector<std::vector<bool>> adjacent;   // PER < limiar
+    std::vector<std::vector<bool>> colocated;  // mesma coordenada (distancia zero)
     std::vector<std::vector<int>> nextHop;     // roteamento por menor custo ETX
     int routedFrames = -1;                     // tamanho para o qual nextHop vale
 
@@ -95,6 +106,13 @@ class TischServer : public cSimpleModule {
 
     double slotframe, sensitivity, txPower, txGain, rxGain, frequency, shiftDb, threshold;
     int frameBytes, maxRetries, cells;
+    bool colocatedWired;
+    // Wi-SUN FAN
+    bool wisun = false;
+    double phyRate, unitBackoff, turnaround, lifs;
+    int minBE, maxBE, shrPhrBytes, ackBytes;
+    double perQuadro(int i, int j) const;   // PER do quadro do MAC em uso
+    double wisunHopDelay(int i, int j, int frames, bool& lost);
 
     void loadPositions(const std::string& path);
     bool loadAdjacency(const std::string& path);
@@ -180,13 +198,12 @@ bool TischServer::loadAdjacency(const std::string& path) {
 void TischServer::buildLinks(const std::string& csvPath) {
     size_t n = names.size();
     per.assign(n, std::vector<double>(n, 1.0));
+    colocated.assign(n, std::vector<bool>(n, false));
 
-    // A matriz de adjacencia da tese existe como dado publicado (Apendice C, e o
-    // `adj_array.txt` da implementacao de referencia). Quando disponivel ela e
-    // usada como esta, em vez de ser reconstruida: reconstruir exigiria supor o
-    // orcamento de enlace do radio, e a suposicao de 0 dBm gera uma rede 2,5
-    // vezes mais densa que a real (1.466 enlaces contra 578), o que tornaria os
-    // resultados de comunicacao otimistas.
+    // Uma matriz de adjacencia publicada, quando informada, e usada como esta,
+    // em vez de ser reconstruida: reconstruir exige supor o orcamento de enlace
+    // do radio, o que pode tornar a rede mais densa que a real e os resultados
+    // de comunicacao otimistas.
     bool doArquivo = loadAdjacency(par("adjacency_file").stdstringValue());
     if (!doArquivo) adjacent.assign(n, std::vector<bool>(n, false));
 
@@ -202,10 +219,11 @@ void TischServer::buildLinks(const std::string& csvPath) {
             double d = std::hypot(xs[i] - xs[j], ys[i] - ys[j]);
             double p, rssi;
             if (d < 1e-9) {
-                // Mesmo ponto: o AM e o AD estao na mesma coordenada no Apendice
-                // B. Enlace perfeito, sem radio no meio.
+                // Mesmo ponto: o AM e o AD dividem a coordenada da subestacao.
+                // Enlace perfeito, sem radio no meio.
                 rssi = 0.0;
                 p = 0.0;
+                colocated[i][j] = colocated[j][i] = true;
             } else {
                 // Friis em dB, com o termo de espaco livre invertido, como no
                 // Simulador 6TiSCH.
@@ -242,7 +260,7 @@ void TischServer::buildLinks(const std::string& csvPath) {
         }
     }
     std::printf("[6TiSCH] %d enlaces viaveis (%s)%s\n", links,
-                doArquivo ? "matriz da tese" : "PER abaixo do limiar",
+                doArquivo ? "matriz de adjacencia do arquivo" : "PER abaixo do limiar",
                 forcados ? " com enlaces alem do alcance do modelo" : "");
     if (forcados)
         std::printf("[6TiSCH] AVISO: %d enlaces publicados excedem o alcance que o "
@@ -286,7 +304,7 @@ void TischServer::buildRoutes(int frames) {
                 if (!adjacent[u][v]) continue;
                 // Perda do datagrama neste enlace, ja com as retentativas do MAC,
                 // e custo esperado de transmissoes para entrega-lo.
-                double pQuadro = std::pow(per[u][v], maxRetries + 1);
+                double pQuadro = std::pow(perQuadro(u, v), maxRetries + 1);
                 double pDatagrama = 1.0 - std::pow(1.0 - pQuadro, frames);
                 double etx = frames / std::max(1e-9, 1.0 - pDatagrama);
                 if (dist[u] + etx < dist[v] - 1e-12) {
@@ -322,13 +340,55 @@ std::vector<int> TischServer::route(int src, int dst, int frames) {
 // Transporte
 // ---------------------------------------------------------------------------
 
+double TischServer::perQuadro(int i, int j) const {
+    // A tabela de PER (Prando et al., 2019) e de um quadro de 127 bytes. Um
+    // quadro maior tem mais bits para errar: com erro de bit independente,
+    // PER(L) = 1 - (1 - PER(127))^(L/127). No TSCH, L = 127 e nada muda.
+    if (frameBytes <= 127) return per[i][j];
+    return 1.0 - std::pow(1.0 - per[i][j], frameBytes / 127.0);
+}
+
+double TischServer::wisunHopDelay(int i, int j, int frames, bool& lost) {
+    // Por quadro: recuo do CSMA/CA (uniforme em 0 .. 2^BE - 1 unidades), tempo
+    // no ar do quadro com preambulo, SFD e PHR, reversao, ACK e espacamento
+    // longo entre quadros. Uma falha dobra a janela de recuo, ate maxBE, e
+    // gasta mais uma tentativa. O canal esta sempre livre: sem disputa.
+    lost = false;
+    double ar = (frameBytes + shrPhrBytes) * 8.0 / phyRate;
+    double ack = turnaround + (ackBytes + shrPhrBytes) * 8.0 / phyRate;
+    double p = perQuadro(i, j);
+    double delay = 0.0;
+    for (int f = 0; f < frames; ++f) {
+        int be = minBE;
+        for (int tentativa = 0;; ++tentativa) {
+            delay += intuniform(0, (1 << be) - 1) * unitBackoff + ar;
+            if (uniform(0.0, 1.0) >= p) {
+                delay += ack + lifs;
+                break;
+            }
+            delay += turnaround + (ackBytes + shrPhrBytes) * 8.0 / phyRate;  // espera do ACK
+            if (tentativa >= maxRetries) {
+                lost = true;
+                return delay;
+            }
+            be = std::min(be + 1, maxBE);
+        }
+    }
+    return delay;
+}
+
 double TischServer::hopDelay(int i, int j, int frames, bool& lost) {
     // Em TSCH o quadro so sai no cell alocado para o enlace. O primeiro espera
     // uma fracao qualquer do slotframe; os seguintes esperam um slotframe cheio,
     // um por cell disponivel. Cada retransmissao gasta mais um cell.
+    lost = false;
+    // Agentes na mesma coordenada (na IEEE 13, o AM, o AD e o concentrador, todos
+    // na subestacao) estao no mesmo equipamento ou na mesma rede local. Com
+    // `colocated_wired`, a troca entre eles nao passa pelo radio.
+    if (colocatedWired && colocated[i][j]) return 0.0;
+    if (wisun) return wisunHopDelay(i, j, frames, lost);
     double spacing = slotframe / std::max(1, cells);
     double delay = uniform(0.0, slotframe);
-    lost = false;
     for (int f = 0; f < frames; ++f) {
         if (f > 0) delay += spacing;
         int attempt = 0;
@@ -356,7 +416,7 @@ void TischServer::startPacket(const json& j) {
 
     auto itS = indexOf.find(src), itD = indexOf.find(dst);
     if (itS == indexOf.end() || itD == indexOf.end()) {
-        // Origem ou destino sem posicao no Apendice B. Entregar sem atraso e
+        // Origem ou destino sem posicao no `nodes_xy.csv`. Entregar sem atraso e
         // mentir menos do que descartar: o agente nao esta no modelo de radio.
         flight.dropped = false;
         flight.path.clear();
@@ -475,9 +535,37 @@ void TischServer::initialize() {
     frameBytes = par("frame_bytes").intValue();
     maxRetries = par("max_retries").intValue();
     threshold = par("link_per_threshold").doubleValue();
+    colocatedWired = par("colocated_wired").boolValue();
+
+    std::string mac = par("mac").stdstringValue();
+    if (mac != "tsch" && mac != "wisun")
+        throw cRuntimeError("mac desconhecido: '%s' (use tsch ou wisun)", mac.c_str());
+    wisun = (mac == "wisun");
+    phyRate = par("phy_rate_bps").doubleValue();
+    if (wisun) {
+        frameBytes = par("wisun_frame_bytes").intValue();
+        unitBackoff = par("unit_backoff_s").doubleValue();
+        turnaround = par("turnaround_s").doubleValue();
+        minBE = par("min_be").intValue();
+        maxBE = par("max_be").intValue();
+        shrPhrBytes = par("shr_phr_bytes").intValue();
+        ackBytes = par("ack_bytes").intValue();
+        // Espacamento longo (LIFS): 40 simbolos; no FSK, um simbolo por bit.
+        lifs = 40.0 / phyRate;
+        // Mesmo Eb/N0 a uma taxa maior pede mais potencia recebida.
+        sensitivity += 10.0 * std::log10(phyRate / 50000.0);
+    }
 
     loadPositions(par("positions_file").stdstringValue());
-    buildLinks(par("links_csv").stdstringValue());
+    // A topologia do Wi-SUN depende da taxa (a sensibilidade muda), entao vai
+    // para um arquivo proprio e nao sobrescreve a da 6TiSCH.
+    std::string links = par("links_csv").stdstringValue();
+    if (wisun && !links.empty()) {
+        auto ponto = links.rfind(".csv");
+        std::string sufixo = "_wisun_" + std::to_string((int)(phyRate / 1000)) + "k";
+        links = ponto == std::string::npos ? links + sufixo : links.substr(0, ponto) + sufixo + ".csv";
+    }
+    buildLinks(links);
     buildRoutes(1);
 
     std::string endpoint = "tcp://*:" + std::to_string(par("port").intValue());
@@ -485,7 +573,14 @@ void TischServer::initialize() {
     EV << "[6TiSCH] servidor de rotas em " << endpoint << "\n";
     // A saida padrao e o que o `docker compose logs` mostra; o EV do Cmdenv nao
     // aparece sem verbosidade alta.
-    std::printf("[6TiSCH] pronto: %zu nos, servidor em %s\n", names.size(), endpoint.c_str());
+    // O prefixo "[6TiSCH] pronto" e o que o run.sh espera no log, nos dois MACs.
+    if (wisun)
+        std::printf("[6TiSCH] pronto: %zu nos, servidor em %s (Wi-SUN FAN, %.0f kbps, "
+                    "quadro de %d bytes, sensibilidade %.2f dBm)\n", names.size(),
+                    endpoint.c_str(), phyRate / 1000.0, frameBytes, sensitivity);
+    else
+        std::printf("[6TiSCH] pronto: %zu nos, servidor em %s (TSCH, %d cells por "
+                    "slotframe de %.2f s)\n", names.size(), endpoint.c_str(), cells, slotframe);
     std::fflush(stdout);
 
     serve();

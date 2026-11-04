@@ -1,6 +1,0 @@
-seqdiag{
-    activation = none;
-    
-    agente_iniciante -> agente_participante [label='REQUEST'];
-    agente_iniciante <- agente_participante [label='INFORM'];
-}

@@ -212,15 +212,8 @@ def main():
                     estacao, g.max(), t.min(), t.max())
 
     dia = pd.date_range(DATA_INICIAL, periods=PONTOS_DIA, freq=PASSO)
-    dois_dias = pd.date_range(DATA_INICIAL, periods=2 * PONTOS_DIA, freq=PASSO)
     gravar_csv(DATA / "ieee13_shape_pv_5min.csv", dia, irrad)
     gravar_csv(DATA / "ieee13_temperature_5min.csv", dia, temp)
-    # 48 h: o mesmo dia repetido, para o experimento que confere se o ciclo
-    # diario se repete
-    gravar_csv(DATA / "ieee13_shape_pv_5min_48h.csv", dois_dias,
-               {k: pd.concat([v, v], ignore_index=True) for k, v in irrad.items()})
-    gravar_csv(DATA / "ieee13_temperature_5min_48h.csv", dois_dias,
-               {k: pd.concat([v, v], ignore_index=True) for k, v in temp.items()})
     gravar_shapes(irrad, temp)
     gravar_pvsystems()
     logger.info("gravados em %s", DATA)

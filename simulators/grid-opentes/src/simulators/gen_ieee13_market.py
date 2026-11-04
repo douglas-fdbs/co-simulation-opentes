@@ -10,9 +10,9 @@ barra, linhas, transformadores e cargas saem do proprio OpenDSS.
 
 O QUE ESTE CASO E, E O QUE ELE NAO E
 ------------------------------------
-A camada de mercado da tese pressupoe uma rede MT/BT com varios transformadores
-de distribuicao, um Agente Concentrador por transformador e um Agente Prosumidor
-por no de baixa tensao. A IEEE 13 tem UM transformador de distribuicao (XFM-1,
+A formulacao de mercado de referencia (Melo, 2022, cap. 6) pressupoe uma rede
+MT/BT com varios transformadores de distribuicao, um Agente Concentrador por
+transformador e um Agente Prosumidor por no de baixa tensao. A IEEE 13 tem UM transformador de distribuicao (XFM-1,
 633 para 634) e uma unica barra de baixa tensao. Nesse caso o Concentrador que
 agrega os prosumidores e um so, e ele e o proprio alimentador:
 
@@ -21,15 +21,14 @@ agrega os prosumidores e um so, e ele e o proprio alimentador:
   Agente Prosumidor    ->  uma por barra com carga ou geracao: 611, 632, 634,
                            645, 646, 652, 670, 671, 675 e 692
 
-Isso e uma REINTERPRETACAO da arquitetura, nao a arquitetura da tese. Fica
-registrada aqui porque muda o significado da restricao de carregamento (Eq.
-6.28), que passa a limitar o alimentador inteiro em vez de um transformador de
-distribuicao.
+Isso e uma REINTERPRETACAO da arquitetura de referencia. Fica registrada aqui
+porque muda o significado da restricao de carregamento (6.28), que passa a
+limitar o alimentador inteiro em vez de um transformador de distribuicao.
 
 DECISOES DE CONVERSAO, TODAS MEDIDAS
 ------------------------------------
-- **Uma carga por no.** A interface do mercado (`loading.py`,
-  `market_agents.py`, `sensitivity.py`) escreve `Edit Load.Load_{no} kW=...`,
+- **Uma carga por no.** A interface do mercado (`market_agents.py`,
+  `sensitivity.py`) escreve `Edit Load.Load_{no} kW=...`,
   ou seja, um elemento por no. As cargas oficiais ficam desabilitadas e cada no
   ganha um `Load_{no}` na MESMA barra, com as MESMAS fases e a MESMA ligacao
   (estrela ou triangulo) da carga oficial. Onde a barra tem tres fases com
@@ -42,7 +41,7 @@ DECISOES DE CONVERSAO, TODAS MEDIDAS
   modelos 1, 2 e 5. A restricao de tensao do DSO e linearizada em dV/dP com
   potencia constante; manter carga de impedancia constante deixaria o modelo do
   agente e o fluxo de potencia falando de coisas diferentes. `Vminpu` e `Vmaxpu`
-  alargados pelo mesmo motivo, como em `gen_market_grid.py`.
+  alargados pelo mesmo motivo.
 
 - **O PV entra como carga negativa.** Os `PVSystem` ficam desabilitados e a
   geracao vai para o `pv_kw.csv`, que o mercado subtrai da demanda. Consequencia
@@ -52,6 +51,12 @@ DECISOES DE CONVERSAO, TODAS MEDIDAS
 
 - **Regulador de tensao com o ajuste oficial e derivacoes livres.** Ver a secao
   de regulador abaixo.
+
+- **Portas por fase.** Cada no com armazenamento ganha uma carga monofasica
+  fase-neutro `Port_{no}_{fase}` em cada fase em que o `Load_{no}` esta ligado,
+  com potencia zero (22 portas). Sao usadas so pela analise por fase
+  (MARKET_FASE=1), que despacha o armazenamento de cada fase nelas; com zero, o
+  circuito resolve exatamente como sem elas. Ver docs/paginas/mercado.md.
 
 Uso, dentro do container grid:
 
@@ -315,6 +320,7 @@ def escrever_master(barras, cargas):
         "Batchedit PVSystem..* enabled=no",
         "",
     ]
+    portas = {}
     for n in PROSUMIDORES:
         itens = cargas_por_no.get(n, [])
         if itens:
@@ -333,6 +339,21 @@ def escrever_master(barras, cargas):
             f"New Load.Load_{n} bus1={bus} phases={fases} conn={conn} model=1 "
             f"kV={kv} kW={total:.3f} kvar={total * math.tan(math.acos(0.9)):.3f} "
             f"Vminpu=0.8 Vmaxpu=1.2")
+        portas[n] = sorted(int(x) for x in bus.split(".")[1:]) or [1, 2, 3]
+
+    linhas += [
+        "",
+        "! Portas de armazenamento por fase, usadas so com MARKET_FASE=1. Uma",
+        "! carga monofasica fase-neutro em cada fase em que o Load_n do no esta",
+        "! ligado, com potencia zero: o modo por fase escreve nelas o despacho de",
+        "! cada fase, e o modo por no nao as toca. Com zero, o circuito resolve",
+        "! exatamente como sem elas.",
+    ]
+    for n in sorted(set(ARMAZ_REDE) | set(ARMAZ_PROSUMIDOR)):
+        for k in portas[n]:
+            linhas.append(
+                f"New Load.Port_{n}_{k} bus1={n}.{k} phases=1 conn=wye model=1 "
+                f"kV={barras[str(n)]['kv_base']:.4f} kW=0 kvar=0 Vminpu=0.8 Vmaxpu=1.2")
 
     linhas += [
         "",
@@ -382,7 +403,7 @@ def escrever_pool(carga, pv):
     """Reservatorio de dias alternativos para o modelo estocastico.
 
     A IEEE 13 tem UMA curva de carga e UM dia de irradiancia. Nao ha base de
-    dados de onde recortar dias diferentes, como o SimBench da MVLV75. Os nove
+    dados de onde recortar dias diferentes. Os nove
     dias aqui sao construidos a partir do dia base com um fator multiplicativo
     por dia e um deslocamento temporal, semente fixa. Sao variabilidade
     SINTETICA, e nao dias medidos: servem para exercitar o modelo estocastico,
@@ -390,17 +411,10 @@ def escrever_pool(carga, pv):
     """
     rng = np.random.default_rng(13)
     nos = sorted(carga)
-    # A serie de preco spot e a mesma da MVLV75 (Nordpool, recortada pelo
-    # `data_prep`), para que a economia dos dois casos seja comparavel. O pacote
-    # do mercado nao esta sempre montado no mesmo lugar, entao procura-se.
-    candidatos = [p / "market-opentes" / "data" / "spot_price.csv"
-                  for p in (DATA.parents[2], DATA.parents[3], Path("/app/simulators"),
-                            Path(__file__).resolve().parents[3])]
-    fonte = next((c for c in candidatos if c.exists()), None)
-    if fonte is None:
-        raise SystemExit("spot_price.csv do market-opentes nao encontrado em "
-                         + ", ".join(str(c) for c in candidatos))
-    preco = np.genfromtxt(fonte, delimiter=",", skip_header=1)[:PERIODS]
+    # O preco spot e um dia de mercado day-ahead do Nordpool. Ele e DADO de
+    # entrada do caso e mora no proprio `spot_price.csv` desta pasta: o gerador le
+    # e regrava, sem alterar.
+    preco = np.genfromtxt(DATA / "spot_price.csv", delimiter=",", skip_header=1)[:PERIODS]
     L, P, PR = [], [], []
     for d in range(9):
         fator_c = 1.0 + rng.normal(0, 0.10)
@@ -417,13 +431,13 @@ def escrever_pool(carga, pv):
 # ---------------------------------------------------------------------------
 # Posicoes de radio para o servidor 6TiSCH
 # ---------------------------------------------------------------------------
-# A tese publica a topologia 6TiSCH da MVLV75 (Apendices B e C). Para a IEEE 13
-# nao existe topologia publicada, entao as POSICOES sao construidas aqui. Os
-# ENLACES nao: o servidor 6TiSCH (`comm-opentes/Tisch.cc`) sorteia o
-# sombreamento de Pister-Hack de cada par com o gerador do OMNeT++, aplica o
-# limiar de PER e grava o resultado em `tisch_links.csv`, que e o levantamento da
-# rede de fato simulada (e o que a Figura 42 le). Uma estimativa feita aqui, com
-# outro gerador, divergiria dela.
+# Para a IEEE 13 nao existe topologia de radio publicada, entao as POSICOES dos
+# agentes sao construidas aqui. Os ENLACES nao: o servidor 6TiSCH
+# (`comm-opentes/Tisch.cc`) sorteia o sombreamento de Pister-Hack de cada par
+# com o gerador do OMNeT++, aplica o limiar de PER e grava o resultado em
+# `tisch_links.csv`, que e o levantamento da rede de fato simulada (e o que a
+# figura de PER le). Uma estimativa feita aqui, com outro gerador, divergiria
+# dela.
 #
 # As coordenadas do `IEEE13Node_BusXY.csv` sao de desenho, nao de escala: entre
 # 650 e 632 sao 100 unidades para 2000 pes, e entre 632 e 645 sao 100 unidades
@@ -482,8 +496,7 @@ def escrever_posicoes(linhas):
     linhas_xy = ["node,x_m,y_m"]
     for n in nomes:
         linhas_xy.append(f"{_no(n)},{pos[n][0]:.2f},{pos[n][1]:.2f}")
-    # O AD e o AM ficam na subestacao, como no Apendice B da tese, onde os dois
-    # dividem a coordenada (0,0).
+    # O AD e o AM ficam na subestacao, dividindo a coordenada dela.
     sub = pos[SUBESTACAO]
     linhas_xy.append(f"DSO,{sub[0]:.2f},{sub[1]:.2f}")
     linhas_xy.append(f"Market,{sub[0]:.2f},{sub[1]:.2f}")
